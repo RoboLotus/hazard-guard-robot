@@ -110,6 +110,19 @@ SLAM을 실행한 상태에서 Nav2를 함께 시험하려면 다음을 사용�
 ros2 launch hazard_guard_simulation navigation.launch.py gui:=true
 ```
 
+## WebUI 운용 모드 연동
+
+`hazard-guard-console` 백엔드의 모드 제어를 활성화하면 WebUI `지도` 탭에서
+다음 launch 구성을 선택할 수 있습니다.
+
+- `맵 생성 / SLAM`: `slam.launch.py`
+- `순찰 / AMCL·Nav2`: 저장 지도를 사용하는 `localization.launch.py`
+
+WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미널에서 동시에
+실행하지 않습니다. 맵 생성 모드에서는 목적지 이동과 웨이포인트 순찰 명령이
+차단되며, 순찰 모드가 준비된 후 사용자가 별도로 순찰 시작 명령을 내려야
+로봇이 이동합니다.
+
 ## 주요 ROS 인터페이스
 
 | 구분 | 이름 |
