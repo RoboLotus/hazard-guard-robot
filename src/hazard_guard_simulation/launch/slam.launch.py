@@ -1,0 +1,71 @@
+from pathlib import Path
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def generate_launch_description() -> LaunchDescription:
+    simulation_share = Path(get_package_share_directory("hazard_guard_simulation"))
+    parameters = simulation_share / "config" / "slam.yaml"
+    gui = LaunchConfiguration("gui")
+    world = LaunchConfiguration("world")
+    spawn_x = LaunchConfiguration("spawn_x")
+    spawn_y = LaunchConfiguration("spawn_y")
+    spawn_z = LaunchConfiguration("spawn_z")
+    spawn_yaw = LaunchConfiguration("spawn_yaw")
+    simulation_mode = LaunchConfiguration("simulation_mode")
+    visualize_sensors = LaunchConfiguration("visualize_sensors")
+    include_dispenser = LaunchConfiguration("include_dispenser")
+    dispenser_mass = LaunchConfiguration("dispenser_mass")
+
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument("gui", default_value="false"),
+            DeclareLaunchArgument(
+                "world",
+                default_value=str(simulation_share / "worlds" / "facility_map.sdf"),
+            ),
+            DeclareLaunchArgument("spawn_x", default_value="0.60"),
+            DeclareLaunchArgument("spawn_y", default_value="0.70"),
+            DeclareLaunchArgument("spawn_z", default_value="0.01"),
+            DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
+            DeclareLaunchArgument("simulation_mode", default_value="kinematic"),
+            DeclareLaunchArgument("visualize_sensors", default_value="false"),
+            DeclareLaunchArgument("include_dispenser", default_value="true"),
+            DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(simulation_share / "launch" / "simulation.launch.py")
+                ),
+                launch_arguments={
+                    "gui": gui,
+                    "use_sim_time": "true",
+                    "world": world,
+                    "spawn_x": spawn_x,
+                    "spawn_y": spawn_y,
+                    "spawn_z": spawn_z,
+                    "spawn_yaw": spawn_yaw,
+                    "simulation_mode": simulation_mode,
+                    "visualize_sensors": visualize_sensors,
+                    "include_dispenser": include_dispenser,
+                    "dispenser_mass": dispenser_mass,
+                }.items(),
+            ),
+            TimerAction(
+                period=5.0,
+                actions=[
+                    Node(
+                        package="slam_toolbox",
+                        executable="async_slam_toolbox_node",
+                        name="slam_toolbox",
+                        output="screen",
+                        parameters=[str(parameters)],
+                    )
+                ],
+            ),
+        ]
+    )

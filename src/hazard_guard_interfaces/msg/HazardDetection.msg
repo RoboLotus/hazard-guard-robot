@@ -1,0 +1,11 @@
+builtin_interfaces/Time stamp
+string frame_id
+string detection_id
+float32 x
+float32 y
+float32 z
+float32 temperature_c
+float32 confidence
+float32 radius_m
+string source
+bool simulated

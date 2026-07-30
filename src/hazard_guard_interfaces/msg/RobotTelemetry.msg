@@ -1,0 +1,13 @@
+builtin_interfaces/Time stamp
+string robot_id
+string mode
+float32 battery_percent
+float32 speed_mps
+string network_quality
+int32 network_rssi_dbm
+string lidar_status
+float32 lidar_hz
+float32 max_temperature_c
+string alert_level
+bool controller_enabled
+bool mock

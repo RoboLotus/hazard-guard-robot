@@ -1,0 +1,533 @@
+<?xml version="1.0"?>
+<robot
+  xmlns:xacro="http://www.ros.org/wiki/xacro"
+  xmlns:ignition="http://ignitionrobotics.org/schema"
+  name="hazard_guard_m1">
+  <xacro:arg name="simulation_mode" default="kinematic" />
+  <xacro:arg name="visualize_sensors" default="false" />
+  <xacro:arg name="include_dispenser" default="true" />
+  <xacro:arg name="dispenser_mass" default="1.2" />
+  <xacro:property name="simulation_mode" value="$(arg simulation_mode)" />
+  <xacro:property name="visualize_sensors" value="$(arg visualize_sensors)" />
+  <xacro:property name="dispenser_requested_mass" value="$(arg dispenser_mass)" />
+
+  <!--
+    Geometry sources:
+      - Yahboom ROSMASTER M1 V1.0 STEP assembly
+      - Yahboom yahboomcar_M1.urdf.xacro and M1Mecanum STL set
+    Visual asset provenance and redistribution notes are documented in the
+    repository's THIRD_PARTY_NOTICES.md. Collision shapes are project-authored.
+  -->
+  <xacro:property name="wheel_radius" value="0.0400" />
+  <xacro:property name="wheel_width" value="0.0467" />
+  <xacro:property name="front_wheel_x" value="0.092971" />
+  <xacro:property name="rear_wheel_x" value="-0.092992" />
+  <xacro:property name="left_wheel_y" value="0.08425" />
+  <xacro:property name="right_wheel_y" value="-0.08425" />
+  <xacro:property name="wheel_center_z" value="0.01249" />
+  <xacro:property name="base_ground_offset" value="0.0276" />
+  <xacro:property name="stock_mass" value="2.74" />
+  <xacro:property name="thermal_mass" value="0.030" />
+  <xacro:if value="$(arg include_dispenser)">
+    <xacro:property
+      name="installed_dispenser_mass"
+      value="${dispenser_requested_mass}"
+      scope="global" />
+    <xacro:property
+      name="installed_dispenser_yaw_inertia"
+      value="${0.0951 * dispenser_requested_mass / 1.2}"
+      scope="global" />
+    <!-- The rear structure blocks about 71 degrees. A small edge/noise margin
+         makes the simulated self-mask 77 degrees in total. -->
+    <xacro:property name="lidar_samples" value="283" scope="global" />
+    <xacro:property name="lidar_min_angle" value="-2.470" scope="global" />
+    <xacro:property name="lidar_max_angle" value="2.470" scope="global" />
+  </xacro:if>
+  <xacro:unless value="$(arg include_dispenser)">
+    <xacro:property name="installed_dispenser_mass" value="0.0" scope="global" />
+    <xacro:property name="installed_dispenser_yaw_inertia" value="0.0" scope="global" />
+    <xacro:property name="lidar_samples" value="360" scope="global" />
+    <xacro:property name="lidar_min_angle" value="-3.14159265" scope="global" />
+    <xacro:property name="lidar_max_angle" value="3.14159265" scope="global" />
+  </xacro:unless>
+  <xacro:property
+    name="model_mass"
+    value="${stock_mass + thermal_mass + installed_dispenser_mass}" />
+  <xacro:property
+    name="model_yaw_inertia"
+    value="${0.0194 + installed_dispenser_yaw_inertia}" />
+  <xacro:property name="base_mass" value="2.2939" />
+  <xacro:property name="dispenser_body_lift" value="0.0600" />
+  <xacro:property name="dispenser_caster_radius" value="0.0381" />
+  <xacro:property name="dispenser_caster_width" value="0.0250" />
+  <!-- Keep the sensor's real near range; the blocked rear sector is excluded
+       geometrically instead of being published as a false 0.137 m obstacle. -->
+  <xacro:property name="lidar_min_range" value="0.120" />
+
+  <material name="m1_silver"><color rgba="0.82 0.85 0.89 1" /></material>
+  <material name="m1_black"><color rgba="0.055 0.065 0.08 1" /></material>
+  <material name="m1_wheel"><color rgba="0.12 0.13 0.15 1" /></material>
+  <material name="thermal_blue"><color rgba="0.08 0.18 0.42 1" /></material>
+  <material name="thermal_lens"><color rgba="0.18 0.05 0.26 1" /></material>
+  <material name="dispenser_amber_translucent"><color rgba="1.0 0.866667 0.101961 0.4" /></material>
+  <material name="dispenser_green_translucent"><color rgba="0.27451 0.717647 0.286275 0.4" /></material>
+  <material name="dispenser_white_translucent"><color rgba="0.980392 0.980392 0.980392 0.4" /></material>
+  <material name="dispenser_red_translucent"><color rgba="0.913725 0.113725 0.176471 0.4" /></material>
+  <material name="dispenser_light_gray"><color rgba="0.74902 0.780392 0.8 1" /></material>
+  <material name="dispenser_off_white"><color rgba="0.866667 0.886275 0.894118 1" /></material>
+  <material name="dispenser_red"><color rgba="0.913725 0.113725 0.176471 1" /></material>
+  <material name="dispenser_blue"><color rgba="0.0 0.623529 0.843137 1" /></material>
+  <material name="dispenser_green"><color rgba="0.27451 0.717647 0.286275 1" /></material>
+  <material name="dispenser_mid_gray"><color rgba="0.380392 0.403922 0.415686 1" /></material>
+
+  <xacro:macro name="dispenser_mesh" params="name filename material">
+    <visual name="${name}">
+      <origin xyz="0 0 ${dispenser_body_lift}" />
+      <geometry>
+        <mesh filename="package://hazard_guard_simulation/meshes/yahboom_m1/${filename}" />
+      </geometry>
+      <material name="${material}" />
+    </visual>
+  </xacro:macro>
+
+  <xacro:macro name="dispenser_caster" params="name x y">
+    <visual name="${name}_wheel">
+      <origin xyz="${x} ${y} ${dispenser_caster_radius - base_ground_offset}" rpy="1.57079632679 0 0" />
+      <geometry>
+        <cylinder radius="${dispenser_caster_radius}" length="${dispenser_caster_width}" />
+      </geometry>
+      <material name="dispenser_red" />
+    </visual>
+    <visual name="${name}_hub">
+      <origin xyz="${x} ${y} ${dispenser_caster_radius - base_ground_offset}" rpy="1.57079632679 0 0" />
+      <geometry><cylinder radius="0.012" length="0.027" /></geometry>
+      <material name="dispenser_off_white" />
+    </visual>
+    <visual name="${name}_mount">
+      <origin xyz="${x} ${y} ${0.086 - base_ground_offset}" />
+      <geometry><box size="0.050 0.045 0.010" /></geometry>
+      <material name="dispenser_mid_gray" />
+    </visual>
+  </xacro:macro>
+
+  <link name="base_footprint" />
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint" />
+    <child link="base_link" />
+    <origin xyz="0 0 ${base_ground_offset}" />
+  </joint>
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0.01417 0 0.062" />
+      <mass value="${base_mass}" />
+      <inertia
+        ixx="0.00849" ixy="0" ixz="0.00015"
+        iyy="0.01795" iyz="0"
+        izz="0.01938" />
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://hazard_guard_simulation/meshes/yahboom_m1/base_link.stl" />
+      </geometry>
+      <material name="m1_silver" />
+    </visual>
+    <collision name="lower_chassis_collision">
+      <origin xyz="0.014 0 0.027" />
+      <geometry><box size="0.2745 0.1610 0.054" /></geometry>
+    </collision>
+    <collision name="upper_chassis_collision">
+      <origin xyz="0.018 0 0.087" />
+      <geometry><box size="0.220 0.145 0.066" /></geometry>
+    </collision>
+  </link>
+
+  <xacro:macro name="m1_wheel" params="prefix mesh x y mass ixx iyy izz fdir_y">
+    <link name="${prefix}_wheel_link">
+      <inertial>
+        <origin xyz="0 ${0.0119 if y > 0 else -0.0119} 0" />
+        <mass value="${mass}" />
+        <inertia ixx="${ixx}" ixy="0" ixz="0" iyy="${iyy}" iyz="0" izz="${izz}" />
+      </inertial>
+      <visual>
+        <geometry>
+          <mesh filename="package://hazard_guard_simulation/meshes/yahboom_m1/${mesh}" />
+        </geometry>
+        <material name="m1_wheel" />
+      </visual>
+      <collision>
+        <!--
+          Fortress' MecanumDrive reference model uses a spherical collision
+          surface with anisotropic friction. The CAD cylinder remains visual;
+          this contact approximation represents the 45-degree roller envelope.
+        -->
+        <geometry><sphere radius="${wheel_radius}" /></geometry>
+      </collision>
+    </link>
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="base_link" />
+      <child link="${prefix}_wheel_link" />
+      <origin xyz="${x} ${y} ${wheel_center_z}" />
+      <axis xyz="0 1 0" />
+      <limit effort="10" velocity="25" />
+      <dynamics damping="0.03" friction="0.01" />
+    </joint>
+    <gazebo reference="${prefix}_wheel_link">
+      <mu1>1.0</mu1>
+      <mu2>0.0</mu2>
+      <fdir1 ignition:expressed_in="base_link">1 ${fdir_y} 0</fdir1>
+      <kp>300000</kp>
+      <kd>5</kd>
+    </gazebo>
+  </xacro:macro>
+
+  <xacro:m1_wheel
+    prefix="front_left" mesh="le_fr_link.stl"
+    x="${front_wheel_x}" y="${left_wheel_y}"
+    mass="0.1018682436" ixx="0.0000456509" iyy="0.0000754637" izz="0.0000456518"
+    fdir_y="-1" />
+  <xacro:m1_wheel
+    prefix="rear_left" mesh="le_be_link.stl"
+    x="${rear_wheel_x}" y="${left_wheel_y}"
+    mass="0.1018661673" ixx="0.0000456501" iyy="0.0000754629" izz="0.0000456510"
+    fdir_y="1" />
+  <xacro:m1_wheel
+    prefix="front_right" mesh="ri_fr_link.stl"
+    x="${front_wheel_x}" y="${right_wheel_y}"
+    mass="0.1018661671" ixx="0.0000456501" iyy="0.0000754629" izz="0.0000456510"
+    fdir_y="1" />
+  <xacro:m1_wheel
+    prefix="rear_right" mesh="ri_be_link.stl"
+    x="${rear_wheel_x}" y="${right_wheel_y}"
+    mass="0.1018682468" ixx="0.0000456509" iyy="0.0000754637" izz="0.0000456518"
+    fdir_y="-1" />
+
+  <link name="imu_link" />
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="imu_link" />
+    <origin xyz="-0.025 -0.034 -0.0165" />
+  </joint>
+
+  <link name="depth_camera_link">
+    <inertial>
+      <origin xyz="0.01578 0.00072 0.01497" />
+      <mass value="0.0287355" />
+      <inertia
+        ixx="0.0000149500" ixy="0" ixz="0"
+        iyy="0.0000018162" iyz="0"
+        izz="0.0000149490" />
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://hazard_guard_simulation/meshes/yahboom_m1/camera_link.stl" />
+      </geometry>
+      <material name="m1_black" />
+    </visual>
+    <collision>
+      <origin xyz="0.013 0 0.011" />
+      <geometry><box size="0.030 0.090 0.029" /></geometry>
+    </collision>
+  </link>
+  <joint name="depth_camera_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="depth_camera_link" />
+    <origin xyz="0.085871 0 0.094136" />
+  </joint>
+  <link name="depth_camera_optical_frame" />
+  <joint name="depth_camera_optical_joint" type="fixed">
+    <parent link="depth_camera_link" />
+    <child link="depth_camera_optical_frame" />
+    <origin xyz="0.030 0 0.012" rpy="-1.57079632679 0 -1.57079632679" />
+  </joint>
+
+  <link name="lidar_link">
+    <inertial>
+      <origin xyz="0 0 -0.0102" />
+      <mass value="0.0099263" />
+      <inertia
+        ixx="0.0000019141" ixy="0" ixz="0"
+        iyy="0.0000018985" iyz="0"
+        izz="0.0000033333" />
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://hazard_guard_simulation/meshes/yahboom_m1/laser_link.stl" />
+      </geometry>
+      <material name="m1_black" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.0102" />
+      <geometry><cylinder radius="0.0194" length="0.0341" /></geometry>
+    </collision>
+  </link>
+  <joint name="lidar_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="lidar_link" />
+    <origin xyz="0.010059 0 0.14712" />
+  </joint>
+
+  <!--
+    TOPDON TC001 provisional front mount. Device geometry and sensor parameters
+    are official; the mounting pose remains a project assumption until the
+    mechanical team supplies its bracket drawing.
+  -->
+  <link name="thermal_camera_link">
+    <inertial>
+      <mass value="${thermal_mass}" />
+      <inertia
+        ixx="0.00001701" ixy="0" ixz="0"
+        iyy="0.00000490" iyz="0"
+        izz="0.00001309" />
+    </inertial>
+    <visual>
+      <geometry><box size="0.014 0.071 0.042" /></geometry>
+      <material name="thermal_blue" />
+    </visual>
+    <visual name="thermal_lens_visual">
+      <origin xyz="0.008 0 0" rpy="0 1.57079632679 0" />
+      <geometry><cylinder radius="0.008" length="0.004" /></geometry>
+      <material name="thermal_lens" />
+    </visual>
+    <collision>
+      <geometry><box size="0.014 0.071 0.042" /></geometry>
+    </collision>
+  </link>
+  <joint name="thermal_camera_joint" type="fixed">
+    <parent link="base_link" />
+    <child link="thermal_camera_link" />
+    <origin xyz="0.158 0 0.112" />
+  </joint>
+  <link name="thermal_camera_optical_frame" />
+  <joint name="thermal_camera_optical_joint" type="fixed">
+    <parent link="thermal_camera_link" />
+    <child link="thermal_camera_optical_frame" />
+    <origin xyz="0.009 0 0" rpy="-1.57079632679 0 -1.57079632679" />
+  </joint>
+
+  <xacro:if value="$(arg include_dispenser)">
+    <!--
+      Concept dispenser extracted from the team Sketchfab model and aligned to
+      the official M1 geometry. The exact visual is lightweight; collision uses
+      simple boxes because the foam-board enclosure and internal layout remain
+      subject to change. The four caster visuals use the confirmed 3-inch
+      (76.2 mm) wheel diameter. Swivel dynamics are intentionally not modeled.
+    -->
+    <link name="dispenser_link">
+      <inertial>
+        <origin xyz="-0.262755 -0.0143 0.242465" />
+        <mass value="${dispenser_requested_mass}" />
+        <inertia
+          ixx="${0.023411 * dispenser_requested_mass / 1.2}" ixy="0" ixz="0"
+          iyy="${0.023901 * dispenser_requested_mass / 1.2}" iyz="0"
+          izz="${0.012010 * dispenser_requested_mass / 1.2}" />
+      </inertial>
+      <xacro:dispenser_mesh
+        name="dispenser_light_gray_visual"
+        filename="dispenser_light_gray.stl"
+        material="dispenser_light_gray" />
+      <xacro:dispenser_mesh
+        name="dispenser_off_white_visual"
+        filename="dispenser_off_white.stl"
+        material="dispenser_off_white" />
+      <xacro:dispenser_mesh
+        name="dispenser_red_visual"
+        filename="dispenser_red.stl"
+        material="dispenser_red" />
+      <xacro:dispenser_mesh
+        name="dispenser_blue_visual"
+        filename="dispenser_blue.stl"
+        material="dispenser_blue" />
+      <xacro:dispenser_mesh
+        name="dispenser_green_visual"
+        filename="dispenser_green.stl"
+        material="dispenser_green" />
+      <xacro:dispenser_mesh
+        name="dispenser_mid_gray_visual"
+        filename="dispenser_mid_gray.stl"
+        material="dispenser_mid_gray" />
+      <xacro:dispenser_mesh
+        name="dispenser_red_translucent_visual"
+        filename="dispenser_red_translucent.stl"
+        material="dispenser_red_translucent" />
+      <xacro:dispenser_mesh
+        name="dispenser_white_translucent_visual"
+        filename="dispenser_white_translucent.stl"
+        material="dispenser_white_translucent" />
+      <xacro:dispenser_mesh
+        name="dispenser_green_translucent_visual"
+        filename="dispenser_green_translucent.stl"
+        material="dispenser_green_translucent" />
+      <xacro:dispenser_mesh
+        name="dispenser_amber_translucent_visual"
+        filename="dispenser_amber_translucent.stl"
+        material="dispenser_amber_translucent" />
+      <xacro:dispenser_caster name="rear_left_caster" x="-0.340" y="0.0857" />
+      <xacro:dispenser_caster name="rear_right_caster" x="-0.340" y="-0.1143" />
+      <xacro:dispenser_caster name="front_left_caster" x="-0.185" y="0.0857" />
+      <xacro:dispenser_caster name="front_right_caster" x="-0.185" y="-0.1143" />
+      <collision name="dispenser_lower_collision">
+        <origin xyz="-0.262755 -0.0143 ${0.090 - base_ground_offset}" />
+        <geometry><box size="0.250 0.240 0.060" /></geometry>
+      </collision>
+      <collision name="dispenser_body_collision">
+        <origin xyz="-0.262755 -0.0143 ${0.300 - base_ground_offset}" />
+        <geometry><box size="0.230 0.220 0.360" /></geometry>
+      </collision>
+    </link>
+    <joint name="dispenser_joint" type="fixed">
+      <parent link="base_link" />
+      <child link="dispenser_link" />
+      <origin xyz="0 0 0" />
+    </joint>
+    <gazebo reference="dispenser_link">
+      <selfCollide>false</selfCollide>
+      <mu1>0.01</mu1>
+      <mu2>0.01</mu2>
+      <slip1>1.0</slip1>
+      <slip2>1.0</slip2>
+    </gazebo>
+  </xacro:if>
+
+  <gazebo reference="base_link">
+    <selfCollide>false</selfCollide>
+  </gazebo>
+
+  <gazebo reference="lidar_link">
+    <sensor name="hazard_guard_lidar" type="gpu_lidar">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <visualize>${visualize_sensors}</visualize>
+      <topic>/scan</topic>
+      <gz_frame_id>lidar_link</gz_frame_id>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>${lidar_samples}</samples>
+            <resolution>1</resolution>
+            <min_angle>${lidar_min_angle}</min_angle>
+            <max_angle>${lidar_max_angle}</max_angle>
+          </horizontal>
+        </scan>
+        <range><min>${lidar_min_range}</min><max>12.0</max><resolution>0.01</resolution></range>
+        <noise><type>gaussian</type><mean>0.0</mean><stddev>0.01</stddev></noise>
+      </lidar>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="imu_link">
+    <sensor name="hazard_guard_imu" type="imu">
+      <always_on>true</always_on>
+      <update_rate>50</update_rate>
+      <visualize>false</visualize>
+      <topic>/imu/data_raw</topic>
+      <gz_frame_id>imu_link</gz_frame_id>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="depth_camera_link">
+    <sensor name="hazard_guard_rgb_camera" type="camera">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <visualize>${visualize_sensors}</visualize>
+      <topic>/camera</topic>
+      <gz_frame_id>depth_camera_optical_frame</gz_frame_id>
+      <camera name="front_camera">
+        <horizontal_fov>1.288053</horizontal_fov>
+        <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+        <clip><near>0.08</near><far>30.0</far></clip>
+        <noise><type>gaussian</type><mean>0.0</mean><stddev>0.004</stddev></noise>
+      </camera>
+    </sensor>
+    <sensor name="hazard_guard_depth_camera" type="depth_camera">
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <visualize>${visualize_sensors}</visualize>
+      <topic>/depth_camera</topic>
+      <gz_frame_id>depth_camera_optical_frame</gz_frame_id>
+      <camera name="depth_camera">
+        <horizontal_fov>1.288053</horizontal_fov>
+        <image><width>640</width><height>480</height><format>R8G8B8</format></image>
+        <clip><near>0.2</near><far>4.0</far></clip>
+        <noise><type>gaussian</type><mean>0.0</mean><stddev>0.003</stddev></noise>
+      </camera>
+    </sensor>
+  </gazebo>
+
+  <!-- Synthetic optical stream only; temperature detections come from the
+       explicitly simulated heat-source node and are never presented as real. -->
+  <gazebo reference="thermal_camera_link">
+    <sensor name="hazard_guard_thermal_camera" type="thermal_camera">
+      <always_on>true</always_on>
+      <update_rate>25</update_rate>
+      <visualize>${visualize_sensors}</visualize>
+      <topic>/thermal_camera</topic>
+      <gz_frame_id>thermal_camera_optical_frame</gz_frame_id>
+      <camera name="thermal_camera">
+        <horizontal_fov>0.977384381</horizontal_fov>
+        <image><width>256</width><height>192</height><format>L_INT16</format></image>
+        <clip><near>0.1</near><far>5.0</far></clip>
+      </camera>
+    </sensor>
+  </gazebo>
+
+  <xacro:if value="${simulation_mode == 'kinematic'}">
+    <gazebo>
+      <!--
+        Stable integration mode for SLAM, Nav2, and WebUI work. Fortress
+        applies the commanded body-frame twist directly while the physics
+        engine still resolves contacts with the environment.
+      -->
+      <plugin
+        name="ignition::gazebo::systems::VelocityControl"
+        filename="ignition-gazebo-velocity-control-system">
+        <topic>/cmd_vel</topic>
+      </plugin>
+    </gazebo>
+  </xacro:if>
+
+  <xacro:if value="${simulation_mode == 'physics'}">
+    <gazebo>
+      <!--
+        Physical wheel-contact mode. This is retained for traction and
+        roller-friction experiments; Nav2 defaults to the stable mode above.
+      -->
+      <plugin
+        name="ignition::gazebo::systems::MecanumDrive"
+        filename="ignition-gazebo-mecanum-drive-system">
+        <front_left_joint>front_left_wheel_joint</front_left_joint>
+        <front_right_joint>front_right_wheel_joint</front_right_joint>
+        <back_left_joint>rear_left_wheel_joint</back_left_joint>
+        <back_right_joint>rear_right_wheel_joint</back_right_joint>
+        <wheelbase>0.185963</wheelbase>
+        <wheel_separation>0.1685</wheel_separation>
+        <wheel_radius>${wheel_radius}</wheel_radius>
+        <topic>/cmd_vel</topic>
+        <odom_topic>/wheel_odom</odom_topic>
+        <tf_topic>/wheel_tf</tf_topic>
+        <frame_id>odom</frame_id>
+        <child_frame_id>base_footprint</child_frame_id>
+        <odom_publish_frequency>30</odom_publish_frequency>
+      </plugin>
+    </gazebo>
+  </xacro:if>
+
+  <gazebo>
+    <plugin
+      name="ignition::gazebo::systems::OdometryPublisher"
+      filename="ignition-gazebo-odometry-publisher-system">
+      <odom_frame>odom</odom_frame>
+      <robot_base_frame>base_footprint</robot_base_frame>
+      <odom_topic>/odom</odom_topic>
+      <tf_topic>/tf</tf_topic>
+      <odom_publish_frequency>30</odom_publish_frequency>
+      <dimensions>2</dimensions>
+      <gaussian_noise>0.001</gaussian_noise>
+    </plugin>
+    <plugin
+      name="ignition::gazebo::systems::JointStatePublisher"
+      filename="ignition-gazebo-joint-state-publisher-system">
+      <topic>/joint_states</topic>
+    </plugin>
+  </gazebo>
+</robot>

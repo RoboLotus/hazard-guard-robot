@@ -1,0 +1,1 @@
+"""HazardGuard mock robot package."""

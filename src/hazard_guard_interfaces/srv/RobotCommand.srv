@@ -1,0 +1,8 @@
+string command
+bool enabled
+---
+bool accepted
+string message
+string mode
+bool controller_enabled
+bool mock

@@ -1,0 +1,50 @@
+# ROS / colcon outputs
+build/
+install/
+log/
+*.log
+.ros/
+compile_commands.json
+
+# Python and test caches
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+.venv/
+venv/
+
+# Runtime-generated maps and recordings
+runtime/maps/*
+!runtime/maps/.gitkeep
+runtime/bags/
+*.db3
+*.mcap
+
+# Local manufacturer assets and share bundles
+Yahboom/
+vendor-assets/
+share/
+*.glb
+*.gltf
+*.usdz
+
+# Local orchestration, harness, and agent files
+AGENTS.md
+AGENTS.override.md
+.codex/
+.harness/
+docs/
+PLANS.md
+PROJECT_QUESTIONNAIRE.md
+
+# Editors and OS metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Native build artifacts
+*.o
+*.a
+*.so

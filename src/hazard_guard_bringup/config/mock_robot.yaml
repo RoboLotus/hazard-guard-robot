@@ -1,0 +1,6 @@
+hazard_guard_mock_robot:
+  ros__parameters:
+    robot_id: rosmaster-m1-mock
+    publish_rate_hz: 2.0
+    initial_battery_percent: 78.0
+    use_simulation_inputs: false
