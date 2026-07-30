@@ -3,6 +3,7 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -21,6 +22,7 @@ def generate_launch_description() -> LaunchDescription:
     visualize_sensors = LaunchConfiguration("visualize_sensors")
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
+    start_simulation = LaunchConfiguration("start_simulation")
 
     return LaunchDescription(
         [
@@ -37,6 +39,14 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("visualize_sensors", default_value="false"),
             DeclareLaunchArgument("include_dispenser", default_value="true"),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
+            DeclareLaunchArgument(
+                "start_simulation",
+                default_value="true",
+                description=(
+                    "Start Gazebo and the simulated robot. Set false when a "
+                    "singleton simulator is supervised separately."
+                ),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "simulation.launch.py")
@@ -54,6 +64,7 @@ def generate_launch_description() -> LaunchDescription:
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
                 }.items(),
+                condition=IfCondition(start_simulation),
             ),
             TimerAction(
                 period=5.0,

@@ -25,6 +25,7 @@ def generate_launch_description() -> LaunchDescription:
     visualize_sensors = LaunchConfiguration("visualize_sensors")
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
+    start_simulation = LaunchConfiguration("start_simulation")
     auto_initial_pose = LaunchConfiguration("auto_initial_pose")
     initial_pose_delay = LaunchConfiguration("initial_pose_delay")
 
@@ -48,6 +49,14 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("include_dispenser", default_value="true"),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
             DeclareLaunchArgument(
+                "start_simulation",
+                default_value="true",
+                description=(
+                    "Start Gazebo and the simulated robot. Set false when a "
+                    "singleton simulator is supervised separately."
+                ),
+            ),
+            DeclareLaunchArgument(
                 "auto_initial_pose",
                 default_value="true",
                 description="Publish the Gazebo spawn pose to AMCL after Nav2 starts.",
@@ -70,6 +79,7 @@ def generate_launch_description() -> LaunchDescription:
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
                 }.items(),
+                condition=IfCondition(start_simulation),
             ),
             TimerAction(
                 period=5.0,
