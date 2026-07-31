@@ -10,11 +10,12 @@ Gazebo Fortress, SLAM Toolbox, Nav2와 WebUI 연동을 검증할 수 있는 개�
 - ROS 2 Humble
 - Gazebo Fortress (`ros_gz`)
 - ROSMASTER-M1 Superior Kit 기반 로봇 모델
-- RGB, Depth, 열화상, 2D LiDAR, IMU 센서 시뮬레이션
+- RGB, Depth, ThermoEye TMC160B 사양 기반 합성 열화상, 2D LiDAR, IMU 센서 시뮬레이션
 - SLAM Toolbox 기반 지도 작성
 - AMCL 기반 위치 추정
 - Nav2 단일 목적지·다중 웨이포인트 주행
 - 하드웨어 없이 사용하는 mock telemetry·열원 탐지
+- ROS 2 Action 기반 다중 웨이포인트 임무 관리자
 - FastAPI WebUI bridge에서 사용할 ROS 토픽과 액션
 
 Jetson 전용 CUDA·TensorRT, 실제 ROSMASTER 하드웨어 드라이버, 경고장치 제어는
@@ -24,7 +25,8 @@ Jetson 전용 CUDA·TensorRT, 실제 ROSMASTER 하드웨어 드라이버, 경고
 
 ```text
 src/
-├─ hazard_guard_interfaces/    메시와 서비스 정의
+├─ hazard_guard_interfaces/    메시·서비스·순찰 Action 정의
+├─ hazard_guard_mission_manager/ Nav2 순찰 임무 실행 노드
 ├─ hazard_guard_mock_robot/    mock 상태·명령·열원·검증 노드
 ├─ hazard_guard_bringup/       기본 mock bringup
 └─ hazard_guard_simulation/    Fortress 모델, 월드, SLAM, Nav2
@@ -103,6 +105,8 @@ ros2 launch hazard_guard_simulation localization.launch.py \
 ```
 
 launch 파일은 Gazebo 시작 위치를 AMCL 초기 위치로 자동 전달합니다.
+같은 launch에서 `hazard_guard_mission_manager`가 시작되어 WebUI가 전달한
+다중 웨이포인트를 사전 검증한 뒤 Nav2에 순차 전달합니다.
 
 SLAM을 실행한 상태에서 Nav2를 함께 시험하려면 다음을 사용합니다.
 
@@ -138,10 +142,14 @@ WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미�
 | 로봇 상태 | `/hazard_guard/telemetry` |
 | 열원 탐지 | `/hazard_guard/thermal_detections` |
 | 단일 목적지 | `/navigate_to_pose` |
-| 웨이포인트 | `/follow_waypoints` |
+| HazardGuard 순찰 임무 | `/hazard_guard/run_patrol` |
+| 순찰 상태 | `/hazard_guard/mission/status` |
+| 순찰 강제 취소 서비스 | `/hazard_guard/mission/cancel` |
 
-현재 열화상과 열원 값은 시뮬레이션 데이터이며 실제 화재 판정 성능을 의미하지
-않습니다.
+열화상 시뮬레이션은 ThermoEye TMC160B의 160×120 해상도, 수평 57° FOV,
+8.7 Hz를 반영합니다. 지도에 보이는 5 m 부채꼴 길이는 화면 표현을 위한
+시뮬레이션 경계이며 제조사가 보장하는 측정거리가 아닙니다. 현재 열화상과
+열원 값은 합성 데이터이므로 실제 화재 판정 성능을 의미하지 않습니다.
 
 ## 검증
 

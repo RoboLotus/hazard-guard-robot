@@ -5,6 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -67,6 +68,18 @@ def generate_launch_description() -> LaunchDescription:
                             "use_composition": "False",
                             "params_file": str(nav2_parameters),
                         }.items(),
+                    )
+                ],
+            ),
+            TimerAction(
+                period=8.0,
+                actions=[
+                    Node(
+                        package="hazard_guard_mission_manager",
+                        executable="mission_manager",
+                        name="hazard_guard_mission_manager",
+                        output="screen",
+                        parameters=[{"use_sim_time": True}],
                     )
                 ],
             ),

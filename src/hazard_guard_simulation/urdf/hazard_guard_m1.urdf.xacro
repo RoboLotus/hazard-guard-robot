@@ -27,7 +27,10 @@
   <xacro:property name="wheel_center_z" value="0.01249" />
   <xacro:property name="base_ground_offset" value="0.0276" />
   <xacro:property name="stock_mass" value="2.74" />
-  <xacro:property name="thermal_mass" value="0.030" />
+  <!-- Provisional TMC160B board-level mass from the current product-family
+       brochure. Verify the delivered enclosure and bracket before the hardware
+       dynamics baseline. -->
+  <xacro:property name="thermal_mass" value="0.052" />
   <xacro:if value="$(arg include_dispenser)">
     <xacro:property
       name="installed_dispenser_mass"
@@ -268,20 +271,21 @@
   </joint>
 
   <!--
-    TOPDON TC001 provisional front mount. Device geometry and sensor parameters
-    are official; the mounting pose remains a project assumption until the
-    mechanical team supplies its bracket drawing.
+    ThermoEye TMC160B provisional front mount. The 38 x 38 mm board face is
+    based on the manufacturer specification. Board stack depth and the mounting
+    pose remain project assumptions until the delivered unit and bracket are
+    measured.
   -->
   <link name="thermal_camera_link">
     <inertial>
       <mass value="${thermal_mass}" />
       <inertia
-        ixx="0.00001701" ixy="0" ixz="0"
-        iyy="0.00000490" iyz="0"
-        izz="0.00001309" />
+        ixx="0.0000125147" ixy="0" ixz="0"
+        iyy="0.0000071067" iyz="0"
+        izz="0.0000071067" />
     </inertial>
     <visual>
-      <geometry><box size="0.014 0.071 0.042" /></geometry>
+      <geometry><box size="0.014 0.038 0.038" /></geometry>
       <material name="thermal_blue" />
     </visual>
     <visual name="thermal_lens_visual">
@@ -290,7 +294,7 @@
       <material name="thermal_lens" />
     </visual>
     <collision>
-      <geometry><box size="0.014 0.071 0.042" /></geometry>
+      <geometry><box size="0.014 0.038 0.038" /></geometry>
     </collision>
   </link>
   <joint name="thermal_camera_joint" type="fixed">
@@ -454,19 +458,24 @@
     </sensor>
   </gazebo>
 
-  <!-- Synthetic optical stream only; temperature detections come from the
-       explicitly simulated heat-source node and are never presented as real. -->
+  <!--
+    Synthetic optical stream shaped like the ThermoEye TMC160B:
+      160 x 120 pixels, 57 degree horizontal FOV, nominal 8.7 Hz.
+    The 5 m far clip is a project visualization boundary, not a manufacturer
+    measurement-distance guarantee. Temperature detections come from the
+    explicitly simulated heat-source node and are never presented as real.
+  -->
   <gazebo reference="thermal_camera_link">
     <sensor name="hazard_guard_thermal_camera" type="thermal_camera">
       <always_on>true</always_on>
-      <update_rate>25</update_rate>
+      <update_rate>8.7</update_rate>
       <visualize>${visualize_sensors}</visualize>
       <topic>/thermal_camera</topic>
       <gz_frame_id>thermal_camera_optical_frame</gz_frame_id>
       <camera name="thermal_camera">
-        <horizontal_fov>0.977384381</horizontal_fov>
-        <image><width>256</width><height>192</height><format>L_INT16</format></image>
-        <clip><near>0.1</near><far>5.0</far></clip>
+        <horizontal_fov>0.994837674</horizontal_fov>
+        <image><width>160</width><height>120</height><format>L_INT16</format></image>
+        <clip><near>0.05</near><far>5.0</far></clip>
       </camera>
     </sensor>
   </gazebo>

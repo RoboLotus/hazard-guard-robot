@@ -6,7 +6,9 @@ find_package(builtin_interfaces REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "action/RunPatrol.action"
   "msg/HazardDetection.msg"
+  "msg/PatrolWaypoint.msg"
   "msg/RobotTelemetry.msg"
   "srv/RobotCommand.srv"
   DEPENDENCIES builtin_interfaces

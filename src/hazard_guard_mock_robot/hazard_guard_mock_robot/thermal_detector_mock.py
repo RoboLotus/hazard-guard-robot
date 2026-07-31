@@ -46,8 +46,9 @@ class ThermalDetectorMock(Node):
 
     def __init__(self) -> None:
         super().__init__("hazard_guard_thermal_detector_mock")
-        self.declare_parameter("horizontal_fov_deg", 56.0)
-        self.declare_parameter("range_min_m", 0.1)
+        self.declare_parameter("camera_model", "ThermoEye TMC160B")
+        self.declare_parameter("horizontal_fov_deg", 57.0)
+        self.declare_parameter("range_min_m", 0.0)
         self.declare_parameter("range_max_m", 5.0)
         self.declare_parameter("sensor_frame", "thermal_camera_link")
         self.declare_parameter("publish_rate_hz", 2.0)
@@ -63,6 +64,11 @@ class ThermalDetectorMock(Node):
             float(self.get_parameter("publish_rate_hz").value),
         )
         self._timer = self.create_timer(1.0 / publish_rate, self._publish_visible)
+        self.get_logger().info(
+            "Synthetic thermal detector configured for "
+            f"{self.get_parameter('camera_model').value}; "
+            "5 m is a visualization boundary, not a hardware range claim."
+        )
 
     def _publish_visible(self) -> None:
         try:

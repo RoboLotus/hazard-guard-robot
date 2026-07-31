@@ -1,0 +1,22 @@
+string mission_id
+string name
+string frame_id
+bool return_to_start
+hazard_guard_interfaces/PatrolWaypoint[] waypoints
+---
+bool success
+string status
+string message
+uint32 completed_waypoints
+float64 total_distance_m
+---
+string status
+string message
+int32 current_index
+uint32 total_waypoints
+uint32 completed_waypoints
+string waypoint_id
+string waypoint_status
+float64 total_distance_m
+float64 position_error_m
+float64 yaw_error_deg

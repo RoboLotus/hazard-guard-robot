@@ -183,8 +183,9 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 parameters=[
                     {
-                        "horizontal_fov_deg": 56.0,
-                        "range_min_m": 0.1,
+                        "camera_model": "ThermoEye TMC160B",
+                        "horizontal_fov_deg": 57.0,
+                        "range_min_m": 0.0,
                         "range_max_m": 5.0,
                         "sensor_frame": "thermal_camera_link",
                         "publish_rate_hz": 2.0,

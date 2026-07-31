@@ -15,8 +15,8 @@ def visible_heat_sources(
     robot_yaw: float,
     sources: Iterable[dict[str, Any]],
     *,
-    horizontal_fov_deg: float = 56.0,
-    range_min_m: float = 0.1,
+    horizontal_fov_deg: float = 57.0,
+    range_min_m: float = 0.0,
     range_max_m: float = 5.0,
 ) -> list[dict[str, Any]]:
     """Return heat sources inside the simulated thermal camera sector."""

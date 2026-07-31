@@ -1,0 +1,1 @@
+"""HazardGuard patrol mission orchestration."""

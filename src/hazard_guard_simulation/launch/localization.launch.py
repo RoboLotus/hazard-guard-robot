@@ -119,5 +119,17 @@ def generate_launch_description() -> LaunchDescription:
                     )
                 ],
             ),
+            TimerAction(
+                period=8.0,
+                actions=[
+                    Node(
+                        package="hazard_guard_mission_manager",
+                        executable="mission_manager",
+                        name="hazard_guard_mission_manager",
+                        output="screen",
+                        parameters=[{"use_sim_time": True}],
+                    )
+                ],
+            ),
         ]
     )
