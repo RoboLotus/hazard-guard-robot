@@ -13,7 +13,7 @@ def pose_errors(
     actual: tuple[float, float, float],
     target: tuple[float, float, float],
 ) -> tuple[float, float]:
-    """Return planar position error in metres and absolute yaw error in radians."""
+    """Return planar distance and absolute yaw errors."""
 
     position_error = math.hypot(target[0] - actual[0], target[1] - actual[1])
     yaw_error = abs(normalize_angle(target[2] - actual[2]))

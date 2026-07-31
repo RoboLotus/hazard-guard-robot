@@ -1,3 +1,5 @@
+import json
+import math
 import os
 from pathlib import Path
 
@@ -25,6 +27,12 @@ def generate_launch_description() -> LaunchDescription:
     ros_gz_share = Path(get_package_share_directory("ros_gz_sim"))
     default_world = simulation_share / "worlds" / "facility_map.sdf"
     robot = simulation_share / "urdf" / "hazard_guard_m1.urdf.xacro"
+    sensor_profiles = json.loads(
+        (simulation_share / "config" / "sensor_profiles.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    thermal = sensor_profiles["thermal_camera"]
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     gui = LaunchConfiguration("gui")
@@ -52,6 +60,18 @@ def generate_launch_description() -> LaunchDescription:
                 include_dispenser,
                 " dispenser_mass:=",
                 dispenser_mass,
+                " thermal_width:=",
+                str(thermal["width"]),
+                " thermal_height:=",
+                str(thermal["height"]),
+                " thermal_update_rate:=",
+                str(thermal["frame_rate_hz"]),
+                " thermal_horizontal_fov:=",
+                str(math.radians(thermal["horizontal_fov_deg"])),
+                " thermal_clip_near:=",
+                str(thermal["clip_near_m"]),
+                " thermal_clip_far:=",
+                str(thermal["visualization_range_m"]),
             ]
         ),
         value_type=str,
@@ -183,11 +203,11 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 parameters=[
                     {
-                        "camera_model": "ThermoEye TMC160B",
-                        "horizontal_fov_deg": 57.0,
+                        "camera_model": thermal["model"],
+                        "horizontal_fov_deg": thermal["horizontal_fov_deg"],
                         "range_min_m": 0.0,
-                        "range_max_m": 5.0,
-                        "sensor_frame": "thermal_camera_link",
+                        "range_max_m": thermal["visualization_range_m"],
+                        "sensor_frame": thermal["sensor_frame"],
                         "publish_rate_hz": 2.0,
                         "use_sim_time": use_sim_time,
                     }

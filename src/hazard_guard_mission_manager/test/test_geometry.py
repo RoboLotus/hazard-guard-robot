@@ -26,4 +26,5 @@ def test_pose_errors_separates_position_and_heading():
 
 
 def test_path_length_sums_segments():
-    assert path_length([make_pose(0, 0), make_pose(3, 4), make_pose(6, 8)]) == 10
+    poses = [make_pose(0, 0), make_pose(3, 4), make_pose(6, 8)]
+    assert path_length(poses) == 10

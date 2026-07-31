@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import json
 import math
 import threading
 import time
 from typing import Any
 
 import rclpy
-from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import PoseStamped
 from hazard_guard_interfaces.action import RunPatrol
-from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from rclpy.action import (
-    ActionClient,
     ActionServer,
     CancelResponse,
     GoalResponse,
@@ -21,32 +16,34 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from rclpy.time import Time
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
-from tf2_ros import Buffer, TransformListener
 
-from .geometry import path_length, pose_errors
-
-
-class MissionCanceled(RuntimeError):
-    """Raised internally when the active patrol is canceled."""
-
-
-class MissionFailure(RuntimeError):
-    """Raised internally when a patrol step cannot be completed safely."""
+from .errors import MissionCanceled, MissionFailure
+from .geometry import pose_errors
+from .navigation import Nav2Adapter
+from .state import MissionStateStore
 
 
 class HazardGuardMissionManager(Node):
-    """Own ordered patrol execution and delegate individual movements to Nav2."""
+    """Own ordered patrol execution and delegate movements to Nav2."""
 
-    ACTIVE_STATES = {"preparing", "running", "executing", "aligning", "dwelling"}
+    ACTIVE_STATES = {
+        "preparing",
+        "running",
+        "executing",
+        "aligning",
+        "dwelling",
+    }
 
     def __init__(self) -> None:
         super().__init__("hazard_guard_mission_manager")
         self.declare_parameter("action_name", "/hazard_guard/run_patrol")
         self.declare_parameter("navigate_action_name", "/navigate_to_pose")
-        self.declare_parameter("compute_path_action_name", "/compute_path_to_pose")
+        self.declare_parameter(
+            "compute_path_action_name",
+            "/compute_path_to_pose",
+        )
         self.declare_parameter("base_frame", "base_link")
         self.declare_parameter("position_tolerance_m", 0.08)
         self.declare_parameter("yaw_tolerance_rad", 0.05)
@@ -56,24 +53,6 @@ class HazardGuardMissionManager(Node):
         self.declare_parameter("server_wait_timeout_sec", 8.0)
 
         self._callback_group = ReentrantCallbackGroup()
-        self._tf_buffer = Buffer()
-        self._tf_listener = TransformListener(
-            self._tf_buffer,
-            self,
-            spin_thread=False,
-        )
-        self._navigate_client = ActionClient(
-            self,
-            NavigateToPose,
-            str(self.get_parameter("navigate_action_name").value),
-            callback_group=self._callback_group,
-        )
-        self._path_client = ActionClient(
-            self,
-            ComputePathToPose,
-            str(self.get_parameter("compute_path_action_name").value),
-            callback_group=self._callback_group,
-        )
         status_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -103,34 +82,33 @@ class HazardGuardMissionManager(Node):
         self._state_lock = threading.RLock()
         self._mission_active = False
         self._cancel_requested = threading.Event()
-        self._active_nav_goal: Any | None = None
-        self._state = self._initial_state()
-        self._publish_state()
+        self._mission_state = MissionStateStore(self._publish_state_payload)
+        self._nav = Nav2Adapter(
+            self,
+            self._callback_group,
+            navigate_action_name=str(
+                self.get_parameter("navigate_action_name").value
+            ),
+            compute_path_action_name=str(
+                self.get_parameter("compute_path_action_name").value
+            ),
+            base_frame=str(self.get_parameter("base_frame").value),
+            server_wait_timeout_sec=float(
+                self.get_parameter("server_wait_timeout_sec").value
+            ),
+            check_canceled=self._raise_if_canceled,
+        )
+        self._mission_state.publish()
         self.get_logger().info(
             "Mission manager ready: /hazard_guard/run_patrol -> Nav2"
         )
 
-    @staticmethod
-    def _initial_state() -> dict[str, Any]:
-        return {
-            "mission_id": None,
-            "name": None,
-            "status": "idle",
-            "accepted": False,
-            "mock": False,
-            "frame_id": "map",
-            "current_index": None,
-            "total_waypoints": 0,
-            "completed_waypoints": 0,
-            "total_distance_m": None,
-            "message": "실행 중인 순찰 임무가 없습니다.",
-            "waypoints": [],
-        }
-
     def _goal_callback(self, request: RunPatrol.Goal) -> GoalResponse:
         with self._state_lock:
             if self._mission_active:
-                self.get_logger().warning("Rejected patrol: another mission is active")
+                self.get_logger().warning(
+                    "Rejected patrol: another mission is active"
+                )
                 return GoalResponse.REJECT
             if not request.waypoints:
                 self.get_logger().warning("Rejected patrol: no waypoints")
@@ -161,10 +139,7 @@ class HazardGuardMissionManager(Node):
 
     def _request_cancel(self) -> None:
         self._cancel_requested.set()
-        with self._state_lock:
-            nav_goal = self._active_nav_goal
-        if nav_goal is not None:
-            nav_goal.cancel_goal_async()
+        self._nav.cancel_active()
         self._update_state(
             status="canceling",
             accepted=False,
@@ -208,8 +183,8 @@ class HazardGuardMissionManager(Node):
         completed = 0
         total_distance = 0.0
         try:
-            self._assert_nav2_ready()
-            start_pose = self._current_pose(request.frame_id)
+            self._nav.assert_ready()
+            start_pose = self._nav.current_pose(request.frame_id)
             if start_pose is None:
                 raise MissionFailure(
                     "지도상의 현재 로봇 위치를 확인할 수 없어 순찰을 시작할 수 없습니다."
@@ -224,8 +199,12 @@ class HazardGuardMissionManager(Node):
                     current_index=index,
                     message=f"{waypoint.name}까지 이동 가능한 경로를 확인하고 있습니다.",
                 )
-                target = (float(waypoint.x), float(waypoint.y), float(waypoint.yaw))
-                distance = self._compute_path_distance(
+                target = (
+                    float(waypoint.x),
+                    float(waypoint.y),
+                    float(waypoint.yaw),
+                )
+                distance = self._nav.compute_path_distance(
                     segment_start,
                     target,
                     request.frame_id,
@@ -240,7 +219,7 @@ class HazardGuardMissionManager(Node):
                 )
 
             if request.return_to_start:
-                return_distance = self._compute_path_distance(
+                return_distance = self._nav.compute_path_distance(
                     segment_start,
                     start_pose,
                     request.frame_id,
@@ -269,8 +248,12 @@ class HazardGuardMissionManager(Node):
                     waypoint_id=waypoint.id,
                     waypoint_status="active",
                 )
-                target = (float(waypoint.x), float(waypoint.y), float(waypoint.yaw))
-                self._navigate(
+                target = (
+                    float(waypoint.x),
+                    float(waypoint.y),
+                    float(waypoint.yaw),
+                )
+                self._nav.navigate(
                     target,
                     request.frame_id,
                     goal_handle,
@@ -307,7 +290,8 @@ class HazardGuardMissionManager(Node):
                     deadline = time.monotonic() + dwell_seconds
                     while time.monotonic() < deadline:
                         self._raise_if_canceled(goal_handle)
-                        time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+                        remaining = max(0.0, deadline - time.monotonic())
+                        time.sleep(min(0.1, remaining))
 
                 completed = index + 1
                 self._update_waypoint(index, "completed", "도착 및 점검 완료")
@@ -331,7 +315,7 @@ class HazardGuardMissionManager(Node):
                     current_index=None,
                     message="순찰 시작 위치로 복귀 중입니다.",
                 )
-                self._navigate(
+                self._nav.navigate(
                     start_pose,
                     request.frame_id,
                     goal_handle,
@@ -371,7 +355,7 @@ class HazardGuardMissionManager(Node):
             )
         except MissionFailure as exc:
             goal_handle.abort()
-            current_index = self._state.get("current_index")
+            current_index = self._mission_state.snapshot().get("current_index")
             if isinstance(current_index, int):
                 self._update_waypoint(current_index, "failed", str(exc))
             self._update_state(
@@ -403,102 +387,9 @@ class HazardGuardMissionManager(Node):
             )
         finally:
             with self._state_lock:
-                self._active_nav_goal = None
                 self._mission_active = False
+            self._nav.clear_active()
             self._cancel_requested.clear()
-
-    def _assert_nav2_ready(self) -> None:
-        timeout = float(self.get_parameter("server_wait_timeout_sec").value)
-        if not self._path_client.wait_for_server(timeout_sec=timeout):
-            raise MissionFailure("Nav2 경로 계산 서버에 연결할 수 없습니다.")
-        if not self._navigate_client.wait_for_server(timeout_sec=timeout):
-            raise MissionFailure("Nav2 이동 서버에 연결할 수 없습니다.")
-
-    def _current_pose(self, frame_id: str) -> tuple[float, float, float] | None:
-        try:
-            transform = self._tf_buffer.lookup_transform(
-                frame_id or "map",
-                str(self.get_parameter("base_frame").value),
-                Time(),
-            )
-        except Exception:
-            return None
-        translation = transform.transform.translation
-        rotation = transform.transform.rotation
-        yaw = math.atan2(
-            2.0 * (rotation.w * rotation.z + rotation.x * rotation.y),
-            1.0 - 2.0 * (rotation.y**2 + rotation.z**2),
-        )
-        return float(translation.x), float(translation.y), yaw
-
-    def _pose_stamped(
-        self,
-        pose: tuple[float, float, float],
-        frame_id: str,
-    ) -> PoseStamped:
-        message = PoseStamped()
-        message.header.frame_id = frame_id or "map"
-        message.header.stamp = self.get_clock().now().to_msg()
-        message.pose.position.x = pose[0]
-        message.pose.position.y = pose[1]
-        message.pose.orientation.z = math.sin(pose[2] / 2.0)
-        message.pose.orientation.w = math.cos(pose[2] / 2.0)
-        return message
-
-    def _compute_path_distance(
-        self,
-        start: tuple[float, float, float],
-        target: tuple[float, float, float],
-        frame_id: str,
-        mission_goal: Any,
-    ) -> float:
-        goal = ComputePathToPose.Goal()
-        goal.start = self._pose_stamped(start, frame_id)
-        goal.goal = self._pose_stamped(target, frame_id)
-        goal.use_start = True
-        goal.planner_id = "GridBased"
-        nav_goal = self._send_goal(self._path_client, goal, mission_goal, 15.0)
-        wrapped = self._wait_result(nav_goal, mission_goal, 30.0)
-        if wrapped.status != GoalStatus.STATUS_SUCCEEDED:
-            raise MissionFailure("Nav2가 웨이포인트 경로를 생성하지 못했습니다.")
-        poses = list(wrapped.result.path.poses)
-        if len(poses) < 2:
-            if math.hypot(target[0] - start[0], target[1] - start[1]) < 0.08:
-                return 0.0
-            raise MissionFailure(
-                "목적지까지 유효한 경로가 없습니다. 통로 폭, 장애물과 "
-                "Nav2 footprint를 확인하세요."
-            )
-        return path_length(poses)
-
-    def _navigate(
-        self,
-        target: tuple[float, float, float],
-        frame_id: str,
-        mission_goal: Any,
-        *,
-        timeout: float,
-    ) -> None:
-        goal = NavigateToPose.Goal()
-        goal.pose = self._pose_stamped(target, frame_id)
-        nav_goal = self._send_goal(
-            self._navigate_client,
-            goal,
-            mission_goal,
-            10.0,
-        )
-        with self._state_lock:
-            self._active_nav_goal = nav_goal
-        try:
-            wrapped = self._wait_result(nav_goal, mission_goal, timeout)
-        finally:
-            with self._state_lock:
-                if self._active_nav_goal is nav_goal:
-                    self._active_nav_goal = None
-        if wrapped.status == GoalStatus.STATUS_CANCELED:
-            raise MissionCanceled()
-        if wrapped.status != GoalStatus.STATUS_SUCCEEDED:
-            raise MissionFailure("Nav2 이동에 실패했습니다.")
 
     def _align(
         self,
@@ -517,7 +408,7 @@ class HazardGuardMissionManager(Node):
         for attempt in range(retries + 1):
             self._raise_if_canceled(mission_goal)
             time.sleep(0.35)
-            actual = self._current_pose(frame_id)
+            actual = self._nav.current_pose(frame_id)
             if actual is None:
                 raise MissionFailure("최종 로봇 위치와 방향을 확인할 수 없습니다.")
             position_error, yaw_error = pose_errors(actual, target)
@@ -555,7 +446,7 @@ class HazardGuardMissionManager(Node):
                 status="aligning",
                 message=f"{waypoint.name}에서 카메라 방향을 정렬하고 있습니다.",
             )
-            self._navigate(
+            self._nav.navigate(
                 target,
                 frame_id,
                 mission_goal,
@@ -565,65 +456,15 @@ class HazardGuardMissionManager(Node):
             )
         raise MissionFailure("최종 방향 정렬에 실패했습니다.")
 
-    def _send_goal(
-        self,
-        client: Any,
-        goal: Any,
-        mission_goal: Any,
-        timeout: float,
-    ) -> Any:
-        future = client.send_goal_async(goal)
-        result = self._wait_future(future, mission_goal, timeout)
-        if result is None or not result.accepted:
-            raise MissionFailure("Nav2가 요청을 수락하지 않았습니다.")
-        return result
-
-    def _wait_result(
-        self,
-        nav_goal: Any,
-        mission_goal: Any,
-        timeout: float,
-    ) -> Any:
-        future = nav_goal.get_result_async()
-        try:
-            return self._wait_future(future, mission_goal, timeout)
-        except MissionCanceled:
-            nav_goal.cancel_goal_async()
-            raise
-        except MissionFailure:
-            nav_goal.cancel_goal_async()
-            raise
-
-    def _wait_future(
-        self,
-        future: Any,
-        mission_goal: Any,
-        timeout: float,
-    ) -> Any:
-        deadline = time.monotonic() + timeout
-        while not future.done():
-            self._raise_if_canceled(mission_goal)
-            if time.monotonic() >= deadline:
-                raise MissionFailure("Nav2 응답 대기 시간이 초과됐습니다.")
-            time.sleep(0.05)
-        try:
-            return future.result()
-        except Exception as exc:
-            raise MissionFailure(f"Nav2 요청 처리 오류: {exc}") from exc
-
     def _raise_if_canceled(self, goal_handle: Any) -> None:
         if self._cancel_requested.is_set() or goal_handle.is_cancel_requested:
             raise MissionCanceled()
 
     def _replace_state(self, state: dict[str, Any]) -> None:
-        with self._state_lock:
-            self._state = state
-        self._publish_state()
+        self._mission_state.replace(state)
 
     def _update_state(self, **values: Any) -> None:
-        with self._state_lock:
-            self._state.update(values)
-        self._publish_state()
+        self._mission_state.update(**values)
 
     def _update_waypoint(
         self,
@@ -632,24 +473,14 @@ class HazardGuardMissionManager(Node):
         message: str,
         **details: Any,
     ) -> None:
-        with self._state_lock:
-            if 0 <= index < len(self._state["waypoints"]):
-                self._state["waypoints"][index].update(
-                    {
-                        "status": status,
-                        "message": message,
-                        **details,
-                    }
-                )
-        self._publish_state()
+        self._mission_state.update_waypoint(
+            index,
+            status,
+            message,
+            **details,
+        )
 
-    def _publish_state(self) -> None:
-        with self._state_lock:
-            payload = json.dumps(
-                self._state,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
+    def _publish_state_payload(self, payload: str) -> None:
         message = String()
         message.data = payload
         self._status_publisher.publish(message)
@@ -665,17 +496,13 @@ class HazardGuardMissionManager(Node):
         yaw_error: float = -1.0,
     ) -> None:
         feedback = RunPatrol.Feedback()
-        with self._state_lock:
-            feedback.status = str(self._state["status"])
-            feedback.message = str(self._state["message"])
-            feedback.current_index = index
-            feedback.total_waypoints = int(self._state["total_waypoints"])
-            feedback.completed_waypoints = int(
-                self._state["completed_waypoints"]
-            )
-            feedback.total_distance_m = float(
-                self._state["total_distance_m"] or 0.0
-            )
+        state = self._mission_state.snapshot()
+        feedback.status = str(state["status"])
+        feedback.message = str(state["message"])
+        feedback.current_index = index
+        feedback.total_waypoints = int(state["total_waypoints"])
+        feedback.completed_waypoints = int(state["completed_waypoints"])
+        feedback.total_distance_m = float(state["total_distance_m"] or 0.0)
         feedback.waypoint_id = waypoint_id
         feedback.waypoint_status = waypoint_status
         feedback.position_error_m = position_error
