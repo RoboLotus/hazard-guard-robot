@@ -1,9 +1,8 @@
-import json
-import math
 import os
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
+from hazard_guard_sensor_config import TMC160B
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -23,16 +22,12 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
-    simulation_share = Path(get_package_share_directory("hazard_guard_simulation"))
+    simulation_share = Path(
+        get_package_share_directory("hazard_guard_simulation")
+    )
     ros_gz_share = Path(get_package_share_directory("ros_gz_sim"))
     default_world = simulation_share / "worlds" / "facility_map.sdf"
     robot = simulation_share / "urdf" / "hazard_guard_m1.urdf.xacro"
-    sensor_profiles = json.loads(
-        (simulation_share / "config" / "sensor_profiles.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    thermal = sensor_profiles["thermal_camera"]
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     gui = LaunchConfiguration("gui")
@@ -61,17 +56,17 @@ def generate_launch_description() -> LaunchDescription:
                 " dispenser_mass:=",
                 dispenser_mass,
                 " thermal_width:=",
-                str(thermal["width"]),
+                str(TMC160B.width),
                 " thermal_height:=",
-                str(thermal["height"]),
+                str(TMC160B.height),
                 " thermal_update_rate:=",
-                str(thermal["frame_rate_hz"]),
+                str(TMC160B.frame_rate_hz),
                 " thermal_horizontal_fov:=",
-                str(math.radians(thermal["horizontal_fov_deg"])),
+                str(TMC160B.horizontal_fov_rad),
                 " thermal_clip_near:=",
-                str(thermal["clip_near_m"]),
+                str(TMC160B.clip_near_m),
                 " thermal_clip_far:=",
-                str(thermal["visualization_range_m"]),
+                str(TMC160B.visualization_range_m),
             ]
         ),
         value_type=str,
@@ -91,7 +86,9 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "world_name",
                 default_value="facility_map",
-                description="The <world name> value inside the selected SDF file",
+                description=(
+                    "The <world name> value inside the selected SDF file"
+                ),
             ),
             DeclareLaunchArgument("spawn_x", default_value="0.60"),
             DeclareLaunchArgument("spawn_y", default_value="0.70"),
@@ -146,7 +143,10 @@ def generate_launch_description() -> LaunchDescription:
                 name="robot_state_publisher",
                 output="screen",
                 parameters=[
-                    {"robot_description": robot_description, "use_sim_time": use_sim_time}
+                    {
+                        "robot_description": robot_description,
+                        "use_sim_time": use_sim_time,
+                    }
                 ],
             ),
             Node(
@@ -162,7 +162,10 @@ def generate_launch_description() -> LaunchDescription:
                     "/imu/data_raw@sensor_msgs/msg/Imu[gz.msgs.IMU",
                     "/joint_states@sensor_msgs/msg/JointState[gz.msgs.Model",
                     "/camera@sensor_msgs/msg/Image[gz.msgs.Image",
-                    "/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo",
+                    (
+                        "/camera_info@sensor_msgs/msg/CameraInfo"
+                        "[gz.msgs.CameraInfo"
+                    ),
                     "/depth_camera@sensor_msgs/msg/Image[gz.msgs.Image",
                     "/depth_camera/points@sensor_msgs/msg/PointCloud2"
                     "[gz.msgs.PointCloudPacked",
@@ -175,8 +178,12 @@ def generate_launch_description() -> LaunchDescription:
                 ],
                 parameters=[
                     {
-                        "qos_overrides./clock.publisher.durability": "volatile",
-                        "qos_overrides./scan.publisher.reliability": "best_effort",
+                        (
+                            "qos_overrides./clock.publisher.durability"
+                        ): "volatile",
+                        (
+                            "qos_overrides./scan.publisher.reliability"
+                        ): "best_effort",
                     }
                 ],
                 output="screen",
@@ -203,11 +210,11 @@ def generate_launch_description() -> LaunchDescription:
                 output="screen",
                 parameters=[
                     {
-                        "camera_model": thermal["model"],
-                        "horizontal_fov_deg": thermal["horizontal_fov_deg"],
+                        "camera_model": TMC160B.model,
+                        "horizontal_fov_deg": TMC160B.horizontal_fov_deg,
                         "range_min_m": 0.0,
-                        "range_max_m": thermal["visualization_range_m"],
-                        "sensor_frame": thermal["sensor_frame"],
+                        "range_max_m": TMC160B.visualization_range_m,
+                        "sensor_frame": TMC160B.sensor_frame,
                         "publish_rate_hz": 2.0,
                         "use_sim_time": use_sim_time,
                     }

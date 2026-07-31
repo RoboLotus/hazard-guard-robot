@@ -4,6 +4,8 @@ import math
 from collections.abc import Iterable
 from typing import Any
 
+from hazard_guard_sensor_config import TMC160B
+
 
 def normalize_angle(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
@@ -15,9 +17,9 @@ def visible_heat_sources(
     robot_yaw: float,
     sources: Iterable[dict[str, Any]],
     *,
-    horizontal_fov_deg: float = 57.0,
+    horizontal_fov_deg: float = TMC160B.horizontal_fov_deg,
     range_min_m: float = 0.0,
-    range_max_m: float = 5.0,
+    range_max_m: float = TMC160B.visualization_range_m,
 ) -> list[dict[str, Any]]:
     """Return heat sources inside the simulated thermal camera sector."""
 
@@ -42,7 +44,12 @@ def visible_heat_sources(
                 "bearing_offset_rad": offset,
                 "confidence": max(
                     0.45,
-                    min(0.98, 0.62 + 0.2 * angular_quality + 0.16 * distance_quality),
+                    min(
+                        0.98,
+                        0.62
+                        + 0.2 * angular_quality
+                        + 0.16 * distance_quality,
+                    ),
                 ),
             }
         )

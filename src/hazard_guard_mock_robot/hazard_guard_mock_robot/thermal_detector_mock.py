@@ -4,6 +4,7 @@ import math
 
 import rclpy
 from hazard_guard_interfaces.msg import HazardDetection
+from hazard_guard_sensor_config import TMC160B
 from rclpy.node import Node
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
@@ -46,11 +47,17 @@ class ThermalDetectorMock(Node):
 
     def __init__(self) -> None:
         super().__init__("hazard_guard_thermal_detector_mock")
-        self.declare_parameter("camera_model", "ThermoEye TMC160B")
-        self.declare_parameter("horizontal_fov_deg", 57.0)
+        self.declare_parameter("camera_model", TMC160B.model)
+        self.declare_parameter(
+            "horizontal_fov_deg",
+            TMC160B.horizontal_fov_deg,
+        )
         self.declare_parameter("range_min_m", 0.0)
-        self.declare_parameter("range_max_m", 5.0)
-        self.declare_parameter("sensor_frame", "thermal_camera_link")
+        self.declare_parameter(
+            "range_max_m",
+            TMC160B.visualization_range_m,
+        )
+        self.declare_parameter("sensor_frame", TMC160B.sensor_frame)
         self.declare_parameter("publish_rate_hz", 2.0)
         self._publisher = self.create_publisher(
             HazardDetection,
@@ -63,11 +70,16 @@ class ThermalDetectorMock(Node):
             0.2,
             float(self.get_parameter("publish_rate_hz").value),
         )
-        self._timer = self.create_timer(1.0 / publish_rate, self._publish_visible)
+        self._timer = self.create_timer(
+            1.0 / publish_rate,
+            self._publish_visible,
+        )
         self.get_logger().info(
             "Synthetic thermal detector configured for "
             f"{self.get_parameter('camera_model').value}; "
-            "5 m is a visualization boundary, not a hardware range claim."
+            f"{TMC160B.visualization_range_m:g} m is a "
+            "visualization boundary, "
+            "not a hardware range claim."
         )
 
     def _publish_visible(self) -> None:
@@ -83,7 +95,11 @@ class ThermalDetectorMock(Node):
         position = transform.transform.translation
         orientation = transform.transform.rotation
         yaw = math.atan2(
-            2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
+            2.0
+            * (
+                orientation.w * orientation.z
+                + orientation.x * orientation.y
+            ),
             1.0 - 2.0 * (orientation.y**2 + orientation.z**2),
         )
         visible = visible_heat_sources(
