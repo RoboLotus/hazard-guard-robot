@@ -3,7 +3,7 @@ project(hazard_guard_simulation)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY config meshes urdf worlds
+install(DIRECTORY config meshes models urdf worlds
   DESTINATION share/${PROJECT_NAME}
 )
 install(DIRECTORY launch
