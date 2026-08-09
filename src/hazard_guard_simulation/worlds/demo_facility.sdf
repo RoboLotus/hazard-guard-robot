@@ -13,9 +13,10 @@
   provide: ignition-gazebo-* system plugin names instead of gz-sim-*, an IMU
   system for the robot IMU, and the ODE tuning the earlier worlds relied on.
 
-  One documented deviation: the bale storage is moved beside the control room.
-  The source blockout overlaps it with the baler; every other source overlap is
-  left as-is.
+  Two documented deviations: the control room is dropped, and the bale storage
+  takes the corner it vacated. That also clears the source blockout's overlap
+  between the baler and the bale storage; every other source overlap is left
+  as-is.
 
   The plant runs wall to wall, so there is no circulation loop at any scale.
   The patrol route is the south aisle, driven there and back.
@@ -176,7 +177,7 @@
     </model>
     <model name="bale_storage">
       <static>true</static>
-      <pose>3.4271 -4.3993 0 0 0 1.570796</pose>
+      <pose>3.4271 -5.2993 0 0 0 1.570796</pose>
       <link name="link">
         <visual name="visual">
           <geometry><mesh><uri>model://bale_storage/meshes/bale_storage.obj</uri>
@@ -184,20 +185,6 @@
         </visual>
         <collision name="collision">
           <geometry><mesh><uri>model://bale_storage/meshes/bale_storage.obj</uri>
-            <scale>0.13201 0.13201 0.13201</scale></mesh></geometry>
-        </collision>
-      </link>
-    </model>
-    <model name="control_room">
-      <static>true</static>
-      <pose>0.0000 0.0000 0 0 0 0.000000</pose>
-      <link name="link">
-        <visual name="visual">
-          <geometry><mesh><uri>model://control_room/meshes/control_room.obj</uri>
-            <scale>0.13201 0.13201 0.13201</scale></mesh></geometry>
-        </visual>
-        <collision name="collision">
-          <geometry><mesh><uri>model://control_room/meshes/control_room.obj</uri>
             <scale>0.13201 0.13201 0.13201</scale></mesh></geometry>
         </collision>
       </link>

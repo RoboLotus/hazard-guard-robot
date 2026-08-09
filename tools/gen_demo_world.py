@@ -39,20 +39,25 @@ Z_LO, Z_HI = 0.05, 2.5
 
 # Exactly the include list of gazebo-simulator/worlds/recycling_facility.sdf,
 # in the same order. Poses stay at the origin - do not add offsets or yaw here.
+# control_room is dropped: it stood in the south-east corner of the only aisle
+# the robot can drive, and a manned office is not a patrol target. The bale
+# storage takes its place, which also clears the bale storage's overlap with
+# the baler.
 ITEMS = ["hall_shell", "bunker", "primary_shredder", "sorting_line",
-         "secondary_processor", "baler", "bale_storage", "control_room"]
+         "secondary_processor", "baler", "bale_storage"]
 
 # Deliberate, minimal deviations from that layout. name -> (x, y, yaw degrees)
 # of the item's footprint centre, in demo-room metres.
 #
 # The source blockout has several items overlapping on the floor plan:
 # secondary_processor/baler 0.394 m2, baler/bale_storage 0.128 m2,
-# sorting_line/secondary_processor 0.068 m2, primary_shredder/sorting_line
-# 0.038 m2. Only the bale storage is relocated here, beside the control room,
-# which clears its overlap with the baler. The rest are left as the source has
-# them - fixing those would mean redesigning the plant, not placing one item.
+# bunker/primary_shredder 0.072 m2, sorting_line/secondary_processor 0.068 m2,
+# primary_shredder/sorting_line 0.038 m2. Only the bale storage is relocated -
+# into the corner the control room vacated - which clears its overlap with the
+# baler. The rest are left as the source has them; fixing those would mean
+# redesigning the plant, not placing one item.
 OVERRIDES = {
-    "bale_storage": (2.80, -1.00, 90),
+    "bale_storage": (2.80, -1.90, 90),
 }
 
 
@@ -234,9 +239,10 @@ parts = ["""<?xml version='1.0' encoding='utf-8'?>
   provide: ignition-gazebo-* system plugin names instead of gz-sim-*, an IMU
   system for the robot IMU, and the ODE tuning the earlier worlds relied on.
 
-  One documented deviation: the bale storage is moved beside the control room.
-  The source blockout overlaps it with the baler; every other source overlap is
-  left as-is.
+  Two documented deviations: the control room is dropped, and the bale storage
+  takes the corner it vacated. That also clears the source blockout's overlap
+  between the baler and the bale storage; every other source overlap is left
+  as-is.
 
   The plant runs wall to wall, so there is no circulation loop at any scale.
   The patrol route is the south aisle, driven there and back.

@@ -50,7 +50,7 @@ def generate_launch_description() -> LaunchDescription:
                     "The <world name> value inside the selected SDF file"
                 ),
             ),
-            DeclareLaunchArgument("spawn_x", default_value="0.21"),
+            DeclareLaunchArgument("spawn_x", default_value="0.13"),
             DeclareLaunchArgument("spawn_y", default_value="-0.99"),
             DeclareLaunchArgument("spawn_z", default_value="0.05"),
             DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
