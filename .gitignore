@@ -13,8 +13,9 @@ compile_commands.json
 .venv/
 venv/
 
-# Runtime-generated maps and recordings
+# Runtime-generated maps, recordings and local debug helpers
 runtime/maps/*
+runtime/debug/
 !runtime/maps/.gitkeep
 runtime/bags/
 *.db3
