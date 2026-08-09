@@ -15,33 +15,38 @@ from .perception import visible_heat_sources
 class ThermalDetectorMock(Node):
     """Publish deterministic map-space heat sources visible to the robot."""
 
+    # Map-space positions on the classroom demo layout, each on the aisle-
+    # facing face of the machine named in "source" so the robot can actually
+    # frame it from the patrol loop. Radii are scaled with the world (0.1333)
+    # to stay proportional to the shrunken equipment.
+    # Regenerate the layout with tools/gen_demo_world.py if it moves.
     HEAT_SOURCES = [
         {
             "detection_id": "sim-hot-motor",
-            "x": -0.2,
-            "y": -2.5,
-            "z": 0.55,
+            "x": -0.30,
+            "y": -1.62,
+            "z": 0.50,
             "temperature_c": 84.6,
-            "radius_m": 0.42,
-            "source": "gazebo:hot_motor",
+            "radius_m": 0.12,
+            "source": "gazebo:primary_shredder_motor",
         },
         {
             "detection_id": "sim-pump-block",
-            "x": 1.8,
-            "y": 1.2,
-            "z": 0.65,
+            "x": -1.25,
+            "y": -0.03,
+            "z": 0.38,
             "temperature_c": 68.4,
-            "radius_m": 0.5,
-            "source": "gazebo:pump_block",
+            "radius_m": 0.14,
+            "source": "gazebo:sorting_line_drive",
         },
         {
             "detection_id": "sim-tank-block",
-            "x": -1.8,
-            "y": 1.8,
-            "z": 0.8,
+            "x": 1.60,
+            "y": 0.22,
+            "z": 0.42,
             "temperature_c": 48.2,
-            "radius_m": 0.55,
-            "source": "gazebo:tank_block",
+            "radius_m": 0.13,
+            "source": "gazebo:baler_hydraulic_tank",
         },
     ]
 
