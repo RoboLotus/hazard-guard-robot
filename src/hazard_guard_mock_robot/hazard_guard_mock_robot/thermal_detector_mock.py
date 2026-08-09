@@ -15,34 +15,35 @@ from .perception import visible_heat_sources
 class ThermalDetectorMock(Node):
     """Publish deterministic map-space heat sources visible to the robot."""
 
-    # Map-space positions on the classroom demo layout, each on the aisle-
-    # facing face of the machine named in "source" so the robot can actually
-    # frame it from the patrol loop. Radii are scaled with the world (0.0983)
-    # to stay proportional to the shrunken equipment.
-    # Regenerate the layout with tools/gen_demo_world.py if it moves.
+    # Map-space positions on the classroom demo world, each on the face the
+    # machine turns toward the south aisle - the only run the robot drives -
+    # so a detection can be framed together with its machine. Coordinates are
+    # the original facility positions scaled by 0.13201, and radii are scaled
+    # with them so they stay proportional to the shrunken equipment.
+    # Regenerate the layout with tools/gen_demo_world.py if the room changes.
     HEAT_SOURCES = [
         {
             "detection_id": "sim-hot-motor",
-            "x": -0.32,
-            "y": -1.99,
-            "z": 0.40,
+            "x": -1.76,
+            "y": -0.65,
+            "z": 0.45,
             "temperature_c": 84.6,
-            "radius_m": 0.09,
+            "radius_m": 0.10,
             "source": "gazebo:primary_shredder_motor",
         },
         {
             "detection_id": "sim-pump-block",
-            "x": -0.91,
-            "y": -0.76,
-            "z": 0.30,
+            "x": 1.76,
+            "y": -0.47,
+            "z": 0.45,
             "temperature_c": 68.4,
             "radius_m": 0.10,
-            "source": "gazebo:sorting_line_drive",
+            "source": "gazebo:secondary_processor_pump",
         },
         {
             "detection_id": "sim-tank-block",
-            "x": 1.10,
-            "y": -0.58,
+            "x": 2.63,
+            "y": -0.53,
             "z": 0.35,
             "temperature_c": 48.2,
             "radius_m": 0.09,
@@ -50,11 +51,11 @@ class ThermalDetectorMock(Node):
         },
         {
             "detection_id": "sim-waste-pile",
-            "x": -0.70,
-            "y": 1.76,
+            "x": -2.41,
+            "y": -1.20,
             "z": 0.45,
             "temperature_c": 71.3,
-            "radius_m": 0.12,
+            "radius_m": 0.13,
             "source": "gazebo:bunker_waste_pile",
         },
     ]
