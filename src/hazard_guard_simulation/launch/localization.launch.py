@@ -16,6 +16,7 @@ def generate_launch_description() -> LaunchDescription:
 
     gui = LaunchConfiguration("gui")
     world = LaunchConfiguration("world")
+    world_name = LaunchConfiguration("world_name")
     map_file = LaunchConfiguration("map")
     spawn_x = LaunchConfiguration("spawn_x")
     spawn_y = LaunchConfiguration("spawn_y")
@@ -34,15 +35,24 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("gui", default_value="false"),
             DeclareLaunchArgument(
                 "world",
-                default_value=str(simulation_share / "worlds" / "facility_map.sdf"),
+                default_value=str(
+                    simulation_share / "worlds" / "demo_facility.sdf"
+                ),
             ),
             DeclareLaunchArgument(
                 "map",
                 description="Absolute path to a saved occupancy map YAML file.",
             ),
-            DeclareLaunchArgument("spawn_x", default_value="0.60"),
-            DeclareLaunchArgument("spawn_y", default_value="0.70"),
-            DeclareLaunchArgument("spawn_z", default_value="0.01"),
+            DeclareLaunchArgument(
+                "world_name",
+                default_value="demo_facility",
+                description=(
+                    "The <world name> value inside the selected SDF file"
+                ),
+            ),
+            DeclareLaunchArgument("spawn_x", default_value="0.0"),
+            DeclareLaunchArgument("spawn_y", default_value="-1.15"),
+            DeclareLaunchArgument("spawn_z", default_value="0.05"),
             DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
             DeclareLaunchArgument("simulation_mode", default_value="kinematic"),
             DeclareLaunchArgument("visualize_sensors", default_value="false"),
@@ -70,6 +80,7 @@ def generate_launch_description() -> LaunchDescription:
                     "gui": gui,
                     "use_sim_time": "true",
                     "world": world,
+                    "world_name": world_name,
                     "spawn_x": spawn_x,
                     "spawn_y": spawn_y,
                     "spawn_z": spawn_z,

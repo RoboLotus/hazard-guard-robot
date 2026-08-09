@@ -26,7 +26,7 @@ def generate_launch_description() -> LaunchDescription:
         get_package_share_directory("hazard_guard_simulation")
     )
     ros_gz_share = Path(get_package_share_directory("ros_gz_sim"))
-    default_world = simulation_share / "worlds" / "facility_map.sdf"
+    default_world = simulation_share / "worlds" / "demo_facility.sdf"
     robot = simulation_share / "urdf" / "hazard_guard_m1.urdf.xacro"
 
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -85,14 +85,16 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "world_name",
-                default_value="facility_map",
+                default_value="demo_facility",
                 description=(
                     "The <world name> value inside the selected SDF file"
                 ),
             ),
-            DeclareLaunchArgument("spawn_x", default_value="0.60"),
-            DeclareLaunchArgument("spawn_y", default_value="0.70"),
-            DeclareLaunchArgument("spawn_z", default_value="0.04"),
+            # South leg of the patrol loop, between the shredder and the
+            # centre island. Verified drivable by tools/gen_demo_world.py.
+            DeclareLaunchArgument("spawn_x", default_value="0.0"),
+            DeclareLaunchArgument("spawn_y", default_value="-1.15"),
+            DeclareLaunchArgument("spawn_z", default_value="0.05"),
             DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
             DeclareLaunchArgument(
                 "simulation_mode",
@@ -117,6 +119,11 @@ def generate_launch_description() -> LaunchDescription:
                     ),
                     os.pathsep,
                     str(simulation_share.parent),
+                    # The facility world resolves its equipment through bare
+                    # "model://<name>" URIs, so the directory holding those
+                    # model folders has to be on the resource path itself.
+                    os.pathsep,
+                    str(simulation_share / "models"),
                 ],
             ),
             IncludeLaunchDescription(
