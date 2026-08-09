@@ -185,6 +185,45 @@ WebUI를 함께 쓸 때는 백엔드의 `HAZARD_GUARD_SIMULATION_WORLD_MARKER`�
 월드 파일 이름으로 맞춰야 WebUI가 시뮬레이터 프로세스를 인식하고 종료할 수
 있습니다. 데모 월드를 쓸 때는 `demo_facility.sdf`입니다.
 
+## 자동 순찰
+
+수동 주행 없이 웨이포인트를 자동으로 도는 방법입니다. Nav2 와
+`hazard_guard_mission_manager` 가 함께 떠 있어야 하므로 `navigation.launch.py`
+또는 `localization.launch.py` 를 사용합니다. `simulation.launch.py` 나
+`slam.launch.py` 만으로는 Nav2 가 없어 액션 서버가 뜨지 않습니다.
+
+터미널 1 - SLAM + Nav2 + 임무 관리자:
+
+```bash
+ros2 launch hazard_guard_simulation navigation.launch.py gui:=false
+```
+
+터미널 2 - 순찰 시작 (Nav2 가 활성화될 때까지 40초 정도 기다린 뒤):
+
+```bash
+tools/run_patrol.sh
+```
+
+`P1 → P2 → P3 → P4` 를 돌고 출발점으로 복귀합니다. 각 지점에서 2초 정차하며,
+정차 시간은 `PATROL_DWELL_SECONDS` 로 조정합니다. 진행 상황은 액션 피드백과
+`/hazard_guard/mission/status` 로 확인할 수 있습니다.
+
+지도를 만들면서 순찰해도 됩니다. `config/nav2.yaml` 의 플래너가
+`allow_unknown: true` 라 아직 관측하지 않은 공간으로도 경로를 세우고, SLAM 이
+주행하는 동안 지도를 채웁니다.
+
+중단하려면 액션을 취소하거나 다음 서비스를 호출합니다.
+
+```bash
+ros2 service call /hazard_guard/mission/cancel std_srvs/srv/Trigger
+```
+
+임무 관리자를 거치지 않고 Nav2 에 직접 넣으려면 `/follow_waypoints` 를 쓸 수
+있지만, 구간 경로 사전 검증과 목표 방향 정렬은 임무 관리자에만 있습니다.
+
+WebUI 를 쓰는 경우 `지도` 탭의 웨이포인트 패널이 같은 액션을 호출하므로 이
+스크립트를 따로 실행할 필요가 없습니다.
+
 ## 지도 작성
 
 ```bash
