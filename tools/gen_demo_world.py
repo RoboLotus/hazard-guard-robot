@@ -42,6 +42,19 @@ Z_LO, Z_HI = 0.05, 2.5
 ITEMS = ["hall_shell", "bunker", "primary_shredder", "sorting_line",
          "secondary_processor", "baler", "bale_storage", "control_room"]
 
+# Deliberate, minimal deviations from that layout. name -> (x, y, yaw degrees)
+# of the item's footprint centre, in demo-room metres.
+#
+# The source blockout has several items overlapping on the floor plan:
+# secondary_processor/baler 0.394 m2, baler/bale_storage 0.128 m2,
+# sorting_line/secondary_processor 0.068 m2, primary_shredder/sorting_line
+# 0.038 m2. Only the bale storage is relocated here, beside the control room,
+# which clears its overlap with the baler. The rest are left as the source has
+# them - fixing those would mean redesigning the plant, not placing one item.
+OVERRIDES = {
+    "bale_storage": (2.80, -1.00, 90),
+}
+
 
 def load(name):
     verts, faces = [], []
@@ -74,9 +87,28 @@ print("모든 모델은 원본과 동일하게 원점 배치, 회전 없음\n")
 # ---- rasterise ------------------------------------------------------------
 nx, ny = int(HALL_X / CELL), int(HALL_Y / CELL)
 occ = np.zeros((ny, nx), bool)
+def transform(name):
+    """Original pose unless the item carries a documented override."""
+    v = MESH[name][0] * SCALE
+    if name not in OVERRIDES:
+        return v, np.zeros(3), 0.0
+    tx, ty, yaw = OVERRIDES[name]
+    a = math.radians(yaw)
+    rot = np.array([[math.cos(a), -math.sin(a), 0],
+                    [math.sin(a), math.cos(a), 0],
+                    [0, 0, 1]])
+    v = v @ rot.T
+    centre = np.array([(v[:, 0].min() + v[:, 0].max()) / 2,
+                       (v[:, 1].min() + v[:, 1].max()) / 2, 0.0])
+    offset = np.array([tx, ty, 0.0]) - centre
+    return v + offset, offset, yaw
+
+
+PLACED = {name: transform(name) for name in ITEMS}
+
 for name in ITEMS:
-    verts, faces = MESH[name]
-    v = verts * SCALE
+    v, _, _ = PLACED[name]
+    faces = MESH[name][1]
     for a, b, c in faces:
         tri = v[[a - 1, b - 1, c - 1]]
         if tri[:, 2].max() < Z_LO or tri[:, 2].min() > Z_HI:
@@ -112,11 +144,50 @@ print(f"{'설비':<22}{'가로':>9}{'세로':>9}{'높이':>9}"
       f"{'중심 X':>10}{'중심 Y':>10}")
 print("-" * 70)
 for name in ITEMS:
-    v = MESH[name][0] * SCALE
-    print(f"{name:<22}{v[:,0].ptp():>7.2f} m{v[:,1].ptp():>7.2f} m"
+    v = PLACED[name][0]
+    mark = " *" if name in OVERRIDES else ""
+    print(f"{name+mark:<22}{v[:,0].ptp():>7.2f} m{v[:,1].ptp():>7.2f} m"
           f"{v[:,2].ptp():>7.2f} m"
           f"{(v[:,0].min()+v[:,0].max())/2:>9.2f} m"
           f"{(v[:,1].min()+v[:,1].max())/2:>9.2f} m")
+
+# ---- overlap report -------------------------------------------------------
+# The source blockout has items sharing floor area. Report it every run so a
+# relocation is not silently undone and a new one is not silently introduced.
+def item_grid(name):
+    v, _, _ = PLACED[name]
+    g = np.zeros((ny, nx), bool)
+    for a, b, c in MESH[name][1]:
+        tri = v[[a - 1, b - 1, c - 1]]
+        if tri[:, 2].max() < Z_LO or tri[:, 2].min() > Z_HI:
+            continue
+        x0 = max(int((tri[:, 0].min() + HALL_X / 2) / CELL), 0)
+        x1 = max(int(np.ceil((tri[:, 0].max() + HALL_X / 2) / CELL)), 0)
+        y0 = max(int((tri[:, 1].min() + HALL_Y / 2) / CELL), 0)
+        y1 = max(int(np.ceil((tri[:, 1].max() + HALL_Y / 2) / CELL)), 0)
+        g[y0:y1, x0:x1] = True
+    return g
+
+
+GRIDS = {n: item_grid(n) for n in ITEMS if n != "hall_shell"}
+names = list(GRIDS)
+overlaps = []
+for i, a in enumerate(names):
+    for b in names[i + 1:]:
+        area = (GRIDS[a] & GRIDS[b]).sum() * CELL ** 2
+        if area > 0.01:
+            overlaps.append((area, a, b))
+print("\n설비 간 바닥 겹침 (원본 블록아웃에서 유래)")
+print("-" * 56)
+if overlaps:
+    for area, a, b in sorted(overlaps, reverse=True):
+        print(f"{a:<22}{b:<22}{area:>7.3f} m^2")
+else:
+    print("없음")
+for name in OVERRIDES:
+    bad = [f"{a}/{b}" for _, a, b in overlaps if name in (a, b)]
+    state = f"겹침 남음: {', '.join(bad)}" if bad else "겹침 해소됨"
+    print(f"이동 대상 {name}: {state}")
 
 # ---- patrol waypoints along the open aisle --------------------------------
 def nearest_drivable(target):
@@ -154,14 +225,18 @@ parts = ["""<?xml version='1.0' encoding='utf-8'?>
   - do not hand-edit; change HALL_X/HALL_Y in that script and re-run.
 
   Layout is the RoboLotus/gazebo-simulator recycling facility, unmodified:
-  the same eight models in the same include order, every one at the common
-  world origin with no rotation. Only the uniform scale differs - {s:.5f},
+  the same eight models in the same include order, at the common world origin
+  apart from the override listed below. The uniform scale is {s:.5f},
   the largest that fits the {sx:.2f} x {sy:.2f} m plant into a {hx} x {hy} m
   room.
 
   The Fortress conversion is limited to three things the original could not
   provide: ignition-gazebo-* system plugin names instead of gz-sim-*, an IMU
   system for the robot IMU, and the ODE tuning the earlier worlds relied on.
+
+  One documented deviation: the bale storage is moved beside the control room.
+  The source blockout overlaps it with the baler; every other source overlap is
+  left as-is.
 
   The plant runs wall to wall, so there is no circulation loop at any scale.
   The patrol route is the south aisle, driven there and back.
@@ -241,10 +316,11 @@ parts = ["""<?xml version='1.0' encoding='utf-8'?>
 
 for name in ITEMS:
     uri = f"model://{name}/meshes/{name}.obj"
+    _, off, yaw = PLACED[name]
     parts.append(f"""
     <model name="{name}">
       <static>true</static>
-      <pose>0 0 0 0 0 0</pose>
+      <pose>{off[0]:.4f} {off[1]:.4f} 0 0 0 {math.radians(yaw):.6f}</pose>
       <link name="link">
         <visual name="visual">
           <geometry><mesh><uri>{uri}</uri>
