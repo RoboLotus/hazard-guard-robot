@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "worlds": {
+    "facility_map": {
+      "label": "기본 시설 환경",
+      "description": "기본 시설 배치에서 SLAM과 Nav2 순찰을 검증하는 환경",
+      "difficulty": "easy",
+      "world_name": "facility_map",
+      "spawn": { "x": 0.6, "y": 0.7, "z": 0.04, "yaw": 0.0 },
+      "heat_source_profile": "config/heat_sources/facility_map.json"
+    },
+    "facility_map_heat_sources": {
+      "label": "열원 배치 시설 환경",
+      "description": "3개 설비 열원을 포함한 열화상 탐지·지도 융합 검증 환경",
+      "difficulty": "medium",
+      "world_name": "facility_map_with_heat_sources",
+      "spawn": { "x": 0.6, "y": 0.7, "z": 0.04, "yaw": 0.0 },
+      "heat_source_profile": "config/heat_sources/facility_map_heat_sources.json"
+    },
+    "mecanum_validation": {
+      "label": "메카넘 구동 검증장",
+      "description": "바퀴 접촉과 메카넘 구동 특성을 확인하는 개발용 환경",
+      "difficulty": "development",
+      "world_name": "mecanum_validation",
+      "spawn": { "x": 0.0, "y": 0.0, "z": 0.04, "yaw": 0.0 }
+    }
+  }
+}
