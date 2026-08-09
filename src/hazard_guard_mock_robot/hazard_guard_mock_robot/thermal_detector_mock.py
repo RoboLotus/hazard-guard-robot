@@ -17,36 +17,45 @@ class ThermalDetectorMock(Node):
 
     # Map-space positions on the classroom demo layout, each on the aisle-
     # facing face of the machine named in "source" so the robot can actually
-    # frame it from the patrol loop. Radii are scaled with the world (0.1333)
+    # frame it from the patrol loop. Radii are scaled with the world (0.0983)
     # to stay proportional to the shrunken equipment.
     # Regenerate the layout with tools/gen_demo_world.py if it moves.
     HEAT_SOURCES = [
         {
             "detection_id": "sim-hot-motor",
-            "x": -0.30,
-            "y": -1.62,
-            "z": 0.50,
+            "x": -0.32,
+            "y": -1.99,
+            "z": 0.40,
             "temperature_c": 84.6,
-            "radius_m": 0.12,
+            "radius_m": 0.09,
             "source": "gazebo:primary_shredder_motor",
         },
         {
             "detection_id": "sim-pump-block",
-            "x": -1.25,
-            "y": -0.03,
-            "z": 0.38,
+            "x": -0.91,
+            "y": -0.76,
+            "z": 0.30,
             "temperature_c": 68.4,
-            "radius_m": 0.14,
+            "radius_m": 0.10,
             "source": "gazebo:sorting_line_drive",
         },
         {
             "detection_id": "sim-tank-block",
-            "x": 1.60,
-            "y": 0.22,
-            "z": 0.42,
+            "x": 1.10,
+            "y": -0.58,
+            "z": 0.35,
             "temperature_c": 48.2,
-            "radius_m": 0.13,
+            "radius_m": 0.09,
             "source": "gazebo:baler_hydraulic_tank",
+        },
+        {
+            "detection_id": "sim-waste-pile",
+            "x": -0.70,
+            "y": 1.76,
+            "z": 0.45,
+            "temperature_c": 71.3,
+            "radius_m": 0.12,
+            "source": "gazebo:bunker_waste_pile",
         },
     ]
 
