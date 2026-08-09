@@ -90,10 +90,10 @@ def generate_launch_description() -> LaunchDescription:
                     "The <world name> value inside the selected SDF file"
                 ),
             ),
-            # South leg of the patrol loop, between the shredder row and the
-            # centre island. Verified drivable by tools/gen_demo_world.py.
-            DeclareLaunchArgument("spawn_x", default_value="0.0"),
-            DeclareLaunchArgument("spawn_y", default_value="-1.51"),
+            # Widest point of the south aisle, the only drivable run in the
+            # original plant layout. Verified by tools/gen_demo_world.py.
+            DeclareLaunchArgument("spawn_x", default_value="0.65"),
+            DeclareLaunchArgument("spawn_y", default_value="-0.99"),
             DeclareLaunchArgument("spawn_z", default_value="0.05"),
             DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
             DeclareLaunchArgument(
