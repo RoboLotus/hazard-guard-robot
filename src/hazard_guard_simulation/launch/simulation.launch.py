@@ -41,6 +41,7 @@ def generate_launch_description() -> LaunchDescription:
     visualize_sensors = LaunchConfiguration("visualize_sensors")
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
+    heat_source_profile = LaunchConfiguration("heat_source_profile")
 
     robot_description = ParameterValue(
         Command(
@@ -111,6 +112,11 @@ def generate_launch_description() -> LaunchDescription:
                 description="Attach the provisional rear dispenser geometry",
             ),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
+            DeclareLaunchArgument(
+                "heat_source_profile",
+                default_value="",
+                description="JSON profile for deterministic synthetic heat sources",
+            ),
             SetEnvironmentVariable(
                 "IGN_GAZEBO_RESOURCE_PATH",
                 [
@@ -169,14 +175,16 @@ def generate_launch_description() -> LaunchDescription:
                     "/imu/data_raw@sensor_msgs/msg/Imu[gz.msgs.IMU",
                     "/joint_states@sensor_msgs/msg/JointState[gz.msgs.Model",
                     "/camera@sensor_msgs/msg/Image[gz.msgs.Image",
-                    (
-                        "/camera_info@sensor_msgs/msg/CameraInfo"
-                        "[gz.msgs.CameraInfo"
-                    ),
+                    "/camera/camera_info@sensor_msgs/msg/CameraInfo"
+                    "[gz.msgs.CameraInfo",
                     "/depth_camera@sensor_msgs/msg/Image[gz.msgs.Image",
+                    "/depth_camera/camera_info@sensor_msgs/msg/CameraInfo"
+                    "[gz.msgs.CameraInfo",
                     "/depth_camera/points@sensor_msgs/msg/PointCloud2"
                     "[gz.msgs.PointCloudPacked",
                     "/thermal_camera@sensor_msgs/msg/Image[gz.msgs.Image",
+                    "/thermal_camera/camera_info@sensor_msgs/msg/CameraInfo"
+                    "[gz.msgs.CameraInfo",
                 ],
                 remappings=[
                     ("/camera", "/camera/image_raw"),
@@ -223,6 +231,7 @@ def generate_launch_description() -> LaunchDescription:
                         "range_max_m": TMC160B.visualization_range_m,
                         "sensor_frame": TMC160B.sensor_frame,
                         "publish_rate_hz": 2.0,
+                        "heat_source_profile": heat_source_profile,
                         "use_sim_time": use_sim_time,
                     }
                 ],

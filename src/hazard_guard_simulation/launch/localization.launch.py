@@ -26,6 +26,7 @@ def generate_launch_description() -> LaunchDescription:
     visualize_sensors = LaunchConfiguration("visualize_sensors")
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
+    heat_source_profile = LaunchConfiguration("heat_source_profile")
     start_simulation = LaunchConfiguration("start_simulation")
     auto_initial_pose = LaunchConfiguration("auto_initial_pose")
     initial_pose_delay = LaunchConfiguration("initial_pose_delay")
@@ -39,6 +40,7 @@ def generate_launch_description() -> LaunchDescription:
                     simulation_share / "worlds" / "demo_facility.sdf"
                 ),
             ),
+            DeclareLaunchArgument("world_name", default_value="facility_map"),
             DeclareLaunchArgument(
                 "map",
                 description="Absolute path to a saved occupancy map YAML file.",
@@ -58,6 +60,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("visualize_sensors", default_value="false"),
             DeclareLaunchArgument("include_dispenser", default_value="true"),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
+            DeclareLaunchArgument("heat_source_profile", default_value=""),
             DeclareLaunchArgument(
                 "start_simulation",
                 default_value="true",
@@ -89,6 +92,7 @@ def generate_launch_description() -> LaunchDescription:
                     "visualize_sensors": visualize_sensors,
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
+                    "heat_source_profile": heat_source_profile,
                 }.items(),
                 condition=IfCondition(start_simulation),
             ),
