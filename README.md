@@ -12,6 +12,7 @@ Gazebo Fortress, SLAM Toolbox, Nav2와 WebUI 연동을 검증할 수 있는 개�
 - ROSMASTER-M1 Superior Kit 기반 로봇 모델
 - RGB, Depth, ThermoEye TMC160B 사양 기반 합성 열화상, 2D LiDAR, IMU 센서 시뮬레이션
 - SLAM Toolbox 기반 지도 작성
+- RTAB-Map 기반 RGB-D 컬러 3D 지도 실험
 - AMCL 기반 위치 추정
 - Nav2 단일 목적지·다중 웨이포인트 주행
 - 하드웨어 없이 사용하는 mock telemetry·열원 탐지
@@ -232,6 +233,25 @@ ros2 launch hazard_guard_simulation slam.launch.py gui:=true
 
 로봇을 수동 주행시켜 공간을 탐색한 뒤 지도를 저장합니다.
 
+지도 작성 프로필은 두 가지입니다.
+
+| 프로필 | launch 인자 | 생성 결과 | 권장 용도 |
+|---|---|---|---|
+| 2D 표준 | `enable_rtabmap:=false` | SLAM Toolbox 점유 지도 | Nav2 순찰용 지도 작성, 빠른 반복 검증 |
+| 2D + RGB-D 3D | `enable_rtabmap:=true` | 동일한 2D 점유 지도 + RTAB-Map DB·컬러 포인트클라우드 | 3D 공간 및 향후 열화상 융합 실험 |
+
+```bash
+ros2 launch hazard_guard_simulation slam.launch.py \
+  gui:=false \
+  enable_rtabmap:=true \
+  rtabmap_database_path:="$(pwd)/runtime/maps/rtabmap.db"
+```
+
+두 프로필 모두 `/map`과 `map → odom` TF는 SLAM Toolbox만 발행합니다.
+RTAB-Map은 별도 `rtabmap_map` 좌표계와 `/rtabmap/grid_map`을 사용하므로
+2D 지도와 TF를 중복 발행하지 않습니다. 따라서 3D 수집을 켜도 Nav2가 사용할
+2D 지도 생성 방식은 바뀌지 않습니다.
+
 ```bash
 mkdir -p runtime/maps
 ros2 run nav2_map_server map_saver_cli \
@@ -261,13 +281,57 @@ SLAM을 실행한 상태에서 Nav2를 함께 시험하려면 다음을 사용�
 ros2 launch hazard_guard_simulation navigation.launch.py gui:=true
 ```
 
+## RTAB-Map RGB-D 3D 지도 실험
+
+이 기능은 기존의 `SLAM Toolbox + Nav2` 2D 운용 경로를 교체하지 않는 별도
+시뮬레이션 실험입니다. 로봇은 바닥의 X/Y/Yaw로 이동하면서 RGB와 Depth를
+결합해 높이(Z)와 색상이 포함된 포인트클라우드를 누적합니다.
+
+RViz에서 직접 확인하면서 안전 구간 자동 수집 경로를 실행하려면 다음을
+사용합니다.
+
+```bash
+ros2 launch hazard_guard_simulation rtabmap_sim.launch.py \
+  gui:=false \
+  rviz:=true \
+  demo_route:=true
+```
+
+`demo_route:=true`는 시뮬레이션 시간에서만 실행되는 제한된 검증 경로입니다.
+제자리 회전, 중앙 통로 왕복, 반대편 회전을 수행한 뒤 초기 위치 부근으로
+돌아오며 실제 로봇에서는 실행하지 않습니다.
+
+RTAB-Map 자체의 `/rtabmap/cloud_map`은 이 구성에서 Z=0인 장애물 점유 셀을
+나타냅니다. 컬러 표면 지도는 RGB·Depth로 프레임별 포인트클라우드를 만든 뒤
+RTAB-Map의 `map` 좌표계에 누적하여
+`/hazard_guard/rtabmap/cloud_surface`로 발행합니다. 각 점은 X/Y/Z와 RGB를
+포함하며 WebUI 백엔드가 이를 다운샘플링해 브라우저로 전송합니다. RViz는 이
+데이터를 보는 도구일 뿐 WebUI의 데이터 원본은 아닙니다.
+
+실제 로봇 전환 시 RTAB-Map 알고리즘 코드를 다시 만들 필요는 없지만,
+Gazebo 카메라 토픽 대신 실제 RGB·Depth·CameraInfo·Odometry·TF를 연결해야
+합니다. 특히 RGB 카메라와 Depth 카메라의 내부 파라미터 및 센서와
+`base_link` 사이 외부 캘리브레이션이 선행되어야 합니다.
+
+이 컬러 클라우드는 센서가 관측한 표면의 3D 복원 결과이므로 가려진 면과 아직
+주행하지 않은 구역은 포함하지 않습니다. Gazebo SDF의 모든 벽과 메시를 완전한
+형태로 표시하는 것은 SLAM 검증과 구분되는 시뮬레이터 원본 디지털 트윈
+기능입니다.
+
 ## WebUI 운용 모드 연동
 
 `hazard-guard-console` 백엔드의 모드 제어를 활성화하면 WebUI `지도` 탭에서
 다음 launch 구성을 선택할 수 있습니다.
 
 - `맵 생성 / SLAM`: `slam.launch.py`
+  - `2D 표준`: SLAM Toolbox만 실행
+  - `2D + RGB-D 3D`: SLAM Toolbox와 RTAB-Map을 함께 실행
 - `순찰 / AMCL·Nav2`: 저장 지도를 사용하는 `localization.launch.py`
+
+WebUI가 새 지도 세션을 시작하면 세션 디렉터리를 만들고 2D 지도는
+`map.yaml`·`map.pgm`, 3D 수집 프로필은 추가로 `rtabmap.db`에 저장합니다.
+RTAB-Map DB는 장시간 주행할수록 커질 수 있으므로 세션 목록에서 용량을
+확인하고 필요한 결과만 보관합니다.
 
 WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미널에서 동시에
 실행하지 않습니다. 맵 생성 모드에서는 목적지 이동과 웨이포인트 순찰 명령이
@@ -284,6 +348,7 @@ WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미�
 | LiDAR | `/scan` |
 | RGB | `/camera/image_raw` |
 | Depth | `/depth_camera/image_raw` |
+| RTAB-Map 컬러 3D 지도 | `/hazard_guard/rtabmap/cloud_surface` |
 | 열화상 | `/thermal_camera/image_raw` |
 | IMU | `/imu/data_raw` |
 | 로봇 상태 | `/hazard_guard/telemetry` |
