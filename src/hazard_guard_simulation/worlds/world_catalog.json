@@ -1,6 +1,14 @@
 {
   "version": 1,
   "worlds": {
+    "demo_facility": {
+      "label": "재활용 처리장 데모 환경",
+      "description": "8m × 6m 강의실 규모에 설비 7종과 남측 왕복 순찰 통로를 구성한 기본 검증 환경",
+      "difficulty": "medium",
+      "world_name": "demo_facility",
+      "spawn": { "x": 0.13, "y": -0.99, "z": 0.05, "yaw": 0.0 },
+      "heat_source_profile": "config/heat_sources/demo_facility.json"
+    },
     "facility_map": {
       "label": "기본 시설 환경",
       "description": "기본 시설 배치에서 SLAM과 Nav2 순찰을 검증하는 환경",
@@ -16,6 +24,14 @@
       "world_name": "facility_map_with_heat_sources",
       "spawn": { "x": 0.6, "y": 0.7, "z": 0.04, "yaw": 0.0 },
       "heat_source_profile": "config/heat_sources/facility_map_heat_sources.json"
+    },
+    "recycling_facility": {
+      "label": "재활용 처리장 원본 규모",
+      "description": "약 60m × 35m 원본 설비 배치와 대규모 센서 범위를 검증하는 고급 환경",
+      "difficulty": "advanced",
+      "world_name": "recycling_facility",
+      "spawn": { "x": 0.0, "y": -10.0, "z": 0.05, "yaw": 0.0 },
+      "heat_source_profile": "config/heat_sources/recycling_facility.json"
     },
     "mecanum_validation": {
       "label": "메카넘 구동 검증장",

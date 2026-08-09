@@ -94,6 +94,7 @@ def generate_launch_description() -> LaunchDescription:
     visualize_sensors = LaunchConfiguration("visualize_sensors")
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
+    heat_source_profile = LaunchConfiguration("heat_source_profile")
     start_simulation = LaunchConfiguration("start_simulation")
     start_rviz = LaunchConfiguration("rviz")
     start_demo_route = LaunchConfiguration("demo_route")
@@ -105,18 +106,19 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "world",
                 default_value=str(
-                    simulation_share / "worlds" / "facility_map.sdf"
+                    simulation_share / "worlds" / "demo_facility.sdf"
                 ),
             ),
-            DeclareLaunchArgument("world_name", default_value="facility_map"),
-            DeclareLaunchArgument("spawn_x", default_value="0.60"),
-            DeclareLaunchArgument("spawn_y", default_value="0.70"),
-            DeclareLaunchArgument("spawn_z", default_value="0.01"),
+            DeclareLaunchArgument("world_name", default_value="demo_facility"),
+            DeclareLaunchArgument("spawn_x", default_value="0.13"),
+            DeclareLaunchArgument("spawn_y", default_value="-0.99"),
+            DeclareLaunchArgument("spawn_z", default_value="0.05"),
             DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
             DeclareLaunchArgument("simulation_mode", default_value="kinematic"),
             DeclareLaunchArgument("visualize_sensors", default_value="false"),
             DeclareLaunchArgument("include_dispenser", default_value="true"),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
+            DeclareLaunchArgument("heat_source_profile", default_value=""),
             DeclareLaunchArgument("start_simulation", default_value="true"),
             DeclareLaunchArgument("rviz", default_value="true"),
             DeclareLaunchArgument(
@@ -161,6 +163,7 @@ def generate_launch_description() -> LaunchDescription:
                     "visualize_sensors": visualize_sensors,
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
+                    "heat_source_profile": heat_source_profile,
                 }.items(),
                 condition=IfCondition(start_simulation),
             ),

@@ -40,7 +40,6 @@ def generate_launch_description() -> LaunchDescription:
                     simulation_share / "worlds" / "demo_facility.sdf"
                 ),
             ),
-            DeclareLaunchArgument("world_name", default_value="facility_map"),
             DeclareLaunchArgument(
                 "map",
                 description="Absolute path to a saved occupancy map YAML file.",

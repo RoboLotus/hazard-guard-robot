@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "world_id": "recycling_facility",
+  "source_note": "데모 열원 좌표와 반경을 원본 시설 축척으로 역변환한 검증 프로필",
+  "sources": [
+    {
+      "detection_id": "sim-hot-motor-full-scale",
+      "x": -13.332,
+      "y": -4.924,
+      "z": 3.409,
+      "temperature_c": 84.6,
+      "radius_m": 0.758,
+      "source": "gazebo:primary_shredder_motor"
+    },
+    {
+      "detection_id": "sim-pump-block-full-scale",
+      "x": 13.332,
+      "y": -3.560,
+      "z": 3.409,
+      "temperature_c": 68.4,
+      "radius_m": 0.758,
+      "source": "gazebo:secondary_processor_pump"
+    },
+    {
+      "detection_id": "sim-tank-block-full-scale",
+      "x": 19.923,
+      "y": -4.015,
+      "z": 2.651,
+      "temperature_c": 48.2,
+      "radius_m": 0.682,
+      "source": "gazebo:baler_hydraulic_tank"
+    },
+    {
+      "detection_id": "sim-waste-pile-full-scale",
+      "x": -18.256,
+      "y": -9.090,
+      "z": 3.409,
+      "temperature_c": 71.3,
+      "radius_m": 0.985,
+      "source": "gazebo:bunker_waste_pile"
+    }
+  ]
+}

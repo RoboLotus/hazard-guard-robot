@@ -17,7 +17,7 @@ def normalize_angle(angle: float) -> float:
 
 
 class RtabmapScanDemo(Node):
-    """Rotate and traverse the facility's safe central aisle, then return."""
+    """Scan the demo facility's south aisle without turning at narrow ends."""
 
     def __init__(self) -> None:
         super().__init__("hazard_guard_rtabmap_scan_demo")
@@ -30,11 +30,10 @@ class RtabmapScanDemo(Node):
         self.create_subscription(Odometry, "/odom", self._on_odom, 10)
         self._segments = [
             ("rotate", math.tau, 0.32, "initial 360-degree color scan"),
-            ("rotate", -math.pi / 2, -0.28, "face the central aisle"),
-            ("drive", 1.0, 0.14, "scan the central aisle"),
-            ("rotate", math.tau, 0.32, "far-side 360-degree color scan"),
-            ("drive", 1.0, -0.14, "return to the start area"),
-            ("rotate", math.pi / 2, 0.28, "restore the initial heading"),
+            ("drive", 1.80, 0.14, "scan east to the safe interior endpoint"),
+            ("drive", 1.80, -0.14, "return west to P2 without turning"),
+            ("drive", 1.00, -0.14, "scan west to the safe interior endpoint"),
+            ("drive", 1.00, 0.14, "return east to P2 without turning"),
         ]
         self._segment_index = 0
         self._pose: tuple[float, float, float] | None = None
@@ -95,12 +94,12 @@ class RtabmapScanDemo(Node):
             self._started_at_ns = simulation_now
         if (
             self._started_at_ns is not None
-            and simulation_now - self._started_at_ns > 140_000_000_000
+            and simulation_now - self._started_at_ns > 150_000_000_000
         ):
             self._stop()
             self.finished = True
             self.get_logger().error(
-                "Scan route exceeded 140 simulated seconds; "
+                "Scan route exceeded 150 simulated seconds; "
                 "the robot was stopped."
             )
             return
