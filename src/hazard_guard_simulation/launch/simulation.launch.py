@@ -90,10 +90,10 @@ def generate_launch_description() -> LaunchDescription:
                     "The <world name> value inside the selected SDF file"
                 ),
             ),
-            # South leg of the patrol loop, between the shredder and the
+            # South leg of the patrol loop, between the shredder row and the
             # centre island. Verified drivable by tools/gen_demo_world.py.
             DeclareLaunchArgument("spawn_x", default_value="0.0"),
-            DeclareLaunchArgument("spawn_y", default_value="-1.15"),
+            DeclareLaunchArgument("spawn_y", default_value="-1.51"),
             DeclareLaunchArgument("spawn_z", default_value="0.05"),
             DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
             DeclareLaunchArgument(

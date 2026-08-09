@@ -51,7 +51,7 @@ def generate_launch_description() -> LaunchDescription:
                 ),
             ),
             DeclareLaunchArgument("spawn_x", default_value="0.0"),
-            DeclareLaunchArgument("spawn_y", default_value="-1.15"),
+            DeclareLaunchArgument("spawn_y", default_value="-1.51"),
             DeclareLaunchArgument("spawn_z", default_value="0.05"),
             DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
             DeclareLaunchArgument("simulation_mode", default_value="kinematic"),
