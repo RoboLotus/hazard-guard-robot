@@ -77,6 +77,64 @@ ros2 launch hazard_guard_simulation simulation.launch.py \
 `physics` 모드는 메카넘 휠 접촉과 마찰 계수를 시험하는 실험 모드이며, 실제
 주행 정확도를 보장하지 않습니다.
 
+## 월드
+
+기본 월드는 `worlds/demo_facility.sdf`입니다. 강의실에서 실기 시연이 가능하도록
+재활용 처리장을 **8 m × 6 m**로 축소한 데모 공간이며, 설비 메시는 원본을
+`0.1333`배(60 m 홀 → 8 m 방)한 것입니다.
+
+원본 레이아웃을 그대로 균등 축소하면 설비가 벽에서 벽까지 이어져 순환로가
+사라지고 왕복 주행만 남습니다. 그래서 데모 월드는 설비 5개를 중앙 섬 구조로
+재배치해 **한 바퀴 도는 순찰 경로**를 만듭니다. 병목 통로 폭은 1.35 m로,
+M1의 최소 요구치(풋프린트 0.31 m + 인플레이션 0.35 m = 1.01 m)를 넘습니다.
+
+레이아웃은 `tools/gen_demo_world.py`가 생성하고 동시에 검증합니다.
+배치를 바꾸려면 그 스크립트의 `LAYOUT`을 수정한 뒤 다시 실행하십시오.
+월드 SDF를 직접 편집하지 마십시오.
+
+### 데모 설비 배치 (실물 제작 치수)
+
+| 설비 | 회전 | 가로 | 세로 | 높이 | 중심 X | 중심 Y |
+|---|---|---|---|---|---|---|
+| sorting_line | 0° | 2.52 m | 1.74 m | 0.66 m | −1.25 | 0.74 |
+| baler | 90° | 2.46 m | 1.24 m | 0.71 m | 1.35 | 0.74 |
+| primary_shredder | 90° | 1.86 m | 1.48 m | 0.91 m | −0.30 | −2.26 |
+| bale_storage | 90° | 2.29 m | 0.72 m | 0.61 m | 2.85 | −2.64 |
+| control_room | 0° | 1.44 m | 0.88 m | 0.49 m | −3.00 | −2.56 |
+
+원점은 방 중앙이고 X가 8 m 변, Y가 6 m 변입니다. 실물은 라이다가 보는 높이만
+막으면 되므로 표의 가로·세로만 맞추면 됩니다.
+
+### 순찰 웨이포인트
+
+중앙 섬을 도는 4점입니다. 기본 스폰 위치는 남측 지점입니다.
+
+| 지점 | X | Y | 통로 여유 |
+|---|---|---|---|
+| 북 (선별라인 뒤) | 0.03 | 2.29 | 1.40 m |
+| 동 (압축기 옆) | 3.29 | 0.73 | 1.40 m |
+| 남 (파쇄기 앞) | 0.03 | −1.15 | 1.04 m |
+| 서 (반입구) | −3.25 | 0.73 | 1.48 m |
+
+### 다른 월드
+
+원본 60 m × 35 m 처리장(`recycling_facility.sdf`)과 초기 3.6 m × 2.4 m 테스트
+아레나(`facility_map.sdf`)도 남아 있습니다. `world`와 `world_name`은 항상 같이
+넘겨야 하며, `config/nav2.yaml`과 `config/slam.yaml`은 데모 공간 기준으로
+맞춰져 있으므로 큰 월드에서는 costmap 범위와 라이다 사거리를 함께 올려야
+합니다.
+
+```bash
+ros2 launch hazard_guard_simulation simulation.launch.py \
+  world:="$(ros2 pkg prefix hazard_guard_simulation)/share/hazard_guard_simulation/worlds/recycling_facility.sdf" \
+  world_name:=recycling_facility \
+  spawn_x:=0.0 spawn_y:=-10.0
+```
+
+WebUI를 함께 쓸 때는 백엔드의 `HAZARD_GUARD_SIMULATION_WORLD_MARKER`를 선택한
+월드 파일 이름으로 맞춰야 WebUI가 시뮬레이터 프로세스를 인식하고 종료할 수
+있습니다. 데모 월드를 쓸 때는 `demo_facility.sdf`입니다.
+
 ## 지도 작성
 
 ```bash
