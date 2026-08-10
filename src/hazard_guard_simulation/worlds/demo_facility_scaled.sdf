@@ -1,0 +1,202 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+  HazardGuard recycling-plant demo, re-laid-out for a robot patrol loop.
+
+  Derived from worlds/demo_facility.sdf (branch ksj). Same eight models, same
+  meshes, same include order; only the model poses and mesh scales differ.
+
+  What changed and why: the source world runs the plant wall to wall, so there
+  is no circulation route at any uniform scale. Here the hall keeps its own
+  scale and the equipment is scaled down and recentred, which opens a 0.62 m
+  aisle on all four sides - wider than the robot's 0.61 m in-place rotation
+  diameter, so the patrol loop is closed and drivable.
+
+  Layout (metres, hall interior 5.94 x 3.47):
+    hall shell              6.00 x 3.52, walls 1.19 high      scale 0.0990099
+    process line            4.04 x 2.23, one rigid group      scale 0.07474982
+      bunker -> primary shredder -> sorting line ->
+      secondary processor -> baler
+      (scaled as one group, so every conveyor hand-off is unchanged)
+    bale storage            0.54 x 1.71, turned 180 deg,      scale 0.09919193
+      pushed to the east end 0.12 m behind the baler
+    plant footprint         4.70 x 2.23, centred in the hall
+    aisle                   0.62 m, west / east / south / north
+
+  Deviation from the source: the three groups no longer share one uniform
+  scale. That is deliberate - a single scale cannot open the loop.
+
+  Robot spawn for this world: x 0.0975  y -1.4121  z 0.05  yaw 0.0
+  (mid-point of the south aisle; z is the usual drop height)
+
+  Heat-source profile: config/heat_sources/demo_facility_scaled.json
+-->
+<sdf version="1.7">
+  <world name="demo_facility_scaled">
+    <plugin filename="ignition-gazebo-physics-system"
+      name="ignition::gazebo::systems::Physics" />
+    <plugin filename="ignition-gazebo-user-commands-system"
+      name="ignition::gazebo::systems::UserCommands" />
+    <plugin filename="ignition-gazebo-scene-broadcaster-system"
+      name="ignition::gazebo::systems::SceneBroadcaster" />
+    <plugin filename="ignition-gazebo-sensors-system"
+      name="ignition::gazebo::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="ignition-gazebo-imu-system"
+      name="ignition::gazebo::systems::Imu" />
+
+    <physics name="1ms" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+      <ode>
+        <solver><type>quick</type><iters>50</iters><sor>1.3</sor></solver>
+        <constraints>
+          <cfm>0.0</cfm><erp>0.2</erp>
+          <contact_max_correcting_vel>100.0</contact_max_correcting_vel>
+          <contact_surface_layer>0.001</contact_surface_layer>
+        </constraints>
+      </ode>
+    </physics>
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.72 0.78 0.84 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 6 0 0 0</pose>
+      <diffuse>0.9 0.9 0.9 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.4 0.3 -0.9</direction>
+    </light>
+    <light type="point" name="hall_fill_west">
+      <pose>-1.485036 0 0.990024 0 0 0</pose>
+      <diffuse>0.6 0.6 0.6 1</diffuse>
+      <attenuation><range>4.0</range><linear>0.05</linear>
+        <quadratic>0.02</quadratic></attenuation>
+    </light>
+    <light type="point" name="hall_fill_east">
+      <pose>1.485036 0 0.990024 0 0 0</pose>
+      <diffuse>0.6 0.6 0.6 1</diffuse>
+      <attenuation><range>4.0</range><linear>0.05</linear>
+        <quadratic>0.02</quadratic></attenuation>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal>
+            <size>12.0 10.0</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal>
+            <size>12.0 10.0</size></plane></geometry>
+          <material><ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.35 0.35 0.35 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="hall_shell">
+      <static>true</static>
+      <pose>0.000000 0.000000 0 0 0 0.000000</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><mesh><uri>model://hall_shell/meshes/hall_shell.obj</uri>
+            <scale>0.0990099 0.0990099 0.0990099</scale></mesh></geometry>
+        </visual>
+        <collision name="collision">
+          <geometry><mesh><uri>model://hall_shell/meshes/hall_shell.obj</uri>
+            <scale>0.0990099 0.0990099 0.0990099</scale></mesh></geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="bunker">
+      <static>true</static>
+      <pose>-0.145177 -0.038474 0 0 0 0.000000</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><mesh><uri>model://bunker/meshes/bunker.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </visual>
+        <collision name="collision">
+          <geometry><mesh><uri>model://bunker/meshes/bunker.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="primary_shredder">
+      <static>true</static>
+      <pose>-0.145177 -0.038474 0 0 0 0.000000</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><mesh><uri>model://primary_shredder/meshes/primary_shredder.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </visual>
+        <collision name="collision">
+          <geometry><mesh><uri>model://primary_shredder/meshes/primary_shredder.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="sorting_line">
+      <static>true</static>
+      <pose>-0.145177 -0.038474 0 0 0 0.000000</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><mesh><uri>model://sorting_line/meshes/sorting_line.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </visual>
+        <collision name="collision">
+          <geometry><mesh><uri>model://sorting_line/meshes/sorting_line.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="secondary_processor">
+      <static>true</static>
+      <pose>-0.145177 -0.038474 0 0 0 0.000000</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><mesh><uri>model://secondary_processor/meshes/secondary_processor.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </visual>
+        <collision name="collision">
+          <geometry><mesh><uri>model://secondary_processor/meshes/secondary_processor.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="baler">
+      <static>true</static>
+      <pose>-0.145177 -0.038474 0 0 0 0.000000</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><mesh><uri>model://baler/meshes/baler.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </visual>
+        <collision name="collision">
+          <geometry><mesh><uri>model://baler/meshes/baler.obj</uri>
+            <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="bale_storage">
+      <static>true</static>
+      <pose>4.636175 0.471161 0 0 0 3.141592</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><mesh><uri>model://bale_storage/meshes/bale_storage.obj</uri>
+            <scale>0.09919193 0.09919193 0.09919193</scale></mesh></geometry>
+        </visual>
+        <collision name="collision">
+          <geometry><mesh><uri>model://bale_storage/meshes/bale_storage.obj</uri>
+            <scale>0.09919193 0.09919193 0.09919193</scale></mesh></geometry>
+        </collision>
+      </link>
+    </model>
+  </world>
+</sdf>

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "world_id": "demo_facility_scaled",
+  "source_note": "demo_facility.json 좌표를 worlds/demo_facility_scaled.sdf 배치로 옮긴 값. 설비 라인이 0.07474982 축척으로 재배치되면서 열원도 같은 변환(0.5662배 축소 + 라인 중심 이동)을 그대로 받았다.",
+  "sources": [
+    {
+      "detection_id": "sim-hot-motor",
+      "x": -1.1418,
+      "y": -0.4065,
+      "z": 0.2548,
+      "temperature_c": 84.6,
+      "radius_m": 0.057,
+      "source": "gazebo:primary_shredder_motor"
+    },
+    {
+      "detection_id": "sim-pump-block",
+      "x": 0.8514,
+      "y": -0.3046,
+      "z": 0.2548,
+      "temperature_c": 68.4,
+      "radius_m": 0.057,
+      "source": "gazebo:secondary_processor_pump"
+    },
+    {
+      "detection_id": "sim-tank-block",
+      "x": 1.344,
+      "y": -0.3386,
+      "z": 0.1982,
+      "temperature_c": 48.2,
+      "radius_m": 0.051,
+      "source": "gazebo:baler_hydraulic_tank"
+    },
+    {
+      "detection_id": "sim-waste-pile",
+      "x": -1.5098,
+      "y": -0.718,
+      "z": 0.2548,
+      "temperature_c": 71.3,
+      "radius_m": 0.074,
+      "source": "gazebo:bunker_waste_pile"
+    }
+  ]
+}
