@@ -320,6 +320,38 @@ Gazebo 카메라 토픽 대신 실제 RGB·Depth·CameraInfo·Odometry·TF를 �
 형태로 표시하는 것은 SLAM 검증과 구분되는 시뮬레이터 원본 디지털 트윈
 기능입니다.
 
+### 실제 Jetson 3D 지도 부하 제어
+
+실제 로봇의 `physical_mapping.launch.py`에는 주행 계층과 독립된 3D cloud
+guard가 포함됩니다. 정상 상태에서는 프레임당 최대 3,000점과 8 Hz로 누적
+입력을 제한하고, 누적 지도는 8 cm voxel 및 10 cm/6° keyframe 조건을
+사용합니다. 누적 결과는 첫 keyframe부터 발행하며 정지 중 중복 프레임은
+지도에 추가하지 않습니다. CPU/GPU/RAM/온도/지도 저장 디스크 부하가 지속되면 1,500점과
+4 Hz로 낮추며, 임계 부하에서는 3D 표면 누적만 일시 중지합니다. 이때
+SLAM Toolbox, Nav2, RTAB-Map 위치 추정 및 RTAB-Map DB 기록 경로는 계속
+동작합니다.
+
+누적 지도는 WebUI 호환 토픽인
+`/hazard_guard/rtabmap/cloud_surface`를 유지하며 최대 1 Hz로 전달됩니다.
+현재 managed WebUI의 legacy 토픽 설정과 호환되도록 같은 누적 지도를
+`/hazard_guard/rtabmap/cloud_frame_raw`에도 발행합니다. 실제 센서 프레임은
+내부 토픽 `/hazard_guard/rtabmap/cloud_frame_generated`에서 확인할 수 있습니다.
+현재 품질 모드와 부하, 입출력 포인트 수는 다음 토픽에서 확인합니다.
+
+```bash
+ros2 topic echo /hazard_guard/rtabmap/cloud_guard/status
+```
+
+실제 로봇 launch의 기본값은 필요하면 인자로 조정할 수 있습니다.
+
+```bash
+ros2 launch hazard_guard_simulation physical_mapping.launch.py \
+  cloud_normal_points:=3000 \
+  cloud_high_load_points:=1500 \
+  cloud_normal_input_hz:=8.0 \
+  cloud_high_load_input_hz:=4.0
+```
+
 ## WebUI 운용 모드 연동
 
 `hazard-guard-console` 백엔드의 모드 제어를 활성화하면 WebUI `지도` 탭에서
@@ -351,6 +383,7 @@ WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미�
 | RGB | `/camera/image_raw` |
 | Depth | `/depth_camera/image_raw` |
 | RTAB-Map 컬러 3D 지도 | `/hazard_guard/rtabmap/cloud_surface` |
+| 3D 지도 부하 상태 | `/hazard_guard/rtabmap/cloud_guard/status` |
 | 열화상 | `/thermal_camera/image_raw` |
 | IMU | `/imu/data_raw` |
 | 로봇 상태 | `/hazard_guard/telemetry` |
