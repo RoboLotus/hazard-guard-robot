@@ -11,6 +11,34 @@ def normalize_angle(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
 
 
+def transform_planar_point(
+    x: float,
+    y: float,
+    z: float,
+    *,
+    translation: tuple[float, float, float],
+    rotation: tuple[float, float, float, float],
+) -> tuple[float, float, float]:
+    """Apply a planar quaternion transform to a point."""
+
+    quaternion_x, quaternion_y, quaternion_z, quaternion_w = rotation
+    yaw = math.atan2(
+        2.0
+        * (
+            quaternion_w * quaternion_z
+            + quaternion_x * quaternion_y
+        ),
+        1.0 - 2.0 * (quaternion_y**2 + quaternion_z**2),
+    )
+    cosine = math.cos(yaw)
+    sine = math.sin(yaw)
+    return (
+        translation[0] + cosine * x - sine * y,
+        translation[1] + sine * x + cosine * y,
+        translation[2] + z,
+    )
+
+
 def visible_heat_sources(
     robot_x: float,
     robot_y: float,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import json
+from pathlib import Path
 
 import rclpy
 from hazard_guard_interfaces.msg import HazardDetection
@@ -9,13 +11,13 @@ from rclpy.node import Node
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
 
-from .perception import visible_heat_sources
+from .perception import transform_planar_point, visible_heat_sources
 
 
 class ThermalDetectorMock(Node):
-    """Publish deterministic map-space heat sources visible to the robot."""
+    """Map visible simulation heat sources into the live SLAM frame."""
 
-    # Map-space positions on the classroom demo world, each on the face the
+    # Simulation/odom positions on the classroom demo world, each on the face the
     # machine turns toward the south aisle - the only run the robot drives -
     # so a detection can be framed together with its machine. Coordinates are
     # the original facility positions scaled by 0.13201, and radii are scaled
@@ -74,6 +76,12 @@ class ThermalDetectorMock(Node):
         )
         self.declare_parameter("sensor_frame", TMC160B.sensor_frame)
         self.declare_parameter("publish_rate_hz", 2.0)
+        self.declare_parameter("heat_source_frame", "odom")
+        self.declare_parameter("heat_source_profile", "")
+        self._heat_sources = self._load_heat_sources(
+            str(self.get_parameter("heat_source_profile").value)
+        )
+        self._tracked_sources: dict[str, dict] = {}
         self._publisher = self.create_publisher(
             HazardDetection,
             "/hazard_guard/thermal_detections",
@@ -97,18 +105,57 @@ class ThermalDetectorMock(Node):
             "not a hardware range claim."
         )
 
-    def _publish_visible(self) -> None:
+    def _load_heat_sources(self, profile_value: str) -> list[dict]:
+        if not profile_value:
+            return list(self.HEAT_SOURCES)
+        profile_path = Path(profile_value).expanduser()
         try:
-            transform = self._tf_buffer.lookup_transform(
-                "map",
+            document = json.loads(profile_path.read_text(encoding="utf-8"))
+            sources = document.get("sources", [])
+            required = {
+                "detection_id",
+                "x",
+                "y",
+                "z",
+                "temperature_c",
+                "radius_m",
+                "source",
+            }
+            if not isinstance(sources, list) or not sources:
+                raise ValueError("sources must be a non-empty list")
+            if any(not isinstance(item, dict) or not required <= item.keys() for item in sources):
+                raise ValueError("a heat source is missing required fields")
+            self.get_logger().info(
+                f"Loaded {len(sources)} synthetic heat sources from {profile_path.name}"
+            )
+            return sources
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            self.get_logger().warning(
+                f"Could not load heat source profile '{profile_value}': {exc}; "
+                "using built-in synthetic sources"
+            )
+            return list(self.HEAT_SOURCES)
+
+    def _publish_visible(self) -> None:
+        heat_source_frame = str(
+            self.get_parameter("heat_source_frame").value
+        )
+        try:
+            source_from_sensor = self._tf_buffer.lookup_transform(
+                heat_source_frame,
                 str(self.get_parameter("sensor_frame").value),
+                Time(),
+            )
+            map_from_source = self._tf_buffer.lookup_transform(
+                "map",
+                heat_source_frame,
                 Time(),
             )
         except Exception:
             return
 
-        position = transform.transform.translation
-        orientation = transform.transform.rotation
+        position = source_from_sensor.transform.translation
+        orientation = source_from_sensor.transform.rotation
         yaw = math.atan2(
             2.0
             * (
@@ -121,7 +168,7 @@ class ThermalDetectorMock(Node):
             float(position.x),
             float(position.y),
             yaw,
-            self.HEAT_SOURCES,
+            self._heat_sources,
             horizontal_fov_deg=float(
                 self.get_parameter("horizontal_fov_deg").value
             ),
@@ -129,14 +176,35 @@ class ThermalDetectorMock(Node):
             range_max_m=float(self.get_parameter("range_max_m").value),
         )
         stamp = self.get_clock().now().to_msg()
+        map_translation = map_from_source.transform.translation
+        map_rotation = map_from_source.transform.rotation
         for source in visible:
+            self._tracked_sources[str(source["detection_id"])] = source
+
+        for source in self._tracked_sources.values():
+            map_x, map_y, map_z = transform_planar_point(
+                float(source["x"]),
+                float(source["y"]),
+                float(source["z"]),
+                translation=(
+                    float(map_translation.x),
+                    float(map_translation.y),
+                    float(map_translation.z),
+                ),
+                rotation=(
+                    float(map_rotation.x),
+                    float(map_rotation.y),
+                    float(map_rotation.z),
+                    float(map_rotation.w),
+                ),
+            )
             message = HazardDetection()
             message.stamp = stamp
             message.frame_id = "map"
             message.detection_id = source["detection_id"]
-            message.x = float(source["x"])
-            message.y = float(source["y"])
-            message.z = float(source["z"])
+            message.x = map_x
+            message.y = map_y
+            message.z = map_z
             message.temperature_c = float(source["temperature_c"])
             message.confidence = float(source["confidence"])
             message.radius_m = float(source["radius_m"])
