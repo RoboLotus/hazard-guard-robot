@@ -7,6 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -30,6 +31,9 @@ def generate_launch_description() -> LaunchDescription:
     start_simulation = LaunchConfiguration("start_simulation")
     auto_initial_pose = LaunchConfiguration("auto_initial_pose")
     initial_pose_delay = LaunchConfiguration("initial_pose_delay")
+    initial_pose_x = LaunchConfiguration("initial_pose_x")
+    initial_pose_y = LaunchConfiguration("initial_pose_y")
+    initial_pose_yaw = LaunchConfiguration("initial_pose_yaw")
 
     return LaunchDescription(
         [
@@ -74,6 +78,9 @@ def generate_launch_description() -> LaunchDescription:
                 description="Publish the Gazebo spawn pose to AMCL after Nav2 starts.",
             ),
             DeclareLaunchArgument("initial_pose_delay", default_value="12.0"),
+            DeclareLaunchArgument("initial_pose_x", default_value=spawn_x),
+            DeclareLaunchArgument("initial_pose_y", default_value=spawn_y),
+            DeclareLaunchArgument("initial_pose_yaw", default_value=spawn_yaw),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "simulation.launch.py")
@@ -125,9 +132,14 @@ def generate_launch_description() -> LaunchDescription:
                         parameters=[
                             {
                                 "use_sim_time": True,
-                                "x": spawn_x,
-                                "y": spawn_y,
-                                "yaw": spawn_yaw,
+                                "x": ParameterValue(initial_pose_x, value_type=float),
+                                "y": ParameterValue(initial_pose_y, value_type=float),
+                                "yaw": ParameterValue(initial_pose_yaw, value_type=float),
+                                # AMCL is active before this delayed node starts.
+                                # A short discovery burst is sufficient; a long
+                                # burst would reset localization after Nav2 begins.
+                                "repeat_count": 3,
+                                "interval_sec": 0.5,
                             }
                         ],
                     )
