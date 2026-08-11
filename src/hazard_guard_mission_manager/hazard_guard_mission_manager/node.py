@@ -19,9 +19,17 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
-from .errors import MissionCanceled, MissionFailure
+from .errors import MissionCanceled, MissionFailure, MissionScheduleEnded
 from .geometry import pose_errors
 from .navigation import Nav2Adapter
+from .schedule import (
+    PatrolSchedule,
+    REPEAT_COUNT,
+    REPEAT_FOREVER,
+    REPEAT_ONCE,
+    REPEAT_UNTIL_TIME,
+    unix_time_ms,
+)
 from .state import MissionStateStore
 
 
@@ -34,6 +42,8 @@ class HazardGuardMissionManager(Node):
         "executing",
         "aligning",
         "dwelling",
+        "scheduled",
+        "waiting",
     }
 
     def __init__(self) -> None:
@@ -82,6 +92,7 @@ class HazardGuardMissionManager(Node):
         self._state_lock = threading.RLock()
         self._mission_active = False
         self._cancel_requested = threading.Event()
+        self._active_schedule: PatrolSchedule | None = None
         self._mission_state = MissionStateStore(self._publish_state_payload)
         self._nav = Nav2Adapter(
             self,
@@ -113,8 +124,14 @@ class HazardGuardMissionManager(Node):
             if not request.waypoints:
                 self.get_logger().warning("Rejected patrol: no waypoints")
                 return GoalResponse.REJECT
+            try:
+                schedule = PatrolSchedule.from_request(request)
+            except ValueError as exc:
+                self.get_logger().warning(f"Rejected patrol schedule: {exc}")
+                return GoalResponse.REJECT
             self._mission_active = True
             self._cancel_requested.clear()
+            self._active_schedule = schedule
         return GoalResponse.ACCEPT
 
     def _cancel_callback(self, _goal_handle: Any) -> CancelResponse:
@@ -149,6 +166,7 @@ class HazardGuardMissionManager(Node):
     def _execute(self, goal_handle: Any) -> RunPatrol.Result:
         request = goal_handle.request
         waypoints = list(request.waypoints)
+        schedule = self._active_schedule or PatrolSchedule.from_request(request)
         waypoint_states = [
             {
                 "id": item.id,
@@ -174,6 +192,20 @@ class HazardGuardMissionManager(Node):
                 "current_index": None,
                 "total_waypoints": len(waypoints),
                 "completed_waypoints": 0,
+                "repeat_mode": {
+                    REPEAT_ONCE: "once",
+                    REPEAT_COUNT: "count",
+                    REPEAT_UNTIL_TIME: "until_time",
+                    REPEAT_FOREVER: "forever",
+                }[schedule.repeat_mode],
+                "repeat_count": schedule.repeat_count,
+                "repeat_interval_sec": schedule.repeat_interval_sec,
+                "current_cycle": 0,
+                "total_cycles": schedule.total_cycles,
+                "completed_cycles": 0,
+                "start_at_unix_ms": schedule.start_at_unix_ms,
+                "end_at_unix_ms": schedule.end_at_unix_ms,
+                "next_run_at_unix_ms": schedule.start_at_unix_ms,
                 "total_distance_m": None,
                 "message": "전체 웨이포인트 경로를 확인하고 있습니다.",
                 "waypoints": waypoint_states,
@@ -181,8 +213,10 @@ class HazardGuardMissionManager(Node):
         )
 
         completed = 0
+        completed_cycles = 0
         total_distance = 0.0
         try:
+            self._wait_for_scheduled_start(goal_handle, schedule)
             self._nav.assert_ready()
             start_pose = self._nav.current_pose(request.frame_id)
             if start_pose is None:
@@ -226,102 +260,75 @@ class HazardGuardMissionManager(Node):
                     goal_handle,
                 )
                 total_distance += return_distance
+            elif schedule.repeat_mode != REPEAT_ONCE:
+                first_waypoint = waypoints[0]
+                first_target = (
+                    float(first_waypoint.x),
+                    float(first_waypoint.y),
+                    float(first_waypoint.yaw),
+                )
+                self._nav.compute_path_distance(
+                    segment_start,
+                    first_target,
+                    request.frame_id,
+                    goal_handle,
+                )
 
             self._update_state(
                 status="running",
                 current_index=0,
                 total_distance_m=round(total_distance, 3),
+                next_run_at_unix_ms=0,
                 message="전체 경로 확인이 완료되어 순찰을 시작합니다.",
             )
 
-            for index, waypoint in enumerate(waypoints):
+            while schedule.should_continue(completed_cycles):
                 self._raise_if_canceled(goal_handle)
-                self._update_waypoint(index, "active", "이동 중")
-                self._update_state(
-                    status="executing",
-                    current_index=index,
-                    message=f"{waypoint.name}로 이동 중입니다.",
-                )
-                self._publish_feedback(
-                    goal_handle,
-                    index=index,
-                    waypoint_id=waypoint.id,
-                    waypoint_status="active",
-                )
-                target = (
-                    float(waypoint.x),
-                    float(waypoint.y),
-                    float(waypoint.yaw),
-                )
-                self._nav.navigate(
-                    target,
-                    request.frame_id,
-                    goal_handle,
-                    timeout=float(
-                        self.get_parameter("navigation_timeout_sec").value
-                    ),
-                )
-                position_error, yaw_error = self._align(
-                    index,
-                    waypoint,
-                    request.frame_id,
-                    goal_handle,
-                )
-
-                dwell_seconds = max(0.0, float(waypoint.dwell_seconds))
-                if dwell_seconds:
-                    self._update_waypoint(
-                        index,
-                        "dwelling",
-                        f"{dwell_seconds:g}초 점검 대기",
-                    )
-                    self._update_state(
-                        status="dwelling",
-                        message=f"{waypoint.name}에서 점검 중입니다.",
-                    )
-                    self._publish_feedback(
-                        goal_handle,
-                        index=index,
-                        waypoint_id=waypoint.id,
-                        waypoint_status="dwelling",
-                        position_error=position_error,
-                        yaw_error=math.degrees(yaw_error),
-                    )
-                    deadline = time.monotonic() + dwell_seconds
-                    while time.monotonic() < deadline:
-                        self._raise_if_canceled(goal_handle)
-                        remaining = max(0.0, deadline - time.monotonic())
-                        time.sleep(min(0.1, remaining))
-
-                completed = index + 1
-                self._update_waypoint(index, "completed", "도착 및 점검 완료")
+                current_cycle = completed_cycles + 1
+                completed = 0
+                for index in range(len(waypoints)):
+                    self._update_waypoint(index, "pending", "대기 중")
                 self._update_state(
                     status="running",
-                    completed_waypoints=completed,
-                    message=f"{waypoint.name} 점검을 완료했습니다.",
-                )
-                self._publish_feedback(
-                    goal_handle,
-                    index=index,
-                    waypoint_id=waypoint.id,
-                    waypoint_status="completed",
-                    position_error=position_error,
-                    yaw_error=math.degrees(yaw_error),
+                    current_cycle=current_cycle,
+                    completed_waypoints=0,
+                    message=self._cycle_message(current_cycle, schedule),
                 )
 
-            if request.return_to_start:
-                self._update_state(
-                    status="executing",
-                    current_index=None,
-                    message="순찰 시작 위치로 복귀 중입니다.",
-                )
-                self._nav.navigate(
-                    start_pose,
-                    request.frame_id,
+                completed = self._run_cycle(
                     goal_handle,
-                    timeout=float(
-                        self.get_parameter("navigation_timeout_sec").value
-                    ),
+                    request,
+                    waypoints,
+                    current_cycle,
+                )
+
+                if request.return_to_start:
+                    self._update_state(
+                        status="executing",
+                        current_index=None,
+                        message=f"{current_cycle}회차 시작 위치로 복귀 중입니다.",
+                    )
+                    self._nav.navigate(
+                        start_pose,
+                        request.frame_id,
+                        goal_handle,
+                        timeout=float(
+                            self.get_parameter("navigation_timeout_sec").value
+                        ),
+                    )
+
+                completed_cycles += 1
+                self._update_state(
+                    completed_cycles=completed_cycles,
+                    current_index=None,
+                    message=f"{completed_cycles}회차 순찰을 완료했습니다.",
+                )
+                if not schedule.should_continue(completed_cycles):
+                    break
+                self._wait_between_cycles(
+                    goal_handle,
+                    schedule,
+                    completed_cycles,
                 )
 
             goal_handle.succeed()
@@ -330,13 +337,38 @@ class HazardGuardMissionManager(Node):
                 accepted=True,
                 current_index=None,
                 completed_waypoints=completed,
-                message="모든 웨이포인트 순찰을 완료했습니다.",
+                completed_cycles=completed_cycles,
+                next_run_at_unix_ms=0,
+                message=f"예약된 순찰 {completed_cycles}회차를 완료했습니다.",
             )
             return self._result(
                 True,
                 "completed",
-                "모든 웨이포인트 순찰을 완료했습니다.",
+                f"예약된 순찰 {completed_cycles}회차를 완료했습니다.",
                 completed,
+                completed_cycles,
+                total_distance,
+            )
+        except MissionScheduleEnded:
+            goal_handle.succeed()
+            message = (
+                "예약 종료 시각이 되어 순찰을 종료했습니다. "
+                f"({completed_cycles}회 완료)"
+            )
+            self._update_state(
+                status="completed",
+                accepted=True,
+                current_index=None,
+                completed_cycles=completed_cycles,
+                next_run_at_unix_ms=0,
+                message=message,
+            )
+            return self._result(
+                True,
+                "completed",
+                message,
+                completed,
+                completed_cycles,
                 total_distance,
             )
         except MissionCanceled:
@@ -344,6 +376,7 @@ class HazardGuardMissionManager(Node):
             self._update_state(
                 status="canceled",
                 accepted=False,
+                next_run_at_unix_ms=0,
                 message="사용자가 순찰을 취소했습니다.",
             )
             return self._result(
@@ -351,6 +384,7 @@ class HazardGuardMissionManager(Node):
                 "canceled",
                 "사용자가 순찰을 취소했습니다.",
                 completed,
+                completed_cycles,
                 total_distance,
             )
         except MissionFailure as exc:
@@ -361,6 +395,7 @@ class HazardGuardMissionManager(Node):
             self._update_state(
                 status="failed",
                 accepted=False,
+                next_run_at_unix_ms=0,
                 message=f"{exc} 시뮬레이터는 계속 실행됩니다.",
             )
             return self._result(
@@ -368,6 +403,7 @@ class HazardGuardMissionManager(Node):
                 "failed",
                 str(exc),
                 completed,
+                completed_cycles,
                 total_distance,
             )
         except Exception as exc:
@@ -376,6 +412,7 @@ class HazardGuardMissionManager(Node):
             self._update_state(
                 status="failed",
                 accepted=False,
+                next_run_at_unix_ms=0,
                 message=f"순찰 처리 오류: {exc}. 시뮬레이터는 계속 실행됩니다.",
             )
             return self._result(
@@ -383,13 +420,161 @@ class HazardGuardMissionManager(Node):
                 "failed",
                 f"순찰 처리 오류: {exc}",
                 completed,
+                completed_cycles,
                 total_distance,
             )
         finally:
             with self._state_lock:
                 self._mission_active = False
+                self._active_schedule = None
             self._nav.clear_active()
             self._cancel_requested.clear()
+
+    def _run_cycle(
+        self,
+        goal_handle: Any,
+        request: RunPatrol.Goal,
+        waypoints: list[Any],
+        current_cycle: int,
+    ) -> int:
+        completed = 0
+        for index, waypoint in enumerate(waypoints):
+            self._raise_if_canceled(goal_handle)
+            self._update_waypoint(index, "active", "이동 중")
+            self._update_state(
+                status="executing",
+                current_index=index,
+                message=f"{current_cycle}회차 · {waypoint.name}로 이동 중입니다.",
+            )
+            self._publish_feedback(
+                goal_handle,
+                index=index,
+                waypoint_id=waypoint.id,
+                waypoint_status="active",
+            )
+            target = (
+                float(waypoint.x),
+                float(waypoint.y),
+                float(waypoint.yaw),
+            )
+            self._nav.navigate(
+                target,
+                request.frame_id,
+                goal_handle,
+                timeout=float(
+                    self.get_parameter("navigation_timeout_sec").value
+                ),
+            )
+            position_error, yaw_error = self._align(
+                index,
+                waypoint,
+                request.frame_id,
+                goal_handle,
+            )
+
+            dwell_seconds = max(0.0, float(waypoint.dwell_seconds))
+            if dwell_seconds:
+                self._update_waypoint(
+                    index,
+                    "dwelling",
+                    f"{dwell_seconds:g}초 점검 대기",
+                )
+                self._update_state(
+                    status="dwelling",
+                    message=f"{waypoint.name}에서 점검 중입니다.",
+                )
+                self._publish_feedback(
+                    goal_handle,
+                    index=index,
+                    waypoint_id=waypoint.id,
+                    waypoint_status="dwelling",
+                    position_error=position_error,
+                    yaw_error=math.degrees(yaw_error),
+                )
+                deadline = time.monotonic() + dwell_seconds
+                while time.monotonic() < deadline:
+                    self._raise_if_canceled(goal_handle)
+                    remaining = max(0.0, deadline - time.monotonic())
+                    time.sleep(min(0.1, remaining))
+
+            completed = index + 1
+            self._update_waypoint(index, "completed", "도착 및 점검 완료")
+            self._update_state(
+                status="running",
+                completed_waypoints=completed,
+                message=f"{waypoint.name} 점검을 완료했습니다.",
+            )
+            self._publish_feedback(
+                goal_handle,
+                index=index,
+                waypoint_id=waypoint.id,
+                waypoint_status="completed",
+                position_error=position_error,
+                yaw_error=math.degrees(yaw_error),
+            )
+        return completed
+
+    def _wait_for_scheduled_start(
+        self,
+        goal_handle: Any,
+        schedule: PatrolSchedule,
+    ) -> None:
+        if schedule.start_at_unix_ms <= 0:
+            return
+        self._wait_until(
+            goal_handle,
+            schedule.start_at_unix_ms,
+            status="scheduled",
+            message="예약 시작 시각까지 대기하고 있습니다.",
+        )
+
+    def _wait_between_cycles(
+        self,
+        goal_handle: Any,
+        schedule: PatrolSchedule,
+        completed_cycles: int,
+    ) -> None:
+        if schedule.repeat_interval_sec <= 0:
+            return
+        next_run = unix_time_ms() + int(schedule.repeat_interval_sec * 1000)
+        self._wait_until(
+            goal_handle,
+            next_run,
+            status="waiting",
+            message=f"{completed_cycles}회 완료 · 다음 순찰까지 대기 중입니다.",
+        )
+
+    def _wait_until(
+        self,
+        goal_handle: Any,
+        target_unix_ms: int,
+        *,
+        status: str,
+        message: str,
+    ) -> None:
+        last_remaining = None
+        while True:
+            self._raise_if_canceled(goal_handle)
+            remaining_ms = target_unix_ms - unix_time_ms()
+            if remaining_ms <= 0:
+                break
+            remaining_sec = max(1, math.ceil(remaining_ms / 1000))
+            if remaining_sec != last_remaining:
+                self._update_state(
+                    status=status,
+                    current_index=None,
+                    next_run_at_unix_ms=target_unix_ms,
+                    message=f"{message} ({remaining_sec}초 남음)",
+                )
+                last_remaining = remaining_sec
+            time.sleep(min(0.25, remaining_ms / 1000))
+        self._update_state(next_run_at_unix_ms=0)
+
+    @staticmethod
+    def _cycle_message(current_cycle: int, schedule: PatrolSchedule) -> str:
+        if schedule.total_cycles:
+            return f"순찰 {current_cycle}/{schedule.total_cycles}회차를 시작합니다."
+        return f"순찰 {current_cycle}회차를 시작합니다."
 
     def _align(
         self,
@@ -459,6 +644,9 @@ class HazardGuardMissionManager(Node):
     def _raise_if_canceled(self, goal_handle: Any) -> None:
         if self._cancel_requested.is_set() or goal_handle.is_cancel_requested:
             raise MissionCanceled()
+        schedule = self._active_schedule
+        if schedule is not None and schedule.deadline_reached():
+            raise MissionScheduleEnded()
 
     def _replace_state(self, state: dict[str, Any]) -> None:
         self._mission_state.replace(state)
@@ -502,6 +690,11 @@ class HazardGuardMissionManager(Node):
         feedback.current_index = index
         feedback.total_waypoints = int(state["total_waypoints"])
         feedback.completed_waypoints = int(state["completed_waypoints"])
+        feedback.current_cycle = int(state["current_cycle"])
+        feedback.total_cycles = int(state["total_cycles"])
+        feedback.completed_cycles = int(state["completed_cycles"])
+        feedback.next_run_at_unix_ms = int(state["next_run_at_unix_ms"])
+        feedback.end_at_unix_ms = int(state["end_at_unix_ms"])
         feedback.total_distance_m = float(state["total_distance_m"] or 0.0)
         feedback.waypoint_id = waypoint_id
         feedback.waypoint_status = waypoint_status
@@ -515,6 +708,7 @@ class HazardGuardMissionManager(Node):
         status: str,
         message: str,
         completed: int,
+        completed_cycles: int,
         total_distance: float,
     ) -> RunPatrol.Result:
         result = RunPatrol.Result()
@@ -522,6 +716,7 @@ class HazardGuardMissionManager(Node):
         result.status = status
         result.message = message
         result.completed_waypoints = completed
+        result.completed_cycles = completed_cycles
         result.total_distance_m = total_distance
         return result
 

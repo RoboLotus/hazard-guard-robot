@@ -225,6 +225,20 @@ ros2 service call /hazard_guard/mission/cancel std_srvs/srv/Trigger
 WebUI 를 쓰는 경우 `지도` 탭의 웨이포인트 패널이 같은 액션을 호출하므로 이
 스크립트를 따로 실행할 필요가 없습니다.
 
+### 반복·예약 순찰
+
+`RunPatrol` 액션은 1회, 지정 횟수, 실제 종료 시각까지 반복, 수동 종료까지 반복을
+지원합니다. 예약 시작·종료 시각은 Unix 밀리초로 전달되므로 WebUI의 시간대와
+무관하게 같은 순간을 가리킵니다. 회차 사이에는 `repeat_interval_sec`만큼
+대기하며, 대기 중에도 취소할 수 있습니다. 종료 시각에 도달하면 현재 Nav2
+이동을 취소하고 임무를 정상 종료로 기록합니다.
+
+예약과 반복은 브라우저가 아닌 `hazard_guard_mission_manager`가 처리합니다.
+따라서 WebUI 새로고침이나 노트북 네트워크 단절에도 Jetson 노드가 살아 있는 한
+순찰은 계속됩니다. 실제 시간 예약을 사용하기 전에는 Jetson의 시간대와 NTP
+동기화 상태를 확인하십시오. 인터페이스가 변경되었으므로 기존 설치에서는
+`hazard_guard_interfaces`와 `hazard_guard_mission_manager`를 다시 빌드해야 합니다.
+
 ## 지도 작성
 
 ```bash
