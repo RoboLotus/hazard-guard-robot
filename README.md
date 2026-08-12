@@ -443,11 +443,13 @@ Gazebo 카메라 토픽 대신 실제 RGB·Depth·CameraInfo·Odometry·TF를 �
 ### 실제 Jetson 3D 지도 부하 제어
 
 실제 로봇의 `physical_mapping.launch.py`에는 주행 계층과 독립된 3D cloud
-guard가 포함됩니다. 정상 상태에서는 프레임당 최대 3,000점과 8 Hz로 누적
-입력을 제한하고, 누적 지도는 8 cm voxel 및 10 cm/6° keyframe 조건을
+guard가 포함됩니다. 실기 비교에서 9,000 points/frame, decimation 2,
+3 cm voxel이 CPU/RAM 평균 약 50%를 유지하면서 12,000점 설정과 체감 품질
+차이가 작아 기본값으로 선정되었습니다. 정상 상태에서는 프레임당 최대 9,000점과
+8 Hz로 누적 입력을 제한하고, 누적 지도는 3 cm voxel 및 10 cm/6° keyframe 조건을
 사용합니다. 누적 결과는 첫 keyframe부터 발행하며 정지 중 중복 프레임은
-지도에 추가하지 않습니다. CPU/GPU/RAM/온도/지도 저장 디스크 부하가 지속되면 1,500점과
-4 Hz로 낮추며, 임계 부하에서는 3D 표면 누적만 일시 중지합니다. 이때
+지도에 추가하지 않습니다. CPU/GPU/RAM/온도/지도 저장 디스크 부하가 지속되면
+4,500점과 4 Hz로 낮추며, 임계 부하에서는 3D 표면 누적만 일시 중지합니다. 이때
 SLAM Toolbox, Nav2, RTAB-Map 위치 추정 및 RTAB-Map DB 기록 경로는 계속
 동작합니다.
 
@@ -466,11 +468,79 @@ ros2 topic echo /hazard_guard/rtabmap/cloud_guard/status
 
 ```bash
 ros2 launch hazard_guard_simulation physical_mapping.launch.py \
-  cloud_normal_points:=3000 \
-  cloud_high_load_points:=1500 \
+  cloud_normal_points:=9000 \
+  cloud_high_load_points:=4500 \
   cloud_normal_input_hz:=8.0 \
-  cloud_high_load_input_hz:=4.0
+  cloud_high_load_input_hz:=4.0 \
+  cloud_decimation:=2 \
+  cloud_voxel_size:=0.03
 ```
+
+### 포인트클라우드 Jetson 부하 테스트
+
+`tools/run_pointcloud_benchmark.sh`는 선택한 포인트 밀도 프로필로 FastAPI만
+실행합니다. 실제 mapping stack과 세션 DB는 WebUI가 관리합니다. WebUI에서
+`2D + RGB-D 3D`를 선택하고 `새 맵 생성`을 누른 뒤 같은 경로를 주행하면서
+3D 화면과 Jetson CPU/RAM을 수동 기록합니다.
+
+소스를 변경한 뒤 최초 한 번 패키지를 다시 빌드합니다.
+
+```bash
+source /opt/ros/humble/setup.bash
+cd ~/RoboLotus/hazard-guard-robot
+colcon build --symlink-install --packages-select hazard_guard_simulation
+source install/setup.bash
+```
+
+운영 기본 프로필의 백엔드를 실행합니다. 프로필을 생략하면 자동으로
+`pc-9000`, voxel 3 cm, decimation 2를 사용합니다. 스크립트는 Tailscale
+IPv4를 자동으로 찾으며, 필요하면 `--host`로 직접 지정할 수 있습니다.
+
+```bash
+./tools/run_pointcloud_benchmark.sh
+
+# 또는 Tailscale IP를 명시
+./tools/run_pointcloud_benchmark.sh --host 100.107.60.123
+```
+
+비교 또는 회귀 시험에서는 프로필과 voxel 크기를 명시적으로 덮어쓸 수 있습니다.
+
+```bash
+./tools/run_pointcloud_benchmark.sh pc-3000 --voxel-size 0.08
+./tools/run_pointcloud_benchmark.sh pc-6000 --voxel-size 0.05
+./tools/run_pointcloud_benchmark.sh pc-12000 --voxel-size 0.03
+```
+
+voxel이 작을수록 가까운 점들이 덜 병합되어 누적 지도 포인트, CPU 및 RAM 사용량이
+증가합니다. 프로필 또는 voxel을 바꾸기 전에는 현재 WebUI mapping과 FastAPI를
+완전히 종료한 뒤 새 세션을 시작합니다.
+
+지원 프로필은 다음과 같습니다.
+
+| 프로필 | 포인트/프레임 | 입력률 | decimation | voxel |
+|---|---:|---:|---:|---:|
+| `pc-3000` | 3,000 | 8 Hz | 4 | 실행 옵션(기본 3 cm) |
+| `pc-6000` | 6,000 | 8 Hz | 4 | 실행 옵션(기본 3 cm) |
+| `pc-9000` | 9,000 | 8 Hz | 2 | 실행 옵션(기본 3 cm) |
+| `pc-12000` | 12,000 | 8 Hz | 2 | 실행 옵션(기본 3 cm) |
+
+백엔드가 실행되면 노트북 프론트엔드를 해당 Tailscale 주소에 연결합니다.
+
+```bash
+HAZARD_GUARD_BACKEND_URL=http://100.107.60.123:8000 npm run dev
+```
+
+프로필을 바꾸기 전 WebUI에서 `지도 저장 후 종료`로 현재 mapping을 끝내고,
+FastAPI 터미널에서 `Ctrl+C`를 누릅니다. 다음 프로필로 스크립트를 다시 실행한 뒤
+WebUI에서 새 3D 맵 세션을 시작합니다. 서로 다른 프로필의 ROS stack을 동시에
+실행하지 않습니다. 안전 장치는 계속 활성화되며 high-load에서는 포인트와 입력률을
+절반으로 낮추고 critical에서는 3D 누적 입력을 중지합니다.
+
+스크립트는 cloud guard 상태가 수신되는 3D mapping 구간만 1초 간격으로 측정합니다.
+FastAPI 터미널에서 `Ctrl+C`를 누르면 백엔드와 WebUI 관리 ROS stack을 정상 종료한
+후 CPU 평균, RAM 평균 점유율, 설정 포인트/Hz/voxel, 실제 출력 포인트와 guard
+모드별 시간을 터미널에 요약합니다. WebUI에서 3D mapping을 시작하지 않았다면
+측정 결과 없음으로 표시됩니다.
 
 ## WebUI 운용 모드 연동
 

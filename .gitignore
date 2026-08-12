@@ -19,6 +19,7 @@ runtime/debug/
 !runtime/maps/.gitkeep
 runtime/settings/
 runtime/bags/
+runtime/benchmarks/
 *.db3
 *.mcap
 

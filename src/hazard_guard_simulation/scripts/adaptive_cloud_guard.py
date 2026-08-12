@@ -285,8 +285,8 @@ def evenly_sample_cloud(
 class AdaptiveCloudGuard(Node):
     def __init__(self):
         super().__init__("hazard_guard_adaptive_cloud_guard")
-        self.declare_parameter("normal_points", 3000)
-        self.declare_parameter("high_load_points", 1500)
+        self.declare_parameter("normal_points", 9000)
+        self.declare_parameter("high_load_points", 4500)
         self.declare_parameter("normal_input_hz", 8.0)
         self.declare_parameter("high_load_input_hz", 4.0)
         self.declare_parameter("normal_surface_hz", 1.0)

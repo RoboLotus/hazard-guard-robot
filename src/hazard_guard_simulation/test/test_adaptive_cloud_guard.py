@@ -12,6 +12,9 @@ CAMERA_INFO_SCRIPT = (
     Path(__file__).parents[1] / "scripts" / "camera_info_relay.py"
 )
 REAL_LAUNCH = Path(__file__).parents[1] / "launch" / "rtabmap_real.launch.py"
+PHYSICAL_LAUNCH = (
+    Path(__file__).parents[1] / "launch" / "physical_mapping.launch.py"
+)
 SPEC = spec_from_file_location("adaptive_cloud_guard", SCRIPT)
 MODULE = module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -119,3 +122,63 @@ def test_camera_info_relay_accepts_sensor_qos_and_latches_output():
 def test_real_map_assembler_publishes_circular_buffer_immediately():
     launch_source = REAL_LAUNCH.read_text(encoding="utf-8")
     assert '"circular_buffer": True' in launch_source
+
+
+def test_real_map_density_controls_are_launch_parameters():
+    launch_source = REAL_LAUNCH.read_text(encoding="utf-8")
+    for parameter in (
+        "cloud_decimation",
+        "cloud_voxel_size",
+        "cloud_linear_update",
+        "cloud_angular_update",
+    ):
+        assert launch_source.count(f'"{parameter}"') >= 2
+        assert f'LaunchConfiguration("{parameter}")' in launch_source
+
+
+def test_physical_mapping_forwards_cloud_benchmark_parameters():
+    launch_source = PHYSICAL_LAUNCH.read_text(encoding="utf-8")
+    for parameter in (
+        "cloud_normal_points",
+        "cloud_normal_input_hz",
+        "cloud_normal_surface_hz",
+        "cloud_decimation",
+        "cloud_voxel_size",
+        "cloud_linear_update",
+        "cloud_angular_update",
+    ):
+        assert launch_source.count(f'"{parameter}"') >= 2
+
+
+def test_physical_mapping_reads_webui_benchmark_environment():
+    launch_source = PHYSICAL_LAUNCH.read_text(encoding="utf-8")
+    for variable in (
+        "HAZARD_GUARD_CLOUD_NORMAL_POINTS",
+        "HAZARD_GUARD_CLOUD_HIGH_LOAD_POINTS",
+        "HAZARD_GUARD_CLOUD_NORMAL_INPUT_HZ",
+        "HAZARD_GUARD_CLOUD_DECIMATION",
+        "HAZARD_GUARD_CLOUD_VOXEL_SIZE",
+    ):
+        assert variable in launch_source
+
+
+def test_selected_physical_cloud_defaults_are_documented_in_launches():
+    real_source = REAL_LAUNCH.read_text(encoding="utf-8")
+    physical_source = PHYSICAL_LAUNCH.read_text(encoding="utf-8")
+
+    for expected in (
+        '"cloud_normal_points", default_value="9000"',
+        '"cloud_high_load_points", default_value="4500"',
+        '"cloud_decimation", default_value="2"',
+        '"cloud_voxel_size", default_value="0.03"',
+    ):
+        assert expected in real_source
+
+    for variable, default in (
+        ("HAZARD_GUARD_CLOUD_NORMAL_POINTS", "9000"),
+        ("HAZARD_GUARD_CLOUD_HIGH_LOAD_POINTS", "4500"),
+        ("HAZARD_GUARD_CLOUD_DECIMATION", "2"),
+        ("HAZARD_GUARD_CLOUD_VOXEL_SIZE", "0.03"),
+    ):
+        assert variable in physical_source
+        assert f'"{default}"' in physical_source

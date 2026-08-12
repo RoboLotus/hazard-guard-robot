@@ -11,22 +11,15 @@ from rclpy.node import Node
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
 
-from .perception import visible_heat_sources
+from .perception import transform_planar_point, visible_heat_sources
 
 
 class ThermalDetectorMock(Node):
-    """Publish deterministic map-space heat sources visible to the robot."""
+    """Map visible simulation heat sources into the live SLAM frame."""
 
-    # Map-space positions on the classroom demo world. The equipment sits as an
-    # island in the middle of the hall and the robot patrols the ring around
-    # it, so each source is put on the island face that turns toward the ring
-    # segment it is read from - see the waypoint list in tools/run_patrol.sh.
-    #
-    # These match worlds/demo_facility_scaled.sdf, where the process line is
-    # placed at scale 0.07474982, and the radii are scaled with it. The same
-    # values are mirrored in config/heat_sources/demo_facility_scaled.json;
-    # that file is not loaded yet, so both have to be edited together until a
-    # loader exists. Move them with the layout if the world is regenerated.
+    # Fallback odom-space sources for the scaled demo world. Normal launches
+    # load the matching JSON profile; keep these values aligned with that
+    # profile when the equipment layout is regenerated.
     HEAT_SOURCES = [
         {
             "detection_id": "sim-hot-motor",
@@ -80,10 +73,12 @@ class ThermalDetectorMock(Node):
         )
         self.declare_parameter("sensor_frame", TMC160B.sensor_frame)
         self.declare_parameter("publish_rate_hz", 2.0)
+        self.declare_parameter("heat_source_frame", "odom")
         self.declare_parameter("heat_source_profile", "")
         self._heat_sources = self._load_heat_sources(
             str(self.get_parameter("heat_source_profile").value)
         )
+        self._tracked_sources: dict[str, dict] = {}
         self._publisher = self.create_publisher(
             HazardDetection,
             "/hazard_guard/thermal_detections",
@@ -139,17 +134,25 @@ class ThermalDetectorMock(Node):
             return list(self.HEAT_SOURCES)
 
     def _publish_visible(self) -> None:
+        heat_source_frame = str(
+            self.get_parameter("heat_source_frame").value
+        )
         try:
-            transform = self._tf_buffer.lookup_transform(
-                "map",
+            source_from_sensor = self._tf_buffer.lookup_transform(
+                heat_source_frame,
                 str(self.get_parameter("sensor_frame").value),
+                Time(),
+            )
+            map_from_source = self._tf_buffer.lookup_transform(
+                "map",
+                heat_source_frame,
                 Time(),
             )
         except Exception:
             return
 
-        position = transform.transform.translation
-        orientation = transform.transform.rotation
+        position = source_from_sensor.transform.translation
+        orientation = source_from_sensor.transform.rotation
         yaw = math.atan2(
             2.0
             * (
@@ -170,14 +173,35 @@ class ThermalDetectorMock(Node):
             range_max_m=float(self.get_parameter("range_max_m").value),
         )
         stamp = self.get_clock().now().to_msg()
+        map_translation = map_from_source.transform.translation
+        map_rotation = map_from_source.transform.rotation
         for source in visible:
+            self._tracked_sources[str(source["detection_id"])] = source
+
+        for source in self._tracked_sources.values():
+            map_x, map_y, map_z = transform_planar_point(
+                float(source["x"]),
+                float(source["y"]),
+                float(source["z"]),
+                translation=(
+                    float(map_translation.x),
+                    float(map_translation.y),
+                    float(map_translation.z),
+                ),
+                rotation=(
+                    float(map_rotation.x),
+                    float(map_rotation.y),
+                    float(map_rotation.z),
+                    float(map_rotation.w),
+                ),
+            )
             message = HazardDetection()
             message.stamp = stamp
             message.frame_id = "map"
             message.detection_id = source["detection_id"]
-            message.x = float(source["x"])
-            message.y = float(source["y"])
-            message.z = float(source["z"])
+            message.x = map_x
+            message.y = map_y
+            message.z = map_z
             message.temperature_c = float(source["temperature_c"])
             message.confidence = float(source["confidence"])
             message.radius_m = float(source["radius_m"])
