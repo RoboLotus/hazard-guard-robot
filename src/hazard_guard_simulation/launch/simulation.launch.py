@@ -26,7 +26,7 @@ def generate_launch_description() -> LaunchDescription:
         get_package_share_directory("hazard_guard_simulation")
     )
     ros_gz_share = Path(get_package_share_directory("ros_gz_sim"))
-    default_world = simulation_share / "worlds" / "demo_facility.sdf"
+    default_world = simulation_share / "worlds" / "demo_facility_scaled.sdf"
     robot = simulation_share / "urdf" / "hazard_guard_m1.urdf.xacro"
 
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -86,15 +86,17 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "world_name",
-                default_value="demo_facility",
+                default_value="demo_facility_scaled",
                 description=(
                     "The <world name> value inside the selected SDF file"
                 ),
             ),
-            # Widest point of the south aisle, the only drivable run in the
-            # original plant layout. Verified by tools/gen_demo_world.py.
-            DeclareLaunchArgument("spawn_x", default_value="0.13"),
-            DeclareLaunchArgument("spawn_y", default_value="-0.99"),
+            # Mid-point of the south aisle. The equipment island is centred in
+            # the hall and leaves a 0.59-0.61 m corridor on all four sides, so
+            # the patrol route is a closed loop around the outer wall rather
+            # than the dead-end aisle the unscaled layout had.
+            DeclareLaunchArgument("spawn_x", default_value="0.0975"),
+            DeclareLaunchArgument("spawn_y", default_value="-1.4121"),
             DeclareLaunchArgument("spawn_z", default_value="0.05"),
             DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
             DeclareLaunchArgument(

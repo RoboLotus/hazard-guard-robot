@@ -18,7 +18,7 @@ slam_toolbox:
     # The previous 5 cm / 0.05 rad thresholds admitted almost every scan while
     # Nav2 was also busy. The queue then overflowed and scan matching could
     # attach the same wall at a second pose. These values retain enough detail
-    # for the 8 x 6 m classroom demo hall without saturating WSL.
+    # for the 6 x 4 m classroom demo hall without saturating WSL.
     minimum_time_interval: 0.3
     transform_publish_period: 0.1
     map_update_interval: 2.0

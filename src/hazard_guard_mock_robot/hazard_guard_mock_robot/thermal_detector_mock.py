@@ -17,47 +17,51 @@ from .perception import visible_heat_sources
 class ThermalDetectorMock(Node):
     """Publish deterministic map-space heat sources visible to the robot."""
 
-    # Map-space positions on the classroom demo world, each on the face the
-    # machine turns toward the south aisle - the only run the robot drives -
-    # so a detection can be framed together with its machine. Coordinates are
-    # the original facility positions scaled by 0.13201, and radii are scaled
-    # with them so they stay proportional to the shrunken equipment.
-    # Regenerate the layout with tools/gen_demo_world.py if the room changes.
+    # Map-space positions on the classroom demo world. The equipment sits as an
+    # island in the middle of the hall and the robot patrols the ring around
+    # it, so each source is put on the island face that turns toward the ring
+    # segment it is read from - see the waypoint list in tools/run_patrol.sh.
+    #
+    # These match worlds/demo_facility_scaled.sdf, where the process line is
+    # placed at scale 0.07474982, and the radii are scaled with it. The same
+    # values are mirrored in config/heat_sources/demo_facility_scaled.json;
+    # that file is not loaded yet, so both have to be edited together until a
+    # loader exists. Move them with the layout if the world is regenerated.
     HEAT_SOURCES = [
         {
             "detection_id": "sim-hot-motor",
-            "x": -1.76,
-            "y": -0.65,
-            "z": 0.45,
+            "x": -1.1418,
+            "y": -0.4065,
+            "z": 0.2548,
             "temperature_c": 84.6,
-            "radius_m": 0.10,
+            "radius_m": 0.057,
             "source": "gazebo:primary_shredder_motor",
         },
         {
             "detection_id": "sim-pump-block",
-            "x": 1.76,
-            "y": -0.47,
-            "z": 0.45,
+            "x": 0.8514,
+            "y": -0.3046,
+            "z": 0.2548,
             "temperature_c": 68.4,
-            "radius_m": 0.10,
+            "radius_m": 0.057,
             "source": "gazebo:secondary_processor_pump",
         },
         {
             "detection_id": "sim-tank-block",
-            "x": 2.63,
-            "y": -0.53,
-            "z": 0.35,
+            "x": 1.344,
+            "y": -0.3386,
+            "z": 0.1982,
             "temperature_c": 48.2,
-            "radius_m": 0.09,
+            "radius_m": 0.051,
             "source": "gazebo:baler_hydraulic_tank",
         },
         {
             "detection_id": "sim-waste-pile",
-            "x": -2.41,
-            "y": -1.20,
-            "z": 0.45,
+            "x": -1.5098,
+            "y": -0.718,
+            "z": 0.2548,
             "temperature_c": 71.3,
-            "radius_m": 0.13,
+            "radius_m": 0.074,
             "source": "gazebo:bunker_waste_pile",
         },
     ]

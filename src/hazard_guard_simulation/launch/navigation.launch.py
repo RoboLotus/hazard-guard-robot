@@ -30,18 +30,18 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "world",
                 default_value=str(
-                    simulation_share / "worlds" / "demo_facility.sdf"
+                    simulation_share / "worlds" / "demo_facility_scaled.sdf"
                 ),
             ),
             DeclareLaunchArgument(
                 "world_name",
-                default_value="demo_facility",
+                default_value="demo_facility_scaled",
                 description=(
                     "The <world name> value inside the selected SDF file"
                 ),
             ),
-            DeclareLaunchArgument("spawn_x", default_value="0.13"),
-            DeclareLaunchArgument("spawn_y", default_value="-0.99"),
+            DeclareLaunchArgument("spawn_x", default_value="0.0975"),
+            DeclareLaunchArgument("spawn_y", default_value="-1.4121"),
             DeclareLaunchArgument("spawn_z", default_value="0.05"),
             DeclareLaunchArgument("spawn_yaw", default_value="0.0"),
             DeclareLaunchArgument("simulation_mode", default_value="kinematic"),
