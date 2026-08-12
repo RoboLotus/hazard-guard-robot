@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import json
+from pathlib import Path
 
 import rclpy
 from hazard_guard_interfaces.msg import HazardDetection
@@ -78,6 +80,10 @@ class ThermalDetectorMock(Node):
         )
         self.declare_parameter("sensor_frame", TMC160B.sensor_frame)
         self.declare_parameter("publish_rate_hz", 2.0)
+        self.declare_parameter("heat_source_profile", "")
+        self._heat_sources = self._load_heat_sources(
+            str(self.get_parameter("heat_source_profile").value)
+        )
         self._publisher = self.create_publisher(
             HazardDetection,
             "/hazard_guard/thermal_detections",
@@ -100,6 +106,37 @@ class ThermalDetectorMock(Node):
             "visualization boundary, "
             "not a hardware range claim."
         )
+
+    def _load_heat_sources(self, profile_value: str) -> list[dict]:
+        if not profile_value:
+            return list(self.HEAT_SOURCES)
+        profile_path = Path(profile_value).expanduser()
+        try:
+            document = json.loads(profile_path.read_text(encoding="utf-8"))
+            sources = document.get("sources", [])
+            required = {
+                "detection_id",
+                "x",
+                "y",
+                "z",
+                "temperature_c",
+                "radius_m",
+                "source",
+            }
+            if not isinstance(sources, list) or not sources:
+                raise ValueError("sources must be a non-empty list")
+            if any(not isinstance(item, dict) or not required <= item.keys() for item in sources):
+                raise ValueError("a heat source is missing required fields")
+            self.get_logger().info(
+                f"Loaded {len(sources)} synthetic heat sources from {profile_path.name}"
+            )
+            return sources
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            self.get_logger().warning(
+                f"Could not load heat source profile '{profile_value}': {exc}; "
+                "using built-in synthetic sources"
+            )
+            return list(self.HEAT_SOURCES)
 
     def _publish_visible(self) -> None:
         try:
@@ -125,7 +162,7 @@ class ThermalDetectorMock(Node):
             float(position.x),
             float(position.y),
             yaw,
-            self.HEAT_SOURCES,
+            self._heat_sources,
             horizontal_fov_deg=float(
                 self.get_parameter("horizontal_fov_deg").value
             ),

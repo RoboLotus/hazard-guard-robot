@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "world_id": "demo_facility",
+  "source_note": "tools/gen_demo_world.py가 생성한 0.13201 축척 설비의 남측 관측면 기준",
+  "sources": [
+    {
+      "detection_id": "sim-hot-motor",
+      "x": -1.76,
+      "y": -0.65,
+      "z": 0.45,
+      "temperature_c": 84.6,
+      "radius_m": 0.10,
+      "source": "gazebo:primary_shredder_motor"
+    },
+    {
+      "detection_id": "sim-pump-block",
+      "x": 1.76,
+      "y": -0.47,
+      "z": 0.45,
+      "temperature_c": 68.4,
+      "radius_m": 0.10,
+      "source": "gazebo:secondary_processor_pump"
+    },
+    {
+      "detection_id": "sim-tank-block",
+      "x": 2.63,
+      "y": -0.53,
+      "z": 0.35,
+      "temperature_c": 48.2,
+      "radius_m": 0.09,
+      "source": "gazebo:baler_hydraulic_tank"
+    },
+    {
+      "detection_id": "sim-waste-pile",
+      "x": -2.41,
+      "y": -1.20,
+      "z": 0.45,
+      "temperature_c": 71.3,
+      "radius_m": 0.13,
+      "source": "gazebo:bunker_waste_pile"
+    }
+  ]
+}

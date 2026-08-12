@@ -469,21 +469,21 @@
   </gazebo>
 
   <!--
-    Sensor topics are one level deep on purpose. Fortress derives the
-    CameraInfo topic by dropping the last element of the image topic and
+    Every camera names its own CameraInfo topic. Without camera_info_topic
+    Fortress derives it by dropping the last element of the image topic and
     appending /camera_info, so root-level topics (/camera, /depth_camera,
-    /thermal_camera) would all publish their intrinsics onto a single
-    /camera_info. Nesting gives each sensor its own /<name>/camera_info,
-    which is what the thermal-to-depth calibration needs.
+    /thermal_camera) all collapse onto a single /camera_info and overwrite each
+    other's intrinsics. The thermal-to-depth calibration needs them separate.
   -->
   <gazebo reference="depth_camera_link">
     <sensor name="hazard_guard_rgb_camera" type="camera">
       <always_on>true</always_on>
       <update_rate>10</update_rate>
       <visualize>${visualize_sensors}</visualize>
-      <topic>/camera/image</topic>
+      <topic>/camera</topic>
       <gz_frame_id>depth_camera_optical_frame</gz_frame_id>
       <camera name="front_camera">
+        <camera_info_topic>/camera/camera_info</camera_info_topic>
         <horizontal_fov>1.288053</horizontal_fov>
         <image><width>640</width><height>480</height><format>R8G8B8</format></image>
         <clip><near>0.08</near><far>30.0</far></clip>
@@ -494,9 +494,10 @@
       <always_on>true</always_on>
       <update_rate>10</update_rate>
       <visualize>${visualize_sensors}</visualize>
-      <topic>/depth_camera/image</topic>
+      <topic>/depth_camera</topic>
       <gz_frame_id>depth_camera_optical_frame</gz_frame_id>
       <camera name="depth_camera">
+        <camera_info_topic>/depth_camera/camera_info</camera_info_topic>
         <horizontal_fov>1.288053</horizontal_fov>
         <image><width>640</width><height>480</height><format>R8G8B8</format></image>
         <clip><near>0.2</near><far>4.0</far></clip>
@@ -517,9 +518,10 @@
       <always_on>true</always_on>
       <update_rate>${thermal_update_rate}</update_rate>
       <visualize>${visualize_sensors}</visualize>
-      <topic>/thermal_camera/image</topic>
+      <topic>/thermal_camera</topic>
       <gz_frame_id>thermal_camera_optical_frame</gz_frame_id>
       <camera name="thermal_camera">
+        <camera_info_topic>/thermal_camera/camera_info</camera_info_topic>
         <horizontal_fov>${thermal_horizontal_fov}</horizontal_fov>
         <image><width>${thermal_width}</width><height>${thermal_height}</height><format>L_INT16</format></image>
         <clip><near>${thermal_clip_near}</near><far>${thermal_clip_far}</far></clip>

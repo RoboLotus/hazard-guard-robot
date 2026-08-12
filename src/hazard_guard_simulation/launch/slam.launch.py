@@ -23,7 +23,10 @@ def generate_launch_description() -> LaunchDescription:
     visualize_sensors = LaunchConfiguration("visualize_sensors")
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
+    heat_source_profile = LaunchConfiguration("heat_source_profile")
     start_simulation = LaunchConfiguration("start_simulation")
+    enable_rtabmap = LaunchConfiguration("enable_rtabmap")
+    rtabmap_database_path = LaunchConfiguration("rtabmap_database_path")
 
     return LaunchDescription(
         [
@@ -49,6 +52,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("visualize_sensors", default_value="false"),
             DeclareLaunchArgument("include_dispenser", default_value="true"),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
+            DeclareLaunchArgument("heat_source_profile", default_value=""),
             DeclareLaunchArgument(
                 "start_simulation",
                 default_value="true",
@@ -56,6 +60,15 @@ def generate_launch_description() -> LaunchDescription:
                     "Start Gazebo and the simulated robot. Set false when a "
                     "singleton simulator is supervised separately."
                 ),
+            ),
+            DeclareLaunchArgument(
+                "enable_rtabmap",
+                default_value="false",
+                description="Add RGB-D RTAB-Map collection to 2D SLAM Toolbox.",
+            ),
+            DeclareLaunchArgument(
+                "rtabmap_database_path",
+                default_value="/tmp/hazard_guard_rtabmap_sim.db",
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -74,6 +87,7 @@ def generate_launch_description() -> LaunchDescription:
                     "visualize_sensors": visualize_sensors,
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
+                    "heat_source_profile": heat_source_profile,
                 }.items(),
                 condition=IfCondition(start_simulation),
             ),
@@ -88,6 +102,26 @@ def generate_launch_description() -> LaunchDescription:
                         parameters=[str(parameters)],
                     )
                 ],
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(simulation_share / "launch" / "rtabmap_sim.launch.py")
+                ),
+                launch_arguments={
+                    "gui": "false",
+                    "use_sim_time": "true",
+                    "start_simulation": "false",
+                    "rviz": "false",
+                    "demo_route": "false",
+                    "database_path": rtabmap_database_path,
+                    "reset_database": "true",
+                    # SLAM Toolbox remains the only map->odom publisher used
+                    # by Nav2. RTAB-Map keeps its grid and graph namespaced.
+                    "publish_tf": "false",
+                    "map_frame_id": "rtabmap_map",
+                    "map_topic": "/rtabmap/grid_map",
+                }.items(),
+                condition=IfCondition(enable_rtabmap),
             ),
         ]
     )

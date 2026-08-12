@@ -16,7 +16,7 @@ class InitialPosePublisher(Node):
         self.declare_parameter("x", 0.0)
         self.declare_parameter("y", 0.0)
         self.declare_parameter("yaw", 0.0)
-        self.declare_parameter("repeat_count", 5)
+        self.declare_parameter("repeat_count", 3)
         self.declare_parameter("interval_sec", 0.5)
 
         qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
@@ -29,7 +29,9 @@ class InitialPosePublisher(Node):
 
     def _publish(self) -> None:
         message = PoseWithCovarianceStamped()
-        message.header.stamp = self.get_clock().now().to_msg()
+        # Keep the timestamp at zero so AMCL asks tf2 for the latest odom
+        # transform. A clock-stamped pose can be rejected during startup when
+        # Gazebo /clock and the odom TF cache are not aligned yet.
         message.header.frame_id = "map"
         message.pose.pose.position.x = float(self.get_parameter("x").value)
         message.pose.pose.position.y = float(self.get_parameter("y").value)

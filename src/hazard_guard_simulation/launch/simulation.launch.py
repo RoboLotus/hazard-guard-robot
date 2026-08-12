@@ -42,6 +42,7 @@ def generate_launch_description() -> LaunchDescription:
     visualize_sensors = LaunchConfiguration("visualize_sensors")
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
+    heat_source_profile = LaunchConfiguration("heat_source_profile")
 
     robot_description = ParameterValue(
         Command(
@@ -114,6 +115,11 @@ def generate_launch_description() -> LaunchDescription:
                 description="Attach the provisional rear dispenser geometry",
             ),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
+            DeclareLaunchArgument(
+                "heat_source_profile",
+                default_value="",
+                description="JSON profile for deterministic synthetic heat sources",
+            ),
             SetEnvironmentVariable(
                 "IGN_GAZEBO_RESOURCE_PATH",
                 [
@@ -175,33 +181,22 @@ def generate_launch_description() -> LaunchDescription:
                     "/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan",
                     "/imu/data_raw@sensor_msgs/msg/Imu[gz.msgs.IMU",
                     "/joint_states@sensor_msgs/msg/JointState[gz.msgs.Model",
-                    # Each camera keeps its own intrinsics: Fortress derives
-                    # the CameraInfo topic from the image topic's parent path,
-                    # so /<name>/image publishes to /<name>/camera_info. The
-                    # ROS-side names below stay <name>/image_raw as before.
-                    "/camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
-                    (
-                        "/camera/camera_info@sensor_msgs/msg/CameraInfo"
-                        "[gz.msgs.CameraInfo"
-                    ),
-                    "/depth_camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
-                    (
-                        "/depth_camera/camera_info@sensor_msgs/msg/CameraInfo"
-                        "[gz.msgs.CameraInfo"
-                    ),
-                    "/depth_camera/image/points@sensor_msgs/msg/PointCloud2"
+                    "/camera@sensor_msgs/msg/Image[gz.msgs.Image",
+                    "/camera/camera_info@sensor_msgs/msg/CameraInfo"
+                    "[gz.msgs.CameraInfo",
+                    "/depth_camera@sensor_msgs/msg/Image[gz.msgs.Image",
+                    "/depth_camera/camera_info@sensor_msgs/msg/CameraInfo"
+                    "[gz.msgs.CameraInfo",
+                    "/depth_camera/points@sensor_msgs/msg/PointCloud2"
                     "[gz.msgs.PointCloudPacked",
-                    "/thermal_camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
-                    (
-                        "/thermal_camera/camera_info@sensor_msgs/msg/CameraInfo"
-                        "[gz.msgs.CameraInfo"
-                    ),
+                    "/thermal_camera@sensor_msgs/msg/Image[gz.msgs.Image",
+                    "/thermal_camera/camera_info@sensor_msgs/msg/CameraInfo"
+                    "[gz.msgs.CameraInfo",
                 ],
                 remappings=[
-                    ("/camera/image", "/camera/image_raw"),
-                    ("/depth_camera/image", "/depth_camera/image_raw"),
-                    ("/depth_camera/image/points", "/depth_camera/points"),
-                    ("/thermal_camera/image", "/thermal_camera/image_raw"),
+                    ("/camera", "/camera/image_raw"),
+                    ("/depth_camera", "/depth_camera/image_raw"),
+                    ("/thermal_camera", "/thermal_camera/image_raw"),
                 ],
                 parameters=[
                     {
@@ -243,6 +238,7 @@ def generate_launch_description() -> LaunchDescription:
                         "range_max_m": TMC160B.visualization_range_m,
                         "sensor_frame": TMC160B.sensor_frame,
                         "publish_rate_hz": 2.0,
+                        "heat_source_profile": heat_source_profile,
                         "use_sim_time": use_sim_time,
                     }
                 ],

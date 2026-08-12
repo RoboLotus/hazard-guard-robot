@@ -12,6 +12,7 @@ Gazebo Fortress, SLAM Toolbox, Nav2와 WebUI 연동을 검증할 수 있는 개�
 - ROSMASTER-M1 Superior Kit 기반 로봇 모델
 - RGB, Depth, ThermoEye TMC160B 사양 기반 합성 열화상, 2D LiDAR, IMU 센서 시뮬레이션
 - SLAM Toolbox 기반 지도 작성
+- RTAB-Map 기반 RGB-D 컬러 3D 지도 실험
 - AMCL 기반 위치 추정
 - Nav2 단일 목적지·다중 웨이포인트 주행
 - 하드웨어 없이 사용하는 mock telemetry·열원 탐지
@@ -330,6 +331,20 @@ ros2 service call /hazard_guard/mission/cancel std_srvs/srv/Trigger
 WebUI 를 쓰는 경우 `지도` 탭의 웨이포인트 패널이 같은 액션을 호출하므로 이
 스크립트를 따로 실행할 필요가 없습니다.
 
+### 반복·예약 순찰
+
+`RunPatrol` 액션은 1회, 지정 횟수, 실제 종료 시각까지 반복, 수동 종료까지 반복을
+지원합니다. 예약 시작·종료 시각은 Unix 밀리초로 전달되므로 WebUI의 시간대와
+무관하게 같은 순간을 가리킵니다. 회차 사이에는 `repeat_interval_sec`만큼
+대기하며, 대기 중에도 취소할 수 있습니다. 종료 시각에 도달하면 현재 Nav2
+이동을 취소하고 임무를 정상 종료로 기록합니다.
+
+예약과 반복은 브라우저가 아닌 `hazard_guard_mission_manager`가 처리합니다.
+따라서 WebUI 새로고침이나 노트북 네트워크 단절에도 Jetson 노드가 살아 있는 한
+순찰은 계속됩니다. 실제 시간 예약을 사용하기 전에는 Jetson의 시간대와 NTP
+동기화 상태를 확인하십시오. 인터페이스가 변경되었으므로 기존 설치에서는
+`hazard_guard_interfaces`와 `hazard_guard_mission_manager`를 다시 빌드해야 합니다.
+
 ## 지도 작성
 
 ```bash
@@ -337,6 +352,25 @@ ros2 launch hazard_guard_simulation slam.launch.py gui:=true
 ```
 
 로봇을 수동 주행시켜 공간을 탐색한 뒤 지도를 저장합니다.
+
+지도 작성 프로필은 두 가지입니다.
+
+| 프로필 | launch 인자 | 생성 결과 | 권장 용도 |
+|---|---|---|---|
+| 2D 표준 | `enable_rtabmap:=false` | SLAM Toolbox 점유 지도 | Nav2 순찰용 지도 작성, 빠른 반복 검증 |
+| 2D + RGB-D 3D | `enable_rtabmap:=true` | 동일한 2D 점유 지도 + RTAB-Map DB·컬러 포인트클라우드 | 3D 공간 및 향후 열화상 융합 실험 |
+
+```bash
+ros2 launch hazard_guard_simulation slam.launch.py \
+  gui:=false \
+  enable_rtabmap:=true \
+  rtabmap_database_path:="$(pwd)/runtime/maps/rtabmap.db"
+```
+
+두 프로필 모두 `/map`과 `map → odom` TF는 SLAM Toolbox만 발행합니다.
+RTAB-Map은 별도 `rtabmap_map` 좌표계와 `/rtabmap/grid_map`을 사용하므로
+2D 지도와 TF를 중복 발행하지 않습니다. 따라서 3D 수집을 켜도 Nav2가 사용할
+2D 지도 생성 방식은 바뀌지 않습니다.
 
 ```bash
 mkdir -p runtime/maps
@@ -367,13 +401,91 @@ SLAM을 실행한 상태에서 Nav2를 함께 시험하려면 다음을 사용�
 ros2 launch hazard_guard_simulation navigation.launch.py gui:=true
 ```
 
+## RTAB-Map RGB-D 3D 지도 실험
+
+이 기능은 기존의 `SLAM Toolbox + Nav2` 2D 운용 경로를 교체하지 않는 별도
+시뮬레이션 실험입니다. 로봇은 바닥의 X/Y/Yaw로 이동하면서 RGB와 Depth를
+결합해 높이(Z)와 색상이 포함된 포인트클라우드를 누적합니다.
+
+RViz에서 직접 확인하면서 안전 구간 자동 수집 경로를 실행하려면 다음을
+사용합니다.
+
+```bash
+ros2 launch hazard_guard_simulation rtabmap_sim.launch.py \
+  gui:=false \
+  rviz:=true \
+  demo_route:=true
+```
+
+`demo_route:=true`는 `demo_facility` 남측 통로에서만 실행되는 제한된 검증
+경로입니다. 가장 여유가 넓은 기본 스폰 지점 P2에서만 360° 관측하고, 통로의
+동·서쪽 안전 구간은 차체 방향을 유지한 채 전진·후진으로 왕복합니다. 좁은
+양 끝에서 제자리 회전하다 설비와 접촉하는 상황을 피하며, 실제 로봇에서는
+실행하지 않습니다.
+
+RTAB-Map 자체의 `/rtabmap/cloud_map`은 이 구성에서 Z=0인 장애물 점유 셀을
+나타냅니다. 컬러 표면 지도는 RGB·Depth로 프레임별 포인트클라우드를 만든 뒤
+RTAB-Map의 `map` 좌표계에 누적하여
+`/hazard_guard/rtabmap/cloud_surface`로 발행합니다. 각 점은 X/Y/Z와 RGB를
+포함하며 WebUI 백엔드가 이를 다운샘플링해 브라우저로 전송합니다. RViz는 이
+데이터를 보는 도구일 뿐 WebUI의 데이터 원본은 아닙니다.
+
+실제 로봇 전환 시 RTAB-Map 알고리즘 코드를 다시 만들 필요는 없지만,
+Gazebo 카메라 토픽 대신 실제 RGB·Depth·CameraInfo·Odometry·TF를 연결해야
+합니다. 특히 RGB 카메라와 Depth 카메라의 내부 파라미터 및 센서와
+`base_link` 사이 외부 캘리브레이션이 선행되어야 합니다.
+
+이 컬러 클라우드는 센서가 관측한 표면의 3D 복원 결과이므로 가려진 면과 아직
+주행하지 않은 구역은 포함하지 않습니다. Gazebo SDF의 모든 벽과 메시를 완전한
+형태로 표시하는 것은 SLAM 검증과 구분되는 시뮬레이터 원본 디지털 트윈
+기능입니다.
+
+### 실제 Jetson 3D 지도 부하 제어
+
+실제 로봇의 `physical_mapping.launch.py`에는 주행 계층과 독립된 3D cloud
+guard가 포함됩니다. 정상 상태에서는 프레임당 최대 3,000점과 8 Hz로 누적
+입력을 제한하고, 누적 지도는 8 cm voxel 및 10 cm/6° keyframe 조건을
+사용합니다. 누적 결과는 첫 keyframe부터 발행하며 정지 중 중복 프레임은
+지도에 추가하지 않습니다. CPU/GPU/RAM/온도/지도 저장 디스크 부하가 지속되면 1,500점과
+4 Hz로 낮추며, 임계 부하에서는 3D 표면 누적만 일시 중지합니다. 이때
+SLAM Toolbox, Nav2, RTAB-Map 위치 추정 및 RTAB-Map DB 기록 경로는 계속
+동작합니다.
+
+누적 지도는 WebUI 호환 토픽인
+`/hazard_guard/rtabmap/cloud_surface`를 유지하며 최대 1 Hz로 전달됩니다.
+현재 managed WebUI의 legacy 토픽 설정과 호환되도록 같은 누적 지도를
+`/hazard_guard/rtabmap/cloud_frame_raw`에도 발행합니다. 실제 센서 프레임은
+내부 토픽 `/hazard_guard/rtabmap/cloud_frame_generated`에서 확인할 수 있습니다.
+현재 품질 모드와 부하, 입출력 포인트 수는 다음 토픽에서 확인합니다.
+
+```bash
+ros2 topic echo /hazard_guard/rtabmap/cloud_guard/status
+```
+
+실제 로봇 launch의 기본값은 필요하면 인자로 조정할 수 있습니다.
+
+```bash
+ros2 launch hazard_guard_simulation physical_mapping.launch.py \
+  cloud_normal_points:=3000 \
+  cloud_high_load_points:=1500 \
+  cloud_normal_input_hz:=8.0 \
+  cloud_high_load_input_hz:=4.0
+```
+
 ## WebUI 운용 모드 연동
 
 `hazard-guard-console` 백엔드의 모드 제어를 활성화하면 WebUI `지도` 탭에서
 다음 launch 구성을 선택할 수 있습니다.
 
 - `맵 생성 / SLAM`: `slam.launch.py`
+  - `2D 표준`: SLAM Toolbox만 실행
+  - `2D + RGB-D 3D`: SLAM Toolbox와 RTAB-Map을 함께 실행
 - `순찰 / AMCL·Nav2`: 저장 지도를 사용하는 `localization.launch.py`
+
+WebUI가 새 지도 세션을 시작하면 세션 디렉터리를 만들고 2D 지도는
+`map.yaml`·`map.pgm`, 3D 수집 프로필은 추가로 `rtabmap.db`에 저장합니다.
+RTAB-Map DB는 장시간 주행할수록 커질 수 있으므로 세션 목록에서 용량을
+확인하고 필요한 결과만 보관합니다.
 
 WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미널에서 동시에
 실행하지 않습니다. 맵 생성 모드에서는 목적지 이동과 웨이포인트 순찰 명령이
@@ -390,6 +502,8 @@ WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미�
 | LiDAR | `/scan` |
 | RGB | `/camera/image_raw`, `/camera/camera_info` |
 | Depth | `/depth_camera/image_raw`, `/depth_camera/camera_info`, `/depth_camera/points` |
+| RTAB-Map 컬러 3D 지도 | `/hazard_guard/rtabmap/cloud_surface` |
+| 3D 지도 부하 상태 | `/hazard_guard/rtabmap/cloud_guard/status` |
 | 열화상 | `/thermal_camera/image_raw`, `/thermal_camera/camera_info` |
 | IMU | `/imu/data_raw` |
 | 로봇 상태 | `/hazard_guard/telemetry` |
@@ -454,19 +568,19 @@ ros2 launch hazard_guard_simulation camera_view.launch.py show_rgb:=true
 
 ### 카메라 토픽 구조
 
-Fortress 는 이미지 토픽의 마지막 경로 조각을 떼고 `/camera_info` 를 붙여
-CameraInfo 토픽을 만듭니다. 그래서 SDF 의 `<topic>` 은 반드시 한 단계 아래에
-두어야 합니다.
+카메라마다 SDF 에 `<camera_info_topic>` 을 **명시**합니다. 이걸 빼면 Fortress
+가 이미지 토픽의 마지막 경로 조각을 떼고 `/camera_info` 를 붙여 만드는데,
+세 카메라 토픽이 모두 루트라 전부 `/camera_info` 하나로 접힙니다.
 
-| SDF `<topic>` | gz CameraInfo | 겹침 |
+| 설정 | gz CameraInfo | 결과 |
 |---|---|---|
-| `/camera`, `/depth_camera`, `/thermal_camera` | 전부 `/camera_info` | 세 카메라의 intrinsics 가 한 토픽을 덮어씀 |
-| `/camera/image`, `/depth_camera/image`, `/thermal_camera/image` | `/camera/camera_info` 등 | 카메라별로 분리 |
+| `<camera_info_topic>` 없음 | 셋 다 `/camera_info` | 마지막에 발행한 카메라 값만 남음 |
+| `<camera_info_topic>` 명시 | `/camera/camera_info` 등 | 카메라별로 분리 |
 
-열화상-뎁스 캘리브레이션은 카메라별 intrinsics 가 있어야 하므로 후자를
-씁니다. ROS 쪽 이름은 브리지에서 `<이름>/image_raw` 로 되돌려 기존과 같습니다.
-`test/test_camera_topics.py` 가 URDF 의 카메라 토픽과 브리지 목록이 어긋나면
-실패합니다.
+브리지도 정상 동작하고 토픽도 계속 갱신되므로 **조용히 틀린 값이 흐릅니다.**
+열화상-뎁스 캘리브레이션은 카메라별 intrinsics 가 있어야 성립하므로 명시가
+필수입니다. `test/test_camera_topics.py` 가 `<camera_info_topic>` 누락, 토픽
+충돌, 브리지 목록 누락을 검사합니다.
 
 ## 검증
 
