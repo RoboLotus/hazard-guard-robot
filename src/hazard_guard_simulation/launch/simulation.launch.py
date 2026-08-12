@@ -170,20 +170,33 @@ def generate_launch_description() -> LaunchDescription:
                     "/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan",
                     "/imu/data_raw@sensor_msgs/msg/Imu[gz.msgs.IMU",
                     "/joint_states@sensor_msgs/msg/JointState[gz.msgs.Model",
-                    "/camera@sensor_msgs/msg/Image[gz.msgs.Image",
+                    # Each camera keeps its own intrinsics: Fortress derives
+                    # the CameraInfo topic from the image topic's parent path,
+                    # so /<name>/image publishes to /<name>/camera_info. The
+                    # ROS-side names below stay <name>/image_raw as before.
+                    "/camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
                     (
-                        "/camera_info@sensor_msgs/msg/CameraInfo"
+                        "/camera/camera_info@sensor_msgs/msg/CameraInfo"
                         "[gz.msgs.CameraInfo"
                     ),
-                    "/depth_camera@sensor_msgs/msg/Image[gz.msgs.Image",
-                    "/depth_camera/points@sensor_msgs/msg/PointCloud2"
+                    "/depth_camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
+                    (
+                        "/depth_camera/camera_info@sensor_msgs/msg/CameraInfo"
+                        "[gz.msgs.CameraInfo"
+                    ),
+                    "/depth_camera/image/points@sensor_msgs/msg/PointCloud2"
                     "[gz.msgs.PointCloudPacked",
-                    "/thermal_camera@sensor_msgs/msg/Image[gz.msgs.Image",
+                    "/thermal_camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
+                    (
+                        "/thermal_camera/camera_info@sensor_msgs/msg/CameraInfo"
+                        "[gz.msgs.CameraInfo"
+                    ),
                 ],
                 remappings=[
-                    ("/camera", "/camera/image_raw"),
-                    ("/depth_camera", "/depth_camera/image_raw"),
-                    ("/thermal_camera", "/thermal_camera/image_raw"),
+                    ("/camera/image", "/camera/image_raw"),
+                    ("/depth_camera/image", "/depth_camera/image_raw"),
+                    ("/depth_camera/image/points", "/depth_camera/points"),
+                    ("/thermal_camera/image", "/thermal_camera/image_raw"),
                 ],
                 parameters=[
                     {

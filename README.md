@@ -388,9 +388,9 @@ WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미�
 | 로봇 위치·오도메트리 | `/tf`, `/odom` |
 | 주행 명령 | `/cmd_vel` |
 | LiDAR | `/scan` |
-| RGB | `/camera/image_raw` |
-| Depth | `/depth_camera/image_raw` |
-| 열화상 | `/thermal_camera/image_raw` |
+| RGB | `/camera/image_raw`, `/camera/camera_info` |
+| Depth | `/depth_camera/image_raw`, `/depth_camera/camera_info`, `/depth_camera/points` |
+| 열화상 | `/thermal_camera/image_raw`, `/thermal_camera/camera_info` |
 | IMU | `/imu/data_raw` |
 | 로봇 상태 | `/hazard_guard/telemetry` |
 | 열원 탐지 | `/hazard_guard/thermal_detections` |
@@ -403,6 +403,36 @@ WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미�
 8.7 Hz를 반영합니다. 지도에 보이는 5 m 부채꼴 길이는 화면 표현을 위한
 시뮬레이션 경계이며 제조사가 보장하는 측정거리가 아닙니다. 현재 열화상과
 열원 값은 합성 데이터이므로 실제 화재 판정 성능을 의미하지 않습니다.
+
+### 카메라 스트림 보기
+
+시뮬레이션이 떠 있는 상태에서 창을 띄웁니다. 기본은 열화상과 뎁스 2개이고,
+`show_rgb:=true` 로 RGB도 함께 볼 수 있습니다.
+
+```bash
+ros2 launch hazard_guard_simulation camera_view.launch.py
+ros2 launch hazard_guard_simulation camera_view.launch.py show_rgb:=true
+```
+
+열화상 창은 처음에 평평하게 보입니다. mono16 에 밝기가 아니라 온도가 실려
+있어서(켈빈 ×100, 29315 = 20.0 ℃) 툴바의 **Dynamic range** 를 켜야 대비가
+생깁니다.
+
+### 카메라 토픽 구조
+
+Fortress 는 이미지 토픽의 마지막 경로 조각을 떼고 `/camera_info` 를 붙여
+CameraInfo 토픽을 만듭니다. 그래서 SDF 의 `<topic>` 은 반드시 한 단계 아래에
+두어야 합니다.
+
+| SDF `<topic>` | gz CameraInfo | 겹침 |
+|---|---|---|
+| `/camera`, `/depth_camera`, `/thermal_camera` | 전부 `/camera_info` | 세 카메라의 intrinsics 가 한 토픽을 덮어씀 |
+| `/camera/image`, `/depth_camera/image`, `/thermal_camera/image` | `/camera/camera_info` 등 | 카메라별로 분리 |
+
+열화상-뎁스 캘리브레이션은 카메라별 intrinsics 가 있어야 하므로 후자를
+씁니다. ROS 쪽 이름은 브리지에서 `<이름>/image_raw` 로 되돌려 기존과 같습니다.
+`test/test_camera_topics.py` 가 URDF 의 카메라 토픽과 브리지 목록이 어긋나면
+실패합니다.
 
 ## 검증
 

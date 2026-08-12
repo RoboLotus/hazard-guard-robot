@@ -314,6 +314,7 @@
     <child link="thermal_camera_link" />
     <origin xyz="0.158 0 0.112" />
   </joint>
+
   <link name="thermal_camera_optical_frame" />
   <joint name="thermal_camera_optical_joint" type="fixed">
     <parent link="thermal_camera_link" />
@@ -441,12 +442,20 @@
     </sensor>
   </gazebo>
 
+  <!--
+    Sensor topics are one level deep on purpose. Fortress derives the
+    CameraInfo topic by dropping the last element of the image topic and
+    appending /camera_info, so root-level topics (/camera, /depth_camera,
+    /thermal_camera) would all publish their intrinsics onto a single
+    /camera_info. Nesting gives each sensor its own /<name>/camera_info,
+    which is what the thermal-to-depth calibration needs.
+  -->
   <gazebo reference="depth_camera_link">
     <sensor name="hazard_guard_rgb_camera" type="camera">
       <always_on>true</always_on>
       <update_rate>10</update_rate>
       <visualize>${visualize_sensors}</visualize>
-      <topic>/camera</topic>
+      <topic>/camera/image</topic>
       <gz_frame_id>depth_camera_optical_frame</gz_frame_id>
       <camera name="front_camera">
         <horizontal_fov>1.288053</horizontal_fov>
@@ -459,7 +468,7 @@
       <always_on>true</always_on>
       <update_rate>10</update_rate>
       <visualize>${visualize_sensors}</visualize>
-      <topic>/depth_camera</topic>
+      <topic>/depth_camera/image</topic>
       <gz_frame_id>depth_camera_optical_frame</gz_frame_id>
       <camera name="depth_camera">
         <horizontal_fov>1.288053</horizontal_fov>
@@ -482,7 +491,7 @@
       <always_on>true</always_on>
       <update_rate>${thermal_update_rate}</update_rate>
       <visualize>${visualize_sensors}</visualize>
-      <topic>/thermal_camera</topic>
+      <topic>/thermal_camera/image</topic>
       <gz_frame_id>thermal_camera_optical_frame</gz_frame_id>
       <camera name="thermal_camera">
         <horizontal_fov>${thermal_horizontal_fov}</horizontal_fov>
