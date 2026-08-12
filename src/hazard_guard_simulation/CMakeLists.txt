@@ -12,6 +12,7 @@ install(DIRECTORY launch
 )
 install(PROGRAMS scripts/rtabmap_scan_demo.py scripts/camera_info_relay.py
   scripts/cloud_stamp_relay.py scripts/adaptive_cloud_guard.py
+  scripts/thermal_colorize.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -21,15 +21,40 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 # label -> (launch argument, default topic, shown by default)
+# The thermal window defaults to the colourised stream: the raw mono16 is
+# temperature, not brightness, and shows up as a near-black frame.
 STREAMS = (
-    ("thermal", "thermal_topic", "/thermal_camera/image_raw", "true"),
+    ("thermal", "thermal_topic", "/thermal_camera/image_color", "true"),
     ("depth", "depth_topic", "/depth_camera/image_raw", "true"),
     ("rgb", "rgb_topic", "/camera/image_raw", "false"),
 )
 
 
 def generate_launch_description() -> LaunchDescription:
-    actions = []
+    actions = [
+        DeclareLaunchArgument(
+            "min_temp_c",
+            default_value="10.0",
+            description="Blue end of the thermal colour map",
+        ),
+        DeclareLaunchArgument(
+            "max_temp_c",
+            default_value="60.0",
+            description="Red end of the thermal colour map",
+        ),
+        Node(
+            package="hazard_guard_simulation",
+            executable="thermal_colorize.py",
+            name="thermal_colorize",
+            output="screen",
+            parameters=[
+                {
+                    "min_temp_c": LaunchConfiguration("min_temp_c"),
+                    "max_temp_c": LaunchConfiguration("max_temp_c"),
+                }
+            ],
+        ),
+    ]
     for label, argument, topic, shown in STREAMS:
         actions.append(DeclareLaunchArgument(argument, default_value=topic))
         actions.append(
