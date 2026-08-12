@@ -119,3 +119,14 @@ def test_camera_info_relay_accepts_sensor_qos_and_latches_output():
 def test_real_map_assembler_publishes_circular_buffer_immediately():
     launch_source = REAL_LAUNCH.read_text(encoding="utf-8")
     assert '"circular_buffer": True' in launch_source
+
+
+def test_real_launch_exposes_stamp_policy_and_sync_diagnostics():
+    launch_source = REAL_LAUNCH.read_text(encoding="utf-8")
+
+    assert '"cloud_stamp_mode",\n                default_value="latest"' in launch_source
+    assert 'default_value="latest"' in launch_source
+    assert '"sync_diagnostics",\n                default_value="false"' in launch_source
+    assert '"stamp_mode": LaunchConfiguration("cloud_stamp_mode")' in launch_source
+    assert 'executable="timestamp_diagnostics.py"' in launch_source
+    assert '"/hazard_guard/rtabmap/cloud_frame_generated"' in launch_source

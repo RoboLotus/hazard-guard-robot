@@ -9,7 +9,8 @@ from pathlib import Path
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -40,11 +41,34 @@ def generate_launch_description() -> LaunchDescription:
                 ),
             ),
             DeclareLaunchArgument("cloud_normal_points", default_value="3000"),
-            DeclareLaunchArgument("cloud_high_load_points", default_value="1500"),
+            DeclareLaunchArgument(
+                "cloud_high_load_points",
+                default_value="1500",
+            ),
             DeclareLaunchArgument("cloud_normal_input_hz", default_value="8.0"),
             DeclareLaunchArgument("cloud_high_load_input_hz", default_value="4.0"),
             DeclareLaunchArgument("cloud_normal_surface_hz", default_value="1.0"),
             DeclareLaunchArgument("cloud_high_load_surface_hz", default_value="0.5"),
+            DeclareLaunchArgument(
+                "cloud_stamp_mode",
+                default_value="latest",
+                description="preserve, offset, or latest (zero stamp)",
+            ),
+            DeclareLaunchArgument(
+                "cloud_stamp_offset_sec",
+                default_value="0.0",
+                description=(
+                    "Seconds added to the cloud stamp in offset mode; "
+                    "use a negative value when the camera clock is ahead"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "sync_diagnostics",
+                default_value="false",
+                description=(
+                    "Enable short-lived physical sensor timing diagnostics"
+                ),
+            ),
             # The camera publishes its internal TF tree only. These transforms
             # attach it to the physical M1 frame tree used by SLAM Toolbox.
             Node(
@@ -221,9 +245,50 @@ def generate_launch_description() -> LaunchDescription:
                 executable="cloud_stamp_relay.py",
                 name="color_cloud_stamp_relay",
                 output="screen",
+                parameters=[
+                    {
+                        "stamp_mode": LaunchConfiguration("cloud_stamp_mode"),
+                        "stamp_offset_sec": ParameterValue(
+                            LaunchConfiguration("cloud_stamp_offset_sec"),
+                            value_type=float,
+                        ),
+                    }
+                ],
                 remappings=[
                     ("input", "/hazard_guard/rtabmap/cloud_frame_limited"),
                     ("output", "/hazard_guard/rtabmap/cloud_frame"),
+                ],
+            ),
+            Node(
+                package="hazard_guard_simulation",
+                executable="timestamp_diagnostics.py",
+                name="timestamp_diagnostics",
+                output="screen",
+                condition=IfCondition(LaunchConfiguration("sync_diagnostics")),
+                parameters=[
+                    {
+                        "target_frame": "odom",
+                        "report_dir": PathJoinSubstitution(
+                            [storage_path, "diagnostics"]
+                        ),
+                    }
+                ],
+                remappings=[
+                    (
+                        "rgb",
+                        "/ascamera_hp60c/camera_publisher/rgb0/image",
+                    ),
+                    (
+                        "depth",
+                        "/ascamera_hp60c/camera_publisher/depth0/image_raw",
+                    ),
+                    (
+                        "camera_info",
+                        "/ascamera_hp60c/camera_publisher/rgb0/camera_info",
+                    ),
+                    ("odom", "/odom"),
+                    ("scan", "/scan"),
+                    ("cloud", "/hazard_guard/rtabmap/cloud_frame_generated"),
                 ],
             ),
             Node(
