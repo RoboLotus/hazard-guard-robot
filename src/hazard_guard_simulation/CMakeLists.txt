@@ -14,6 +14,7 @@ install(DIRECTORY launch
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_camera_topics test/test_camera_topics.py)
+  ament_add_pytest_test(test_thermal_mount test/test_thermal_mount.py)
 endif()
 
 ament_package()

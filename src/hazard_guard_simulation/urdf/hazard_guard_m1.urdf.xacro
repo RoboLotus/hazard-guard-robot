@@ -13,6 +13,15 @@
   <xacro:arg name="thermal_horizontal_fov" default="0.994837674" />
   <xacro:arg name="thermal_clip_near" default="0.05" />
   <xacro:arg name="thermal_clip_far" default="5.0" />
+  <!-- Thermal mount, base_link frame. Defaults put the thermal optical frame
+       level with the depth optical frame (x 0.115871, z 0.106136) and 68 mm to
+       its left; see the joint below for why that side. -->
+  <xacro:arg name="thermal_mount_x" default="0.106871" />
+  <xacro:arg name="thermal_mount_y" default="0.068" />
+  <xacro:arg name="thermal_mount_z" default="0.106136" />
+  <xacro:arg name="thermal_mount_roll" default="0" />
+  <xacro:arg name="thermal_mount_pitch" default="0" />
+  <xacro:arg name="thermal_mount_yaw" default="0" />
   <xacro:property name="simulation_mode" value="$(arg simulation_mode)" />
   <xacro:property name="visualize_sensors" value="$(arg visualize_sensors)" />
   <xacro:property name="dispenser_requested_mass" value="$(arg dispenser_mass)" />
@@ -309,12 +318,29 @@
       <geometry><box size="0.014 0.038 0.038" /></geometry>
     </collision>
   </link>
+  <!--
+    Mounted beside the RGB-D unit, not in front of it and not on top.
+
+    On top does not fit: the LiDAR scan plane is at base_link z 0.14712 and the
+    camera body already reaches 0.1197, so a 38 mm board stacked above it tops
+    out at 0.158 and cuts the forward sector of the scan.
+
+    Beside keeps everything below the scan plane (0.087 - 0.125) and leaves the
+    two optical frames coplanar in x and z, so the baseline is a pure sideways
+    68 mm - the case the thermal-to-RGB calibration is easiest to sanity-check
+    against. The board sits 4 mm clear of the camera housing and 6.5 mm outside
+    the chassis edge, well inside the 0.155 m nav footprint half-width.
+
+    The three offsets are arguments so the mount can be perturbed by a known
+    amount to test whether a calibration run recovers it.
+  -->
   <joint name="thermal_camera_joint" type="fixed">
     <parent link="base_link" />
     <child link="thermal_camera_link" />
-    <origin xyz="0.158 0 0.112" />
+    <origin
+      xyz="$(arg thermal_mount_x) $(arg thermal_mount_y) $(arg thermal_mount_z)"
+      rpy="$(arg thermal_mount_roll) $(arg thermal_mount_pitch) $(arg thermal_mount_yaw)" />
   </joint>
-
   <link name="thermal_camera_optical_frame" />
   <joint name="thermal_camera_optical_joint" type="fixed">
     <parent link="thermal_camera_link" />
