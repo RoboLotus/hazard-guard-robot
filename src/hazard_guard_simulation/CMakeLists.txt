@@ -20,6 +20,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_adaptive_cloud_guard
     test/test_adaptive_cloud_guard.py
   )
+  ament_add_pytest_test(test_physical_patrol_launch
+    test/test_physical_patrol_launch.py
+  )
 endif()
 
 ament_package()
