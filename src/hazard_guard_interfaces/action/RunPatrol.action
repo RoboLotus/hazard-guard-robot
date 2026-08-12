@@ -2,12 +2,22 @@ string mission_id
 string name
 string frame_id
 bool return_to_start
+uint8 REPEAT_ONCE=0
+uint8 REPEAT_COUNT=1
+uint8 REPEAT_UNTIL_TIME=2
+uint8 REPEAT_FOREVER=3
+uint8 repeat_mode
+uint32 repeat_count
+float32 repeat_interval_sec
+int64 start_at_unix_ms
+int64 end_at_unix_ms
 hazard_guard_interfaces/PatrolWaypoint[] waypoints
 ---
 bool success
 string status
 string message
 uint32 completed_waypoints
+uint32 completed_cycles
 float64 total_distance_m
 ---
 string status
@@ -15,6 +25,11 @@ string message
 int32 current_index
 uint32 total_waypoints
 uint32 completed_waypoints
+uint32 current_cycle
+uint32 total_cycles
+uint32 completed_cycles
+int64 next_run_at_unix_ms
+int64 end_at_unix_ms
 string waypoint_id
 string waypoint_status
 float64 total_distance_m

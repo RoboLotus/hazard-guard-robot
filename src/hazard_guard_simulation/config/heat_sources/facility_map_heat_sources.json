@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "world_id": "facility_map_heat_sources",
+  "temperature_note": "SDF thermal system의 333.15 K를 섭씨 60도로 변환",
+  "sources": [
+    {
+      "detection_id": "equipment-1-south",
+      "x": -1.185,
+      "y": 0.6745,
+      "z": 0.155,
+      "temperature_c": 60.0,
+      "radius_m": 0.22,
+      "source": "gazebo:equipment_1_south"
+    },
+    {
+      "detection_id": "equipment-2-north",
+      "x": -1.185,
+      "y": -0.6745,
+      "z": 0.155,
+      "temperature_c": 60.0,
+      "radius_m": 0.22,
+      "source": "gazebo:equipment_2_north"
+    },
+    {
+      "detection_id": "equipment-3-west",
+      "x": 0.3045,
+      "y": 0.0,
+      "z": 0.155,
+      "temperature_c": 60.0,
+      "radius_m": 0.22,
+      "source": "gazebo:equipment_3_west"
+    }
+  ]
+}

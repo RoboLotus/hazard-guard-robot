@@ -17,6 +17,7 @@ venv/
 runtime/maps/*
 runtime/debug/
 !runtime/maps/.gitkeep
+runtime/settings/
 runtime/bags/
 *.db3
 *.mcap

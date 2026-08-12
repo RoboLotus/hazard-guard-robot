@@ -1,0 +1,42 @@
+/rtabmap/rtabmap:
+  ros__parameters:
+    # Simulation-only profile. The real M1 launch uses Yahboom's Nuwa topics.
+    use_sim_time: true
+    frame_id: base_footprint
+    odom_frame_id: odom
+    map_frame_id: map
+    publish_tf: true
+
+    subscribe_rgbd: true
+    subscribe_depth: false
+    subscribe_rgb: false
+    subscribe_scan: true
+    subscribe_odom_info: false
+    approx_sync: true
+    sync_queue_size: 30
+    qos_image: 2
+    qos_camera_info: 2
+    qos_scan: 2
+    qos_odom: 2
+
+    # The M1 pose stays planar while depth observations retain their Z values.
+    Reg/Strategy: "1"
+    Reg/Force3DoF: "true"
+    RGBD/NeighborLinkRefining: "true"
+    RGBD/OptimizeMaxError: "10.0"
+    RGBD/LoopClosureAngularPrecision: "0.5"
+    Vis/MinInliers: "20"
+    Optimizer/GravitySigma: "0"
+
+    Grid/FromDepth: "true"
+    Grid/3D: "true"
+    Grid/RangeMin: "0.2"
+    Grid/RangeMax: "4.0"
+    Grid/CellSize: "0.05"
+    Grid/MaxObstacleHeight: "2.5"
+    Grid/MinGroundHeight: "-0.15"
+
+    Mem/IncrementalMemory: "true"
+    Mem/InitWMWithAllNodes: "false"
+    Mem/DepthCompressionFormat: ".png"
+    Rtabmap/DetectionRate: "2.0"
