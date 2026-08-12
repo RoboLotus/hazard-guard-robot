@@ -7,7 +7,7 @@
         <pose>0 0 0 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.005 0.5000 0.5000</size>
+            <size>0.005 0.3200 0.3200</size>
           </box>
         </geometry>
         <material>
@@ -23,15 +23,15 @@
       <collision name="collision">
         <geometry>
           <box>
-            <size>0.005 0.5000 0.5000</size>
+            <size>0.005 0.3200 0.3200</size>
           </box>
         </geometry>
       </collision>
       <visual name="disc_0_0">
-        <pose>0.0035 0.1800 0.1800 0 1.5707963 0</pose>
+        <pose>0.0035 0.1200 0.1200 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -46,10 +46,10 @@
         </plugin>
       </visual>
       <visual name="disc_0_1">
-        <pose>0.0035 0.0600 0.1800 0 1.5707963 0</pose>
+        <pose>0.0035 0.0400 0.1200 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -64,10 +64,10 @@
         </plugin>
       </visual>
       <visual name="disc_0_2">
-        <pose>0.0035 -0.0600 0.1800 0 1.5707963 0</pose>
+        <pose>0.0035 -0.0400 0.1200 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -82,10 +82,10 @@
         </plugin>
       </visual>
       <visual name="disc_0_3">
-        <pose>0.0035 -0.1800 0.1800 0 1.5707963 0</pose>
+        <pose>0.0035 -0.1200 0.1200 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -100,10 +100,10 @@
         </plugin>
       </visual>
       <visual name="disc_1_0">
-        <pose>0.0035 0.1800 0.0600 0 1.5707963 0</pose>
+        <pose>0.0035 0.1200 0.0400 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -118,10 +118,10 @@
         </plugin>
       </visual>
       <visual name="disc_1_1">
-        <pose>0.0035 0.0600 0.0600 0 1.5707963 0</pose>
+        <pose>0.0035 0.0400 0.0400 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -136,10 +136,10 @@
         </plugin>
       </visual>
       <visual name="disc_1_2">
-        <pose>0.0035 -0.0600 0.0600 0 1.5707963 0</pose>
+        <pose>0.0035 -0.0400 0.0400 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -154,10 +154,10 @@
         </plugin>
       </visual>
       <visual name="disc_1_3">
-        <pose>0.0035 -0.1800 0.0600 0 1.5707963 0</pose>
+        <pose>0.0035 -0.1200 0.0400 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -172,10 +172,10 @@
         </plugin>
       </visual>
       <visual name="disc_2_0">
-        <pose>0.0035 0.1800 -0.0600 0 1.5707963 0</pose>
+        <pose>0.0035 0.1200 -0.0400 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -190,10 +190,10 @@
         </plugin>
       </visual>
       <visual name="disc_2_1">
-        <pose>0.0035 0.0600 -0.0600 0 1.5707963 0</pose>
+        <pose>0.0035 0.0400 -0.0400 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -208,10 +208,10 @@
         </plugin>
       </visual>
       <visual name="disc_2_2">
-        <pose>0.0035 -0.0600 -0.0600 0 1.5707963 0</pose>
+        <pose>0.0035 -0.0400 -0.0400 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -226,10 +226,10 @@
         </plugin>
       </visual>
       <visual name="disc_2_3">
-        <pose>0.0035 -0.1800 -0.0600 0 1.5707963 0</pose>
+        <pose>0.0035 -0.1200 -0.0400 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -244,10 +244,10 @@
         </plugin>
       </visual>
       <visual name="disc_3_0">
-        <pose>0.0035 0.1800 -0.1800 0 1.5707963 0</pose>
+        <pose>0.0035 0.1200 -0.1200 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -262,10 +262,10 @@
         </plugin>
       </visual>
       <visual name="disc_3_1">
-        <pose>0.0035 0.0600 -0.1800 0 1.5707963 0</pose>
+        <pose>0.0035 0.0400 -0.1200 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -280,10 +280,10 @@
         </plugin>
       </visual>
       <visual name="disc_3_2">
-        <pose>0.0035 -0.0600 -0.1800 0 1.5707963 0</pose>
+        <pose>0.0035 -0.0400 -0.1200 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>
@@ -298,10 +298,10 @@
         </plugin>
       </visual>
       <visual name="disc_3_3">
-        <pose>0.0035 -0.1800 -0.1800 0 1.5707963 0</pose>
+        <pose>0.0035 -0.1200 -0.1200 0 1.5707963 0</pose>
         <geometry>
           <cylinder>
-            <radius>0.0350</radius>
+            <radius>0.0200</radius>
             <length>0.0020</length>
           </cylinder>
         </geometry>

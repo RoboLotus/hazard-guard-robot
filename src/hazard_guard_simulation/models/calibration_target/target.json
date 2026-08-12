@@ -1,0 +1,10 @@
+{
+  "columns": 4,
+  "rows": 4,
+  "spacing_m": 0.08,
+  "diameter_m": 0.04,
+  "width_m": 0.32,
+  "height_m": 0.32,
+  "plate_c": 15.0,
+  "disc_c": 35.0
+}

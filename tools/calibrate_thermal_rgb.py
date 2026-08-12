@@ -20,20 +20,32 @@ Two details that are not obvious:
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
+import re
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
 
-GRID = (4, 4)
-SPACING = 0.120
 WORLD = "demo_facility_scaled"
 TARGET = "cal_target"
+ROBOT = "hazard_guard_m1"
+PACKAGE = Path(__file__).resolve().parent.parent / "src" / "hazard_guard_simulation"
+MODEL_DIR = PACKAGE / "models" / "calibration_target"
+RESULTS = Path(__file__).resolve().parent.parent / "runtime" / "calibration"
+
+SPEC = json.loads((MODEL_DIR / "target.json").read_text())
+GRID = (SPEC["columns"], SPEC["rows"])
+SPACING = SPEC["spacing_m"]
+
+# Thermal optical frame height above the floor, from the URDF.
+CAMERA_HEIGHT = 0.134
 
 
 def blob_detector(min_area: float):
@@ -84,6 +96,59 @@ def set_target_pose(x, y, z, roll, pitch, yaw) -> None:
          "--timeout", "3000", "--req", request],
         capture_output=True, check=False,
     )
+
+
+def gz(command, attempts=3):
+    """Run an ign CLI query. It is slow to answer and sometimes not at all."""
+    for attempt in range(attempts):
+        try:
+            done = subprocess.run(
+                command, capture_output=True, text=True, timeout=30
+            )
+            if done.stdout.strip():
+                return done.stdout
+        except subprocess.TimeoutExpired:
+            pass
+        time.sleep(1.0)
+    raise RuntimeError(
+        f"gz 질의 실패: {' '.join(command)}  (시뮬레이터가 떠 있는지 확인)"
+    )
+
+
+def robot_pose():
+    """(x, y, yaw) of the robot in world coordinates, straight from Gazebo.
+
+    The target has to be placed in front of wherever the robot actually is.
+    Hard-coding a world position only works while the robot sits at one spawn
+    point, and puts the board behind it otherwise.
+    """
+    output = gz(["ign", "model", "-m", ROBOT, "-p"])
+    # "ign model -p" prints the pose as two bracketed triples, XYZ then RPY,
+    # among other bracketed text that is not numeric.
+    triples = [
+        [float(v) for v in match.split()]
+        for match in re.findall(r"\[([-0-9.e+ ]+)\]", output)
+        if len(match.split()) == 3
+    ]
+    if len(triples) < 2:
+        raise RuntimeError(f"{ROBOT} 의 위치를 읽지 못했습니다:\n{output}")
+    (x, y, _z), (_roll, _pitch, yaw) = triples[0], triples[1]
+    return x, y, yaw
+
+
+def spawn_target() -> None:
+    """Put the board in the world if it is not there yet."""
+    listed = gz(["ign", "model", "--list"])
+    if TARGET in listed:
+        return
+    subprocess.run(
+        ["ros2", "run", "ros_gz_sim", "create",
+         "-world", WORLD, "-name", TARGET,
+         "-file", str(MODEL_DIR / "model.sdf"),
+         "-x", "0", "-y", "0", "-z", "-5"],   # parked underground until posed
+        capture_output=True, check=False, timeout=30,
+    )
+    time.sleep(2.0)
 
 
 class Capture(Node):
@@ -148,8 +213,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--poses", type=int, default=20)
     parser.add_argument("--settle", type=float, default=1.2)
+    parser.add_argument("--near", type=float, default=0.50)
+    parser.add_argument("--far", type=float, default=0.75)
     arguments = parser.parse_args()
 
+    spawn_target()
     rclpy.init()
     node = Capture()
     for _ in range(100):
@@ -171,23 +239,35 @@ def main() -> int:
             print(f"  - {item}")
         return 1
 
-    # Distance is the main lever, tilt a small one. The depth axis is only
-    # observable through parallax, so views have to differ in range - hence the
-    # wide x spread. Tilt helps too, but only a little: a tilted circle
-    # projects to an ellipse whose centroid is not the projection of the
-    # circle's centre, and with 35 mm circles that bias grows fast. Measured
-    # here, +-17 deg of tilt moved the baseline estimate 10 mm the wrong way
-    # while +-9 deg did not.
+    # Poses are built around wherever the robot is, in its own forward
+    # direction, so the board always lands in front of the camera.
+    #
+    # Range is the main lever: the depth axis is only observable through
+    # parallax, which goes as 1/Z. The window is narrow at both ends - closer
+    # than 0.5 m and the 320 mm board leaves the 44 deg vertical field, further
+    # than 0.75 m and a 40 mm circle drops under 8 px - so the spread around it
+    # is kept tight enough that jitter does not push the board out of frame.
+    # Tilt helps a little but has to stay small -
+    # a tilted circle projects to an ellipse whose centroid is not the
+    # projection of the circle's centre, and past about +-9 deg that bias costs
+    # more than the extra parallax buys.
+    base_x, base_y, base_yaw = robot_pose()
+    print(f"로봇 위치 x {base_x:+.2f}  y {base_y:+.2f}  yaw {np.degrees(base_yaw):+.0f} deg")
+    forward = np.array([np.cos(base_yaw), np.sin(base_yaw)])
+    sideways = np.array([-np.sin(base_yaw), np.cos(base_yaw)])
+
     rng = np.random.default_rng(7)
     poses = []
     for index in range(arguments.poses):
+        distance = rng.uniform(arguments.near, arguments.far)
+        offset = rng.uniform(-0.035, 0.035)
+        centre = np.array([base_x, base_y]) + forward * distance + sideways * offset
         poses.append((
-            0.10 + rng.uniform(-0.40, 0.40),
-            -1.4121 + rng.uniform(-0.10, 0.10),
-            0.26 + rng.uniform(-0.04, 0.06),
+            centre[0], centre[1],
+            CAMERA_HEIGHT + rng.uniform(-0.02, 0.03),
             rng.uniform(-0.15, 0.15),
             rng.uniform(-0.15, 0.15),
-            np.pi + rng.uniform(-0.25, 0.25),
+            base_yaw + np.pi + rng.uniform(-0.20, 0.20),
         ))
 
     thermal_points, rgb_points, world_points = [], [], []
@@ -251,6 +331,29 @@ def main() -> int:
     print(f"\n정답 대비 이동 오차  {offset[0]:+.1f} {offset[1]:+.1f} {offset[2]:+.1f} mm"
           f"  (크기 {np.linalg.norm(offset):.1f} mm)")
     print(f"정답 대비 회전 오차  {np.linalg.norm(angles):.2f} deg")
+
+    # Saved so runs can be compared: every change to the board or the pose
+    # spread is an experiment, and without a record they are just impressions.
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    result = {
+        "target": SPEC,
+        "poses_requested": len(poses),
+        "pairs_used": len(world_points),
+        "flipped_corrected": flipped,
+        "range_m": [arguments.near, arguments.far],
+        "reprojection_error_px": round(float(error), 4),
+        "translation_mm": [round(float(v) * 1000, 2) for v in translation.ravel()],
+        "rotation_deg": [round(float(v), 3) for v in angles],
+        "truth_translation_mm": [round(float(v) * 1000, 2) for v in truth],
+        "translation_error_mm": [round(float(v), 2) for v in offset],
+        "translation_error_norm_mm": round(float(np.linalg.norm(offset)), 2),
+        "rotation_error_deg": round(float(np.linalg.norm(angles)), 3),
+    }
+    path = RESULTS / f"thermal_rgb_{stamp}.json"
+    path.write_text(json.dumps(result, indent=2) + "\n")
+    (RESULTS / "latest.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(f"\n저장  {path.relative_to(Path(__file__).resolve().parent.parent)}")
     return 0
 
 

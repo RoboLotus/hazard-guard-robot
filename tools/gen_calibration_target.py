@@ -16,6 +16,7 @@ after inverting the image.
     python3 tools/gen_calibration_target.py
 """
 import argparse
+import json
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
@@ -25,19 +26,21 @@ MODEL = PACKAGE / "models" / "calibration_target"
 PLUGIN = "ignition-gazebo-thermal-system"
 PLUGIN_NAME = "ignition::gazebo::systems::Thermal"
 
-# Sized for the TMC160B: 147.3 px focal length means a 70 mm circle spans
-# 12.9 px at 0.8 m and 8.6 px at 1.2 m, and below ~8 px the centroid gets
-# unreliable.
+# Small board, used close. Translation is only observable through parallax, and
+# parallax is inversely proportional to range: halving the working distance
+# doubles the signal that fixes the up-down and fore-aft offsets, which are the
+# two the first version got wrong by 15 mm.
 #
-# Four rows, not five. The thermal camera sees 44.3 degrees vertically and sits
-# 0.16 m off the floor, so a 0.62 m board only fits from 1.25 m away - by which
-# point the circles are down to 8 px. A 0.50 m board fits from 0.95 m, where
-# they are still 10.9 px. The same limit applies to the real board: hold it low,
-# centred near camera height.
+# 40 mm circles at 0.5 m still span 11.8 px - the same as 70 mm circles did at
+# 0.9 m - and smaller circles also halve the ellipse-centroid bias that made
+# tilted views hurt rather than help.
+#
+# A 320 mm board fits the thermal frame (44.3 deg vertical, camera 0.16 m off
+# the floor) from about 0.45 m out.
 COLUMNS, ROWS = 4, 4
-DIAMETER = 0.070
-SPACING = 0.120
-MARGIN = 0.035
+DIAMETER = 0.040
+SPACING = 0.080
+MARGIN = 0.020
 PLATE_THICKNESS = 0.005
 DISC_THICKNESS = 0.002
 
@@ -140,6 +143,15 @@ def main():
         "  </description>\n"
         "</model>\n"
     )
+    # The measuring tool reads this rather than repeating the numbers, so the
+    # two cannot drift apart.
+    (output / "target.json").write_text(json.dumps({
+        "columns": COLUMNS, "rows": ROWS,
+        "spacing_m": SPACING, "diameter_m": DIAMETER,
+        "width_m": round(width, 4), "height_m": round(height, 4),
+        "plate_c": PLATE_C, "disc_c": DISC_C,
+    }, indent=2) + "\n")
+
     print(f"판    {width * 1000:.0f} x {height * 1000:.0f} mm")
     print(f"원    지름 {DIAMETER * 1000:.0f} mm, 간격 {SPACING * 1000:.0f} mm, "
           f"{COLUMNS} x {ROWS} = {len(centres)}개")

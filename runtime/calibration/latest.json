@@ -1,0 +1,42 @@
+{
+  "target": {
+    "columns": 4,
+    "rows": 4,
+    "spacing_m": 0.08,
+    "diameter_m": 0.04,
+    "width_m": 0.32,
+    "height_m": 0.32,
+    "plate_c": 15.0,
+    "disc_c": 35.0
+  },
+  "poses_requested": 30,
+  "pairs_used": 21,
+  "flipped_corrected": 0,
+  "range_m": [
+    0.5,
+    0.75
+  ],
+  "reprojection_error_px": 1.0287,
+  "translation_mm": [
+    66.18,
+    12.22,
+    -20.39
+  ],
+  "rotation_deg": [
+    0.14,
+    0.119,
+    -0.092
+  ],
+  "truth_translation_mm": [
+    68.0,
+    0.0,
+    0.0
+  ],
+  "translation_error_mm": [
+    -1.82,
+    12.22,
+    -20.39
+  ],
+  "translation_error_norm_mm": 23.84,
+  "rotation_error_deg": 0.206
+}
