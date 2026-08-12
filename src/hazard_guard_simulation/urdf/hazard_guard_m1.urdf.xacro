@@ -469,18 +469,25 @@
   </gazebo>
 
   <!--
-    Every camera names its own CameraInfo topic. Without camera_info_topic
-    Fortress derives it by dropping the last element of the image topic and
-    appending /camera_info, so root-level topics (/camera, /depth_camera,
-    /thermal_camera) all collapse onto a single /camera_info and overwrite each
-    other's intrinsics. The thermal-to-depth calibration needs them separate.
+    Two things keep each camera's intrinsics on its own topic.
+
+    <camera_info_topic> states it outright, but in Fortress only the plain
+    CameraSensor reads that element - DepthCameraSensor and
+    ThermalCameraSensor ignore it and derive the topic instead, by dropping
+    the last element of the image topic and appending /camera_info. With
+    root-level image topics both of them land on a shared /camera_info and
+    overwrite each other, which is silent: the topic still ticks.
+
+    So the image topics are one level deep as well, which makes the derived
+    name agree with the declared one. The bridge maps them back to the usual
+    <name>/image_raw on the ROS side.
   -->
   <gazebo reference="depth_camera_link">
     <sensor name="hazard_guard_rgb_camera" type="camera">
       <always_on>true</always_on>
       <update_rate>10</update_rate>
       <visualize>${visualize_sensors}</visualize>
-      <topic>/camera</topic>
+      <topic>/camera/image</topic>
       <gz_frame_id>depth_camera_optical_frame</gz_frame_id>
       <camera name="front_camera">
         <camera_info_topic>/camera/camera_info</camera_info_topic>
@@ -494,7 +501,7 @@
       <always_on>true</always_on>
       <update_rate>10</update_rate>
       <visualize>${visualize_sensors}</visualize>
-      <topic>/depth_camera</topic>
+      <topic>/depth_camera/image</topic>
       <gz_frame_id>depth_camera_optical_frame</gz_frame_id>
       <camera name="depth_camera">
         <camera_info_topic>/depth_camera/camera_info</camera_info_topic>
@@ -518,7 +525,7 @@
       <always_on>true</always_on>
       <update_rate>${thermal_update_rate}</update_rate>
       <visualize>${visualize_sensors}</visualize>
-      <topic>/thermal_camera</topic>
+      <topic>/thermal_camera/image</topic>
       <gz_frame_id>thermal_camera_optical_frame</gz_frame_id>
       <camera name="thermal_camera">
         <camera_info_topic>/thermal_camera/camera_info</camera_info_topic>

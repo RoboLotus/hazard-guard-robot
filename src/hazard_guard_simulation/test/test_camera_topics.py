@@ -36,6 +36,11 @@ def cameras() -> dict:
     return found
 
 
+def bridge_arguments() -> str:
+    """The bridge list with its line wrapping joined back up."""
+    return re.sub(r'"\s*\n\s*"', "", LAUNCH.read_text())
+
+
 def test_cameras_exist():
     assert len(cameras()) >= 2, "calibration needs two camera streams"
 
@@ -45,17 +50,50 @@ def test_info_topics_are_unique():
     assert len(set(infos)) == len(infos), f"CameraInfo topics collide: {infos}"
 
 
-def test_every_camera_is_bridged():
-    source = LAUNCH.read_text()
-    # The bridge list wraps long entries across lines; join them back up.
-    flat = re.sub(r'"\s*\n\s*"', "", source)
-    for name, (image, info) in cameras().items():
+def test_declared_info_topic_matches_the_derived_one():
+    """The declaration is not enough on its own.
+
+    Only the plain CameraSensor reads <camera_info_topic> in Fortress. The
+    depth and thermal sensors ignore it and derive the topic from the image
+    topic, so a declared /depth_camera/camera_info sitting on a root-level
+    /depth_camera image topic silently publishes nothing while a second camera
+    takes over the shared /camera_info.
+    """
+    for name, (image, declared) in cameras().items():
+        derived = image.rsplit("/", 1)[0] + "/camera_info"
+        assert derived == declared, (
+            f"{name}: declares {declared} but Fortress derives {derived}; "
+            "nest the image topic one level deeper"
+        )
+
+
+def test_every_camera_image_is_bridged():
+    flat = bridge_arguments()
+    for name, (image, _) in cameras().items():
         assert f"{image}@sensor_msgs/msg/Image" in flat, f"{name} image"
-        assert f"{info}@sensor_msgs/msg/CameraInfo" in flat, f"{name} camera_info"
+
+
+def test_only_the_thermal_info_comes_from_a_node():
+    """Fortress publishes the wrong intrinsics for the thermal sensor.
+
+    It fills CameraInfo from the default camera - fx 277 and centre (160, 120)
+    for a 160 x 120 / 57 deg sensor - while RGB and depth report correctly.
+    Bridging it would put a wrong CameraInfo on the topic that
+    thermal_camera_info.py is there to provide, and last writer would win.
+    """
+    flat = bridge_arguments()
+    for name, (_, info) in cameras().items():
+        bridged = f"{info}@sensor_msgs/msg/CameraInfo" in flat
+        if "thermal" in name:
+            assert not bridged, "thermal camera_info must not be bridged from gz"
+        else:
+            assert bridged, f"{name} camera_info"
 
 
 if __name__ == "__main__":
     test_cameras_exist()
     test_info_topics_are_unique()
-    test_every_camera_is_bridged()
+    test_declared_info_topic_matches_the_derived_one()
+    test_every_camera_image_is_bridged()
+    test_only_the_thermal_info_comes_from_a_node()
     print(f"ok: {cameras()}")
