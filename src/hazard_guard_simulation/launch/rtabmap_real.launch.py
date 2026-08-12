@@ -17,6 +17,10 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description() -> LaunchDescription:
     database_path = LaunchConfiguration("database_path")
     storage_path = LaunchConfiguration("storage_path")
+    cloud_decimation = LaunchConfiguration("cloud_decimation")
+    cloud_voxel_size = LaunchConfiguration("cloud_voxel_size")
+    cloud_linear_update = LaunchConfiguration("cloud_linear_update")
+    cloud_angular_update = LaunchConfiguration("cloud_angular_update")
 
     common_camera_remaps = [
         ("rgb/image", "/ascamera_hp60c/camera_publisher/rgb0/image"),
@@ -39,12 +43,31 @@ def generate_launch_description() -> LaunchDescription:
                     Path.home() / "RoboLotus/hazard-guard-robot/runtime/maps"
                 ),
             ),
-            DeclareLaunchArgument("cloud_normal_points", default_value="3000"),
-            DeclareLaunchArgument("cloud_high_load_points", default_value="1500"),
-            DeclareLaunchArgument("cloud_normal_input_hz", default_value="8.0"),
-            DeclareLaunchArgument("cloud_high_load_input_hz", default_value="4.0"),
-            DeclareLaunchArgument("cloud_normal_surface_hz", default_value="1.0"),
-            DeclareLaunchArgument("cloud_high_load_surface_hz", default_value="0.5"),
+            DeclareLaunchArgument(
+                "cloud_normal_points", default_value="9000"
+            ),
+            DeclareLaunchArgument(
+                "cloud_high_load_points", default_value="4500"
+            ),
+            DeclareLaunchArgument(
+                "cloud_normal_input_hz", default_value="8.0"
+            ),
+            DeclareLaunchArgument(
+                "cloud_high_load_input_hz", default_value="4.0"
+            ),
+            DeclareLaunchArgument(
+                "cloud_normal_surface_hz", default_value="1.0"
+            ),
+            DeclareLaunchArgument(
+                "cloud_high_load_surface_hz", default_value="0.5"
+            ),
+            DeclareLaunchArgument("cloud_decimation", default_value="2"),
+            DeclareLaunchArgument("cloud_voxel_size", default_value="0.03"),
+            DeclareLaunchArgument("cloud_linear_update", default_value="0.10"),
+            DeclareLaunchArgument(
+                "cloud_angular_update",
+                default_value="0.10472",
+            ),
             # The camera publishes its internal TF tree only. These transforms
             # attach it to the physical M1 frame tree used by SLAM Toolbox.
             Node(
@@ -144,7 +167,10 @@ def generate_launch_description() -> LaunchDescription:
                         "topic_queue_size": 5,
                         "qos": 2,
                         "qos_camera_info": 2,
-                        "decimation": 4,
+                        "decimation": ParameterValue(
+                            cloud_decimation,
+                            value_type=int,
+                        ),
                         "min_depth": 0.2,
                         "max_depth": 4.0,
                         "filter_nans": True,
@@ -250,9 +276,18 @@ def generate_launch_description() -> LaunchDescription:
                         # movement thresholds keep stationary frames out.
                         "assembling_time": 3600.0,
                         "circular_buffer": True,
-                        "linear_update": 0.10,
-                        "angular_update": 0.10472,
-                        "voxel_size": 0.08,
+                        "linear_update": ParameterValue(
+                            cloud_linear_update,
+                            value_type=float,
+                        ),
+                        "angular_update": ParameterValue(
+                            cloud_angular_update,
+                            value_type=float,
+                        ),
+                        "voxel_size": ParameterValue(
+                            cloud_voxel_size,
+                            value_type=float,
+                        ),
                         "range_min": 0.2,
                         "range_max": 4.0,
                         "wait_for_transform": 0.5,
