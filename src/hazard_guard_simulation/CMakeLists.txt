@@ -30,6 +30,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_timestamp_diagnostics
     test/test_timestamp_diagnostics.py
   )
+  ament_add_pytest_test(test_rtabmap_real_launch
+    test/test_rtabmap_real_launch.py
+  )
 endif()
 
 ament_package()
