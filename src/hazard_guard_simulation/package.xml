@@ -14,6 +14,7 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>hazard_guard_sensor_config</exec_depend>
+  <exec_depend>hazard_guard_thermal_analysis</exec_depend>
   <exec_depend>hazard_guard_mission_manager</exec_depend>
   <exec_depend>hazard_guard_mock_robot</exec_depend>
   <exec_depend>launch</exec_depend>

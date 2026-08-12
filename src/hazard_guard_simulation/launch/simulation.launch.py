@@ -25,6 +25,9 @@ def generate_launch_description() -> LaunchDescription:
     simulation_share = Path(
         get_package_share_directory("hazard_guard_simulation")
     )
+    thermal_analysis_share = Path(
+        get_package_share_directory("hazard_guard_thermal_analysis")
+    )
     ros_gz_share = Path(get_package_share_directory("ros_gz_sim"))
     default_world = simulation_share / "worlds" / "demo_facility_scaled.sdf"
     robot = simulation_share / "urdf" / "hazard_guard_m1.urdf.xacro"
@@ -42,6 +45,8 @@ def generate_launch_description() -> LaunchDescription:
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
     heat_source_profile = LaunchConfiguration("heat_source_profile")
+    use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
+    thermal_history_path = LaunchConfiguration("thermal_history_path")
 
     robot_description = ParameterValue(
         Command(
@@ -118,6 +123,20 @@ def generate_launch_description() -> LaunchDescription:
                 "heat_source_profile",
                 default_value="",
                 description="JSON profile for deterministic synthetic heat sources",
+            ),
+            DeclareLaunchArgument(
+                "use_thermal_pipeline",
+                default_value="false",
+                description=(
+                    "Fuse simulated thermal/depth images into the common "
+                    "thermal point-cloud contract. False keeps the "
+                    "deterministic profile detector."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_history_path",
+                default_value="",
+                description="JSONL path written only when record_visit is called",
             ),
             SetEnvironmentVariable(
                 "IGN_GAZEBO_RESOURCE_PATH",
@@ -237,6 +256,28 @@ def generate_launch_description() -> LaunchDescription:
                         "use_sim_time": use_sim_time,
                     }
                 ],
+                condition=UnlessCondition(use_thermal_pipeline),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(
+                        thermal_analysis_share
+                        / "launch"
+                        / "thermal_pipeline.launch.py"
+                    )
+                ),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "simulated": "true",
+                    "thermal_image_topic": "/thermal_camera/image_raw",
+                    "thermal_info_topic": "/thermal_camera/camera_info",
+                    "depth_image_topic": "/depth_camera/image_raw",
+                    "depth_info_topic": "/depth_camera/camera_info",
+                    "thermal_scale": "0.01",
+                    "thermal_offset_c": "-273.15",
+                    "history_path": thermal_history_path,
+                }.items(),
+                condition=IfCondition(use_thermal_pipeline),
             ),
             TimerAction(
                 period=3.0,

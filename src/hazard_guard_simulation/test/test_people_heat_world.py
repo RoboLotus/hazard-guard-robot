@@ -60,6 +60,12 @@ def test_generated_world_uses_transient_diffusion_and_random_motion(tmp_path):
         node.text for node in core.findall(".//submesh/name")
     ]
     assert core_submeshes == ["shredder_motor.006"]
+    core_thermal = core.find(".//plugin")
+    assert core_thermal is not None
+    assert core_thermal.get("filename") == "ignition-gazebo-thermal-system"
+    assert (
+        core_thermal.get("name") == "ignition::gazebo::systems::Thermal"
+    )
     surface_layers = [
         root.find(f".//model[@name='sim-hot-motor_diffusion_{index}']")
         for index in range(1, len(MODULE.DIFFUSION_DISTANCE_MULTIPLIERS) + 1)

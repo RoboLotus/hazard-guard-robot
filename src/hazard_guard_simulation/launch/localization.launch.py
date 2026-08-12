@@ -34,6 +34,8 @@ def generate_launch_description() -> LaunchDescription:
     initial_pose_x = LaunchConfiguration("initial_pose_x")
     initial_pose_y = LaunchConfiguration("initial_pose_y")
     initial_pose_yaw = LaunchConfiguration("initial_pose_yaw")
+    use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
+    thermal_history_path = LaunchConfiguration("thermal_history_path")
 
     return LaunchDescription(
         [
@@ -81,6 +83,8 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("initial_pose_x", default_value=spawn_x),
             DeclareLaunchArgument("initial_pose_y", default_value=spawn_y),
             DeclareLaunchArgument("initial_pose_yaw", default_value=spawn_yaw),
+            DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
+            DeclareLaunchArgument("thermal_history_path", default_value="/tmp/hazard_guard_thermal_history.jsonl"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "simulation.launch.py")
@@ -99,6 +103,8 @@ def generate_launch_description() -> LaunchDescription:
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
                     "heat_source_profile": heat_source_profile,
+                    "use_thermal_pipeline": use_thermal_pipeline,
+                    "thermal_history_path": thermal_history_path,
                 }.items(),
                 condition=IfCondition(start_simulation),
             ),

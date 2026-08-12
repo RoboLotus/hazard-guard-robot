@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "frame_id": "odom",
+  "voxel_size_m": 0.08,
+  "min_points_per_voxel": 3,
+  "min_confidence": 0.25,
+  "trend": {
+    "history_window_visits": 5,
+    "min_trend_visits": 3,
+    "minimum_rise_c": 2.0,
+    "minimum_slope_c_per_visit": 0.75,
+    "minimum_positive_fraction": 0.67,
+    "adaptive_residual_c": 1.5,
+    "noise_deadband_c": 0.2
+  },
+  "note": "The four equipment ROIs isolate the heated component surfaces in demo_facility_scaled. They are deliberately non-overlapping because several complete equipment mesh AABBs overlap. Physical equipment ROIs must be surveyed again in equipment-local frames.",
+  "equipment_rois": [
+    {
+      "id": "bunker_waste_pile",
+      "min": [-1.95, -0.95, 0.02],
+      "max": [-1.45, -0.45, 0.35],
+      "warning_temperature_c": 45.0,
+      "critical_temperature_c": 80.0,
+      "warning_delta_c": 15.0
+    },
+    {
+      "id": "primary_shredder_motor",
+      "min": [-1.25, 0.00, 0.02],
+      "max": [-0.78, 0.50, 0.42],
+      "warning_temperature_c": 45.0,
+      "critical_temperature_c": 80.0,
+      "warning_delta_c": 15.0
+    },
+    {
+      "id": "secondary_processor_pump",
+      "min": [0.95, 0.53, 0.02],
+      "max": [1.32, 0.86, 0.42],
+      "warning_temperature_c": 45.0,
+      "critical_temperature_c": 80.0,
+      "warning_delta_c": 15.0
+    },
+    {
+      "id": "baler_hydraulic_tank",
+      "min": [0.94, 0.20, 0.02],
+      "max": [1.34, 0.50, 0.30],
+      "warning_temperature_c": 40.0,
+      "critical_temperature_c": 80.0,
+      "warning_delta_c": 12.0
+    }
+  ],
+  "environment_rois": [
+    {
+      "id": "south_ambient_floor",
+      "min": [-1.35, -1.20, -0.02],
+      "max": [1.35, -0.82, 0.18]
+    },
+    {
+      "id": "east_ambient_floor",
+      "min": [1.55, -0.70, -0.02],
+      "max": [1.90, 0.75, 0.18]
+    }
+  ]
+}

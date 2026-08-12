@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>hazard_guard_thermal_analysis</name>
+  <version>0.1.0</version>
+  <description>Common thermal point-cloud and ROI/voxel analysis pipeline.</description>
+  <maintainer email="junbeom@dgu.ac.kr">RoboLotus</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>ament_index_python</depend>
+  <depend>hazard_guard_interfaces</depend>
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>std_srvs</depend>
+
+  <test_depend>ament_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

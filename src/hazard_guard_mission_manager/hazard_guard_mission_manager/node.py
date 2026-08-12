@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import threading
 import time
@@ -61,6 +62,14 @@ class HazardGuardMissionManager(Node):
         self.declare_parameter("navigation_timeout_sec", 180.0)
         self.declare_parameter("alignment_timeout_sec", 45.0)
         self.declare_parameter("server_wait_timeout_sec", 8.0)
+        self.declare_parameter(
+            "thermal_start_service",
+            "/hazard_guard/thermal/start_visit",
+        )
+        self.declare_parameter(
+            "thermal_record_service",
+            "/hazard_guard/thermal/record_visit",
+        )
 
         self._callback_group = ReentrantCallbackGroup()
         status_qos = QoSProfile(
@@ -77,6 +86,19 @@ class HazardGuardMissionManager(Node):
             Trigger,
             "/hazard_guard/mission/cancel",
             self._cancel_service_callback,
+            callback_group=self._callback_group,
+        )
+        self._thermal_inspection_publisher = self.create_publisher(
+            String, "/hazard_guard/thermal/inspection_control", 10
+        )
+        self._thermal_start_client = self.create_client(
+            Trigger,
+            str(self.get_parameter("thermal_start_service").value),
+            callback_group=self._callback_group,
+        )
+        self._thermal_record_client = self.create_client(
+            Trigger,
+            str(self.get_parameter("thermal_record_service").value),
             callback_group=self._callback_group,
         )
         self._action_server = ActionServer(
@@ -295,6 +317,8 @@ class HazardGuardMissionManager(Node):
                     message=self._cycle_message(current_cycle, schedule),
                 )
 
+                self._start_thermal_visit(f"cycle {current_cycle}")
+
                 completed = self._run_cycle(
                     goal_handle,
                     request,
@@ -316,6 +340,8 @@ class HazardGuardMissionManager(Node):
                             self.get_parameter("navigation_timeout_sec").value
                         ),
                     )
+
+                self._record_thermal_visit(f"cycle {current_cycle}")
 
                 completed_cycles += 1
                 self._update_state(
@@ -430,6 +456,71 @@ class HazardGuardMissionManager(Node):
             self._nav.clear_active()
             self._cancel_requested.clear()
 
+    @staticmethod
+    def _thermal_equipment_id(waypoint: Any) -> str | None:
+        known = (
+            "primary_shredder_motor",
+            "secondary_processor_pump",
+            "baler_hydraulic_tank",
+            "bunker_waste_pile",
+        )
+        text = f"{waypoint.id} {waypoint.name}".lower().replace("-", "_").replace(" ", "_")
+        return next((equipment_id for equipment_id in known if equipment_id in text), None)
+
+    def _set_thermal_focus(self, equipment_id: str | None) -> None:
+        message = String()
+        payload = {"action": "focus_equipment", "equipment_id": equipment_id} if equipment_id else {"action": "clear_focus"}
+        message.data = json.dumps(payload, separators=(",", ":"))
+        self._thermal_inspection_publisher.publish(message)
+
+    def _start_thermal_visit(self, cycle_name: str) -> None:
+        """Reset the thermal accumulator once before a patrol cycle."""
+
+        if not self._thermal_start_client.service_is_ready():
+            self.get_logger().info(
+                f"{cycle_name}: thermal visit start service is not active"
+            )
+            return
+        future = self._thermal_start_client.call_async(Trigger.Request())
+
+        def completed(done_future: Any) -> None:
+            try:
+                response = done_future.result()
+            except Exception as exc:
+                self.get_logger().warning(
+                    f"{cycle_name}: thermal visit start failed: {exc}"
+                )
+                return
+            if not response.success:
+                self.get_logger().warning(f"{cycle_name}: {response.message}")
+
+        future.add_done_callback(completed)
+
+    def _record_thermal_visit(self, waypoint_name: str) -> None:
+        """Record one completed inspection without blocking the patrol."""
+
+        if not self._thermal_record_client.service_is_ready():
+            self.get_logger().info(
+                f"{waypoint_name}: thermal history service is not active"
+            )
+            return
+        future = self._thermal_record_client.call_async(Trigger.Request())
+
+        def completed(done_future: Any) -> None:
+            try:
+                response = done_future.result()
+            except Exception as exc:
+                self.get_logger().warning(
+                    f"{waypoint_name}: thermal history request failed: {exc}"
+                )
+                return
+            if response.success:
+                self.get_logger().info(f"{waypoint_name}: {response.message}")
+            else:
+                self.get_logger().warning(f"{waypoint_name}: {response.message}")
+
+        future.add_done_callback(completed)
+
     def _run_cycle(
         self,
         goal_handle: Any,
@@ -474,6 +565,7 @@ class HazardGuardMissionManager(Node):
 
             dwell_seconds = max(0.0, float(waypoint.dwell_seconds))
             if dwell_seconds:
+                self._set_thermal_focus(self._thermal_equipment_id(waypoint))
                 self._update_waypoint(
                     index,
                     "dwelling",
@@ -496,7 +588,7 @@ class HazardGuardMissionManager(Node):
                     self._raise_if_canceled(goal_handle)
                     remaining = max(0.0, deadline - time.monotonic())
                     time.sleep(min(0.1, remaining))
-
+                self._set_thermal_focus(None)
             completed = index + 1
             self._update_waypoint(index, "completed", "도착 및 점검 완료")
             self._update_state(

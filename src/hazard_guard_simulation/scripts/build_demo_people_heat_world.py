@@ -101,7 +101,7 @@ SURFACE_HEAT_ZONES: dict[str, dict[str, object]] = {
 
 def thermal_plugin(temperature_k: float) -> str:
     return f"""
-          <plugin filename="gz-sim-thermal-system" name="gz::sim::systems::Thermal">
+          <plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal">
             <temperature>{temperature_k:.2f}</temperature>
           </plugin>"""
 

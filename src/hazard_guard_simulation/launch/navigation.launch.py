@@ -23,6 +23,9 @@ def generate_launch_description() -> LaunchDescription:
     visualize_sensors = LaunchConfiguration("visualize_sensors")
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
+    heat_source_profile = LaunchConfiguration("heat_source_profile")
+    use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
+    thermal_history_path = LaunchConfiguration("thermal_history_path")
 
     return LaunchDescription(
         [
@@ -48,6 +51,9 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("visualize_sensors", default_value="false"),
             DeclareLaunchArgument("include_dispenser", default_value="true"),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
+            DeclareLaunchArgument("heat_source_profile", default_value=""),
+            DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
+            DeclareLaunchArgument("thermal_history_path", default_value="/tmp/hazard_guard_thermal_history.jsonl"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "slam.launch.py")
@@ -64,6 +70,9 @@ def generate_launch_description() -> LaunchDescription:
                     "visualize_sensors": visualize_sensors,
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
+                    "heat_source_profile": heat_source_profile,
+                    "use_thermal_pipeline": use_thermal_pipeline,
+                    "thermal_history_path": thermal_history_path,
                 }.items(),
             ),
             TimerAction(
