@@ -327,3 +327,16 @@ velocity_smoother:
     odom_duration: 0.1
     deadband_velocity: [0.0, 0.0, 0.0]
     velocity_timeout: 1.0
+
+hazard_guard_mission_manager:
+  ros__parameters:
+    position_tolerance_m: 0.10
+    yaw_tolerance_rad: 0.10
+    acceptable_position_tolerance_m: 0.15
+    acceptable_yaw_tolerance_rad: 0.17
+    hard_position_tolerance_m: 0.25
+    hard_yaw_tolerance_rad: 0.261799
+    alignment_retries: 1
+    pose_sample_count: 5
+    pose_min_valid_samples: 3
+    pose_sample_interval_sec: 0.15

@@ -73,3 +73,21 @@ def test_initial_pose_burst_spans_nav2_activation_window():
     assert 'period=5.0' in source
     assert '"repeat_count": 3' in source
     assert '"interval_sec": 1.0' in source
+
+
+def test_physical_mission_alignment_uses_relaxed_sampled_policy():
+    params = yaml.safe_load(PARAMS.read_text(encoding="utf-8"))
+    mission = params["hazard_guard_mission_manager"]["ros__parameters"]
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert mission["position_tolerance_m"] == 0.10
+    assert mission["yaw_tolerance_rad"] == 0.10
+    assert mission["acceptable_position_tolerance_m"] == 0.15
+    assert mission["acceptable_yaw_tolerance_rad"] == 0.17
+    assert mission["hard_position_tolerance_m"] == 0.25
+    assert mission["hard_yaw_tolerance_rad"] == 0.261799
+    assert mission["alignment_retries"] == 1
+    assert mission["pose_sample_count"] == 5
+    assert mission["pose_min_valid_samples"] == 3
+    assert mission["pose_sample_interval_sec"] == 0.15
+    assert "parameters=[nav2_params_file]" in source

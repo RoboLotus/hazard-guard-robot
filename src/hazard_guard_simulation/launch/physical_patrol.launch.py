@@ -81,6 +81,7 @@ def generate_launch_description() -> LaunchDescription:
                 executable="mission_manager",
                 name="hazard_guard_mission_manager",
                 output="screen",
+                parameters=[nav2_params_file],
             ),
             TimerAction(
                 period=5.0,
