@@ -145,11 +145,19 @@ controller_server:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
       min_vel_x: -0.15
-      # Keep a small mecanum correction range but prevent long sideways patrol
-      # motion that makes the chassis and camera appear misaligned with travel.
-      min_vel_y: -0.08
+      # Both demo worlds are a ring around the equipment island: 0.585-0.610 m
+      # wide in demo_facility_scaled.sdf, 0.97 m (N/S) in the alternative
+      # demo_facility.sdf. The robot is 0.600 x 0.310 m. Clamping
+      # the mecanum base to 0.08 m/s sideways - which earlier tuning did, to
+      # keep the chassis visually aligned with travel - left DWB unable to find
+      # a valid trajectory in it: the drive aborted with "Failed to make
+      # progress" and the spin recovery with "Collision Ahead". 0.25 m/s gives
+      # the base back enough of its lateral freedom to corner in the ring.
+      # Raise the island SHRINK in tools/gen_demo_world.py only together with
+      # this: the two are what set how tight a corridor is drivable.
+      min_vel_y: -0.25
       max_vel_x: 0.30
-      max_vel_y: 0.08
+      max_vel_y: 0.25
       max_vel_theta: 0.65
       min_speed_xy: 0.0
       max_speed_xy: 0.30
@@ -204,6 +212,12 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
+        # Kept at 0.35. The patrol ring is 0.585-0.610 m wide, so at this
+        # radius the inflation spans it end to end and there is no zero-cost
+        # band to track: the controller steers on the cost gradient instead.
+        # That is cost only - what actually blocks a cell is the inscribed
+        # radius (0.155 m) - and it is what the 8-waypoint loop was driven
+        # with, so it stays until a run says otherwise.
         inflation_radius: 0.35
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
@@ -263,6 +277,12 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
+        # Kept at 0.35. The patrol ring is 0.585-0.610 m wide, so at this
+        # radius the inflation spans it end to end and there is no zero-cost
+        # band to track: the controller steers on the cost gradient instead.
+        # That is cost only - what actually blocks a cell is the inscribed
+        # radius (0.155 m) - and it is what the 8-waypoint loop was driven
+        # with, so it stays until a run says otherwise.
         inflation_radius: 0.35
       always_send_full_costmap: True
 
@@ -349,8 +369,11 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: False
     feedback: "CLOSED_LOOP"
-    max_velocity: [0.30, 0.08, 0.65]
-    min_velocity: [-0.15, -0.08, -0.65]
+    # Must not be tighter than DWB's max_vel_y/min_vel_y above: the smoother
+    # sits after the controller, so a lower lateral cap here silently undoes
+    # the lateral freedom DWB needs to corner in the ring.
+    max_velocity: [0.30, 0.25, 0.65]
+    min_velocity: [-0.15, -0.25, -0.65]
     max_accel: [0.7, 0.5, 1.4]
     max_decel: [-0.7, -0.5, -1.4]
     odom_topic: "odom"
