@@ -1,49 +1,13 @@
 <?xml version='1.0' encoding='utf-8'?>
-<!--
-  HazardGuard recycling-plant demo, re-laid-out for a robot patrol loop.
-
-  Derived from worlds/demo_facility.sdf (branch ksj). Same eight models, same
-  meshes, same include order; only the model poses and mesh scales differ.
-
-  What changed and why: the source world runs the plant wall to wall, so there
-  is no circulation route at any uniform scale. Here the hall keeps its own
-  scale and the equipment is scaled down and recentred, which opens a 0.62 m
-  aisle on all four sides - wider than the robot's 0.61 m in-place rotation
-  diameter, so the patrol loop is closed and drivable.
-
-  Layout (metres, hall interior 5.94 x 3.47):
-    hall shell              6.00 x 3.52, walls 1.19 high      scale 0.0990099
-    process line            4.04 x 2.23, one rigid group      scale 0.07474982
-      bunker -> primary shredder -> sorting line ->
-      secondary processor -> baler
-      (scaled as one group, so every conveyor hand-off is unchanged)
-    bale storage            0.54 x 1.71, turned 180 deg,      scale 0.09919193
-      pushed to the east end 0.12 m behind the baler
-    plant footprint         4.70 x 2.23, centred in the hall
-    aisle                   0.62 m, west / east / south / north
-
-  Deviation from the source: the three groups no longer share one uniform
-  scale. That is deliberate - a single scale cannot open the loop.
-
-  Robot spawn for this world: x 0.0975  y -1.4121  z 0.05  yaw 0.0
-  (mid-point of the south aisle; z is the usual drop height)
-
-  Heat-source profile: config/heat_sources/demo_facility_scaled.json
--->
 <sdf version="1.7">
   <world name="demo_facility_scaled">
-    <plugin filename="ignition-gazebo-physics-system"
-      name="ignition::gazebo::systems::Physics" />
-    <plugin filename="ignition-gazebo-user-commands-system"
-      name="ignition::gazebo::systems::UserCommands" />
-    <plugin filename="ignition-gazebo-scene-broadcaster-system"
-      name="ignition::gazebo::systems::SceneBroadcaster" />
-    <plugin filename="ignition-gazebo-sensors-system"
-      name="ignition::gazebo::systems::Sensors">
+    <plugin filename="ignition-gazebo-physics-system" name="ignition::gazebo::systems::Physics" />
+    <plugin filename="ignition-gazebo-user-commands-system" name="ignition::gazebo::systems::UserCommands" />
+    <plugin filename="ignition-gazebo-scene-broadcaster-system" name="ignition::gazebo::systems::SceneBroadcaster" />
+    <plugin filename="ignition-gazebo-sensors-system" name="ignition::gazebo::systems::Sensors">
       <render_engine>ogre2</render_engine>
     </plugin>
-    <plugin filename="ignition-gazebo-imu-system"
-      name="ignition::gazebo::systems::Imu" />
+    <plugin filename="ignition-gazebo-imu-system" name="ignition::gazebo::systems::Imu" />
 
     <physics name="1ms" type="ode">
       <max_step_size>0.001</max_step_size>
@@ -96,6 +60,7 @@
             <size>12.0 10.0</size></plane></geometry>
           <material><ambient>0.3 0.3 0.3 1</ambient>
             <diffuse>0.35 0.35 0.35 1</diffuse></material>
+        <plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.15</temperature></plugin>
         </visual>
       </link>
     </model>
@@ -107,6 +72,7 @@
         <visual name="visual">
           <geometry><mesh><uri>model://hall_shell/meshes/hall_shell.obj</uri>
             <scale>0.0990099 0.0990099 0.0990099</scale></mesh></geometry>
+        <plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.15</temperature></plugin>
         </visual>
         <collision name="collision">
           <geometry><mesh><uri>model://hall_shell/meshes/hall_shell.obj</uri>
@@ -121,6 +87,7 @@
         <visual name="visual">
           <geometry><mesh><uri>model://bunker/meshes/bunker.obj</uri>
             <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        <plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>323.65</temperature></plugin>
         </visual>
         <collision name="collision">
           <geometry><mesh><uri>model://bunker/meshes/bunker.obj</uri>
@@ -135,6 +102,7 @@
         <visual name="visual">
           <geometry><mesh><uri>model://primary_shredder/meshes/primary_shredder.obj</uri>
             <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        <plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>326.25</temperature></plugin>
         </visual>
         <collision name="collision">
           <geometry><mesh><uri>model://primary_shredder/meshes/primary_shredder.obj</uri>
@@ -149,6 +117,7 @@
         <visual name="visual">
           <geometry><mesh><uri>model://sorting_line/meshes/sorting_line.obj</uri>
             <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        <plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>330.75</temperature></plugin>
         </visual>
         <collision name="collision">
           <geometry><mesh><uri>model://sorting_line/meshes/sorting_line.obj</uri>
@@ -163,6 +132,7 @@
         <visual name="visual">
           <geometry><mesh><uri>model://secondary_processor/meshes/secondary_processor.obj</uri>
             <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        <plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>331.75</temperature></plugin>
         </visual>
         <collision name="collision">
           <geometry><mesh><uri>model://secondary_processor/meshes/secondary_processor.obj</uri>
@@ -177,6 +147,7 @@
         <visual name="visual">
           <geometry><mesh><uri>model://baler/meshes/baler.obj</uri>
             <scale>0.07474982 0.07474982 0.07474982</scale></mesh></geometry>
+        <plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>329.25</temperature></plugin>
         </visual>
         <collision name="collision">
           <geometry><mesh><uri>model://baler/meshes/baler.obj</uri>
@@ -191,6 +162,7 @@
         <visual name="visual">
           <geometry><mesh><uri>model://bale_storage/meshes/bale_storage.obj</uri>
             <scale>0.09919193 0.09919193 0.09919193</scale></mesh></geometry>
+        <plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>327.35</temperature></plugin>
         </visual>
         <collision name="collision">
           <geometry><mesh><uri>model://bale_storage/meshes/bale_storage.obj</uri>
@@ -198,5 +170,1305 @@
         </collision>
       </link>
     </model>
-  </world>
+  <model name="thermal_background">
+    <static>true</static><link name="link">
+      <visual name="floor_0">
+        <pose>-2.800 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.50</temperature></plugin>
+        </visual>
+      <visual name="floor_1">
+        <pose>-2.800 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.98</temperature></plugin>
+        </visual>
+      <visual name="floor_2">
+        <pose>-2.800 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.55</temperature></plugin>
+        </visual>
+      <visual name="floor_3">
+        <pose>-2.800 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.97</temperature></plugin>
+        </visual>
+      <visual name="floor_4">
+        <pose>-2.800 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.09</temperature></plugin>
+        </visual>
+      <visual name="floor_5">
+        <pose>-2.800 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.79</temperature></plugin>
+        </visual>
+      <visual name="floor_6">
+        <pose>-2.800 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.73</temperature></plugin>
+        </visual>
+      <visual name="floor_7">
+        <pose>-2.800 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.93</temperature></plugin>
+        </visual>
+      <visual name="floor_8">
+        <pose>-2.800 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.17</temperature></plugin>
+        </visual>
+      <visual name="floor_9">
+        <pose>-2.800 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.11</temperature></plugin>
+        </visual>
+      <visual name="floor_10">
+        <pose>-2.800 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.24</temperature></plugin>
+        </visual>
+      <visual name="floor_11">
+        <pose>-2.800 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.02</temperature></plugin>
+        </visual>
+      <visual name="floor_12">
+        <pose>-2.500 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.18</temperature></plugin>
+        </visual>
+      <visual name="floor_13">
+        <pose>-2.500 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.94</temperature></plugin>
+        </visual>
+      <visual name="floor_14">
+        <pose>-2.500 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.14</temperature></plugin>
+        </visual>
+      <visual name="floor_15">
+        <pose>-2.500 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.39</temperature></plugin>
+        </visual>
+      <visual name="floor_16">
+        <pose>-2.500 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.79</temperature></plugin>
+        </visual>
+      <visual name="floor_17">
+        <pose>-2.500 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.33</temperature></plugin>
+        </visual>
+      <visual name="floor_18">
+        <pose>-2.500 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.56</temperature></plugin>
+        </visual>
+      <visual name="floor_19">
+        <pose>-2.500 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.77</temperature></plugin>
+        </visual>
+      <visual name="floor_20">
+        <pose>-2.500 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.09</temperature></plugin>
+        </visual>
+      <visual name="floor_21">
+        <pose>-2.500 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.48</temperature></plugin>
+        </visual>
+      <visual name="floor_22">
+        <pose>-2.500 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.46</temperature></plugin>
+        </visual>
+      <visual name="floor_23">
+        <pose>-2.500 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.97</temperature></plugin>
+        </visual>
+      <visual name="floor_24">
+        <pose>-2.200 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.28</temperature></plugin>
+        </visual>
+      <visual name="floor_25">
+        <pose>-2.200 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.30</temperature></plugin>
+        </visual>
+      <visual name="floor_26">
+        <pose>-2.200 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.85</temperature></plugin>
+        </visual>
+      <visual name="floor_27">
+        <pose>-2.200 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.94</temperature></plugin>
+        </visual>
+      <visual name="floor_28">
+        <pose>-2.200 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.58</temperature></plugin>
+        </visual>
+      <visual name="floor_29">
+        <pose>-2.200 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>293.04</temperature></plugin>
+        </visual>
+      <visual name="floor_30">
+        <pose>-2.200 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.99</temperature></plugin>
+        </visual>
+      <visual name="floor_31">
+        <pose>-2.200 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.96</temperature></plugin>
+        </visual>
+      <visual name="floor_32">
+        <pose>-2.200 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.76</temperature></plugin>
+        </visual>
+      <visual name="floor_33">
+        <pose>-2.200 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.88</temperature></plugin>
+        </visual>
+      <visual name="floor_34">
+        <pose>-2.200 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.68</temperature></plugin>
+        </visual>
+      <visual name="floor_35">
+        <pose>-2.200 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.40</temperature></plugin>
+        </visual>
+      <visual name="floor_36">
+        <pose>-1.900 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.03</temperature></plugin>
+        </visual>
+      <visual name="floor_37">
+        <pose>-1.900 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.52</temperature></plugin>
+        </visual>
+      <visual name="floor_38">
+        <pose>-1.900 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.11</temperature></plugin>
+        </visual>
+      <visual name="floor_39">
+        <pose>-1.900 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.90</temperature></plugin>
+        </visual>
+      <visual name="floor_40">
+        <pose>-1.900 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.01</temperature></plugin>
+        </visual>
+      <visual name="floor_41">
+        <pose>-1.900 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.83</temperature></plugin>
+        </visual>
+      <visual name="floor_42">
+        <pose>-1.900 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.40</temperature></plugin>
+        </visual>
+      <visual name="floor_43">
+        <pose>-1.900 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.16</temperature></plugin>
+        </visual>
+      <visual name="floor_44">
+        <pose>-1.900 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.93</temperature></plugin>
+        </visual>
+      <visual name="floor_45">
+        <pose>-1.900 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.03</temperature></plugin>
+        </visual>
+      <visual name="floor_46">
+        <pose>-1.900 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.75</temperature></plugin>
+        </visual>
+      <visual name="floor_47">
+        <pose>-1.900 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.32</temperature></plugin>
+        </visual>
+      <visual name="floor_48">
+        <pose>-1.600 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.48</temperature></plugin>
+        </visual>
+      <visual name="floor_49">
+        <pose>-1.600 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.83</temperature></plugin>
+        </visual>
+      <visual name="floor_50">
+        <pose>-1.600 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.89</temperature></plugin>
+        </visual>
+      <visual name="floor_51">
+        <pose>-1.600 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.60</temperature></plugin>
+        </visual>
+      <visual name="floor_52">
+        <pose>-1.600 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.80</temperature></plugin>
+        </visual>
+      <visual name="floor_53">
+        <pose>-1.600 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.08</temperature></plugin>
+        </visual>
+      <visual name="floor_54">
+        <pose>-1.600 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.16</temperature></plugin>
+        </visual>
+      <visual name="floor_55">
+        <pose>-1.600 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.22</temperature></plugin>
+        </visual>
+      <visual name="floor_56">
+        <pose>-1.600 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.65</temperature></plugin>
+        </visual>
+      <visual name="floor_57">
+        <pose>-1.600 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.95</temperature></plugin>
+        </visual>
+      <visual name="floor_58">
+        <pose>-1.600 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.87</temperature></plugin>
+        </visual>
+      <visual name="floor_59">
+        <pose>-1.600 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.00</temperature></plugin>
+        </visual>
+      <visual name="floor_60">
+        <pose>-1.300 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.30</temperature></plugin>
+        </visual>
+      <visual name="floor_61">
+        <pose>-1.300 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.36</temperature></plugin>
+        </visual>
+      <visual name="floor_62">
+        <pose>-1.300 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.85</temperature></plugin>
+        </visual>
+      <visual name="floor_63">
+        <pose>-1.300 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.19</temperature></plugin>
+        </visual>
+      <visual name="floor_64">
+        <pose>-1.300 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.81</temperature></plugin>
+        </visual>
+      <visual name="floor_65">
+        <pose>-1.300 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.32</temperature></plugin>
+        </visual>
+      <visual name="floor_66">
+        <pose>-1.300 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.81</temperature></plugin>
+        </visual>
+      <visual name="floor_67">
+        <pose>-1.300 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.36</temperature></plugin>
+        </visual>
+      <visual name="floor_68">
+        <pose>-1.300 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.79</temperature></plugin>
+        </visual>
+      <visual name="floor_69">
+        <pose>-1.300 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.62</temperature></plugin>
+        </visual>
+      <visual name="floor_70">
+        <pose>-1.300 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.42</temperature></plugin>
+        </visual>
+      <visual name="floor_71">
+        <pose>-1.300 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.16</temperature></plugin>
+        </visual>
+      <visual name="floor_72">
+        <pose>-1.000 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.25</temperature></plugin>
+        </visual>
+      <visual name="floor_73">
+        <pose>-1.000 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.23</temperature></plugin>
+        </visual>
+      <visual name="floor_74">
+        <pose>-1.000 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.16</temperature></plugin>
+        </visual>
+      <visual name="floor_75">
+        <pose>-1.000 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.13</temperature></plugin>
+        </visual>
+      <visual name="floor_76">
+        <pose>-1.000 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.96</temperature></plugin>
+        </visual>
+      <visual name="floor_77">
+        <pose>-1.000 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.07</temperature></plugin>
+        </visual>
+      <visual name="floor_78">
+        <pose>-1.000 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.87</temperature></plugin>
+        </visual>
+      <visual name="floor_79">
+        <pose>-1.000 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.98</temperature></plugin>
+        </visual>
+      <visual name="floor_80">
+        <pose>-1.000 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.75</temperature></plugin>
+        </visual>
+      <visual name="floor_81">
+        <pose>-1.000 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.90</temperature></plugin>
+        </visual>
+      <visual name="floor_82">
+        <pose>-1.000 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.63</temperature></plugin>
+        </visual>
+      <visual name="floor_83">
+        <pose>-1.000 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.41</temperature></plugin>
+        </visual>
+      <visual name="floor_84">
+        <pose>-0.700 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.27</temperature></plugin>
+        </visual>
+      <visual name="floor_85">
+        <pose>-0.700 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.96</temperature></plugin>
+        </visual>
+      <visual name="floor_86">
+        <pose>-0.700 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.45</temperature></plugin>
+        </visual>
+      <visual name="floor_87">
+        <pose>-0.700 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.56</temperature></plugin>
+        </visual>
+      <visual name="floor_88">
+        <pose>-0.700 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.78</temperature></plugin>
+        </visual>
+      <visual name="floor_89">
+        <pose>-0.700 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.27</temperature></plugin>
+        </visual>
+      <visual name="floor_90">
+        <pose>-0.700 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>293.13</temperature></plugin>
+        </visual>
+      <visual name="floor_91">
+        <pose>-0.700 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.61</temperature></plugin>
+        </visual>
+      <visual name="floor_92">
+        <pose>-0.700 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.78</temperature></plugin>
+        </visual>
+      <visual name="floor_93">
+        <pose>-0.700 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.70</temperature></plugin>
+        </visual>
+      <visual name="floor_94">
+        <pose>-0.700 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.82</temperature></plugin>
+        </visual>
+      <visual name="floor_95">
+        <pose>-0.700 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.58</temperature></plugin>
+        </visual>
+      <visual name="floor_96">
+        <pose>-0.400 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.01</temperature></plugin>
+        </visual>
+      <visual name="floor_97">
+        <pose>-0.400 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.03</temperature></plugin>
+        </visual>
+      <visual name="floor_98">
+        <pose>-0.400 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.81</temperature></plugin>
+        </visual>
+      <visual name="floor_99">
+        <pose>-0.400 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.08</temperature></plugin>
+        </visual>
+      <visual name="floor_100">
+        <pose>-0.400 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.11</temperature></plugin>
+        </visual>
+      <visual name="floor_101">
+        <pose>-0.400 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.28</temperature></plugin>
+        </visual>
+      <visual name="floor_102">
+        <pose>-0.400 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.90</temperature></plugin>
+        </visual>
+      <visual name="floor_103">
+        <pose>-0.400 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.73</temperature></plugin>
+        </visual>
+      <visual name="floor_104">
+        <pose>-0.400 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.36</temperature></plugin>
+        </visual>
+      <visual name="floor_105">
+        <pose>-0.400 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.96</temperature></plugin>
+        </visual>
+      <visual name="floor_106">
+        <pose>-0.400 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.02</temperature></plugin>
+        </visual>
+      <visual name="floor_107">
+        <pose>-0.400 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.93</temperature></plugin>
+        </visual>
+      <visual name="floor_108">
+        <pose>-0.100 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.37</temperature></plugin>
+        </visual>
+      <visual name="floor_109">
+        <pose>-0.100 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.02</temperature></plugin>
+        </visual>
+      <visual name="floor_110">
+        <pose>-0.100 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>293.03</temperature></plugin>
+        </visual>
+      <visual name="floor_111">
+        <pose>-0.100 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.74</temperature></plugin>
+        </visual>
+      <visual name="floor_112">
+        <pose>-0.100 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.85</temperature></plugin>
+        </visual>
+      <visual name="floor_113">
+        <pose>-0.100 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.79</temperature></plugin>
+        </visual>
+      <visual name="floor_114">
+        <pose>-0.100 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.42</temperature></plugin>
+        </visual>
+      <visual name="floor_115">
+        <pose>-0.100 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.73</temperature></plugin>
+        </visual>
+      <visual name="floor_116">
+        <pose>-0.100 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.31</temperature></plugin>
+        </visual>
+      <visual name="floor_117">
+        <pose>-0.100 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.31</temperature></plugin>
+        </visual>
+      <visual name="floor_118">
+        <pose>-0.100 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.59</temperature></plugin>
+        </visual>
+      <visual name="floor_119">
+        <pose>-0.100 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.51</temperature></plugin>
+        </visual>
+      <visual name="floor_120">
+        <pose>0.200 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.00</temperature></plugin>
+        </visual>
+      <visual name="floor_121">
+        <pose>0.200 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.29</temperature></plugin>
+        </visual>
+      <visual name="floor_122">
+        <pose>0.200 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.66</temperature></plugin>
+        </visual>
+      <visual name="floor_123">
+        <pose>0.200 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.09</temperature></plugin>
+        </visual>
+      <visual name="floor_124">
+        <pose>0.200 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.53</temperature></plugin>
+        </visual>
+      <visual name="floor_125">
+        <pose>0.200 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.45</temperature></plugin>
+        </visual>
+      <visual name="floor_126">
+        <pose>0.200 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.06</temperature></plugin>
+        </visual>
+      <visual name="floor_127">
+        <pose>0.200 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.21</temperature></plugin>
+        </visual>
+      <visual name="floor_128">
+        <pose>0.200 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.73</temperature></plugin>
+        </visual>
+      <visual name="floor_129">
+        <pose>0.200 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.13</temperature></plugin>
+        </visual>
+      <visual name="floor_130">
+        <pose>0.200 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.42</temperature></plugin>
+        </visual>
+      <visual name="floor_131">
+        <pose>0.200 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.90</temperature></plugin>
+        </visual>
+      <visual name="floor_132">
+        <pose>0.500 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.35</temperature></plugin>
+        </visual>
+      <visual name="floor_133">
+        <pose>0.500 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.57</temperature></plugin>
+        </visual>
+      <visual name="floor_134">
+        <pose>0.500 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.78</temperature></plugin>
+        </visual>
+      <visual name="floor_135">
+        <pose>0.500 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.24</temperature></plugin>
+        </visual>
+      <visual name="floor_136">
+        <pose>0.500 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.35</temperature></plugin>
+        </visual>
+      <visual name="floor_137">
+        <pose>0.500 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.81</temperature></plugin>
+        </visual>
+      <visual name="floor_138">
+        <pose>0.500 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.98</temperature></plugin>
+        </visual>
+      <visual name="floor_139">
+        <pose>0.500 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.00</temperature></plugin>
+        </visual>
+      <visual name="floor_140">
+        <pose>0.500 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.03</temperature></plugin>
+        </visual>
+      <visual name="floor_141">
+        <pose>0.500 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.68</temperature></plugin>
+        </visual>
+      <visual name="floor_142">
+        <pose>0.500 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.93</temperature></plugin>
+        </visual>
+      <visual name="floor_143">
+        <pose>0.500 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.48</temperature></plugin>
+        </visual>
+      <visual name="floor_144">
+        <pose>0.800 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.51</temperature></plugin>
+        </visual>
+      <visual name="floor_145">
+        <pose>0.800 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.19</temperature></plugin>
+        </visual>
+      <visual name="floor_146">
+        <pose>0.800 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.97</temperature></plugin>
+        </visual>
+      <visual name="floor_147">
+        <pose>0.800 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.59</temperature></plugin>
+        </visual>
+      <visual name="floor_148">
+        <pose>0.800 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.81</temperature></plugin>
+        </visual>
+      <visual name="floor_149">
+        <pose>0.800 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.42</temperature></plugin>
+        </visual>
+      <visual name="floor_150">
+        <pose>0.800 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.71</temperature></plugin>
+        </visual>
+      <visual name="floor_151">
+        <pose>0.800 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.33</temperature></plugin>
+        </visual>
+      <visual name="floor_152">
+        <pose>0.800 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.00</temperature></plugin>
+        </visual>
+      <visual name="floor_153">
+        <pose>0.800 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.13</temperature></plugin>
+        </visual>
+      <visual name="floor_154">
+        <pose>0.800 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.70</temperature></plugin>
+        </visual>
+      <visual name="floor_155">
+        <pose>0.800 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.84</temperature></plugin>
+        </visual>
+      <visual name="floor_156">
+        <pose>1.100 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.24</temperature></plugin>
+        </visual>
+      <visual name="floor_157">
+        <pose>1.100 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.08</temperature></plugin>
+        </visual>
+      <visual name="floor_158">
+        <pose>1.100 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.98</temperature></plugin>
+        </visual>
+      <visual name="floor_159">
+        <pose>1.100 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.20</temperature></plugin>
+        </visual>
+      <visual name="floor_160">
+        <pose>1.100 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.04</temperature></plugin>
+        </visual>
+      <visual name="floor_161">
+        <pose>1.100 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.40</temperature></plugin>
+        </visual>
+      <visual name="floor_162">
+        <pose>1.100 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.10</temperature></plugin>
+        </visual>
+      <visual name="floor_163">
+        <pose>1.100 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.47</temperature></plugin>
+        </visual>
+      <visual name="floor_164">
+        <pose>1.100 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.47</temperature></plugin>
+        </visual>
+      <visual name="floor_165">
+        <pose>1.100 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.21</temperature></plugin>
+        </visual>
+      <visual name="floor_166">
+        <pose>1.100 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.10</temperature></plugin>
+        </visual>
+      <visual name="floor_167">
+        <pose>1.100 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.89</temperature></plugin>
+        </visual>
+      <visual name="floor_168">
+        <pose>1.400 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.61</temperature></plugin>
+        </visual>
+      <visual name="floor_169">
+        <pose>1.400 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.59</temperature></plugin>
+        </visual>
+      <visual name="floor_170">
+        <pose>1.400 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.75</temperature></plugin>
+        </visual>
+      <visual name="floor_171">
+        <pose>1.400 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.52</temperature></plugin>
+        </visual>
+      <visual name="floor_172">
+        <pose>1.400 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.79</temperature></plugin>
+        </visual>
+      <visual name="floor_173">
+        <pose>1.400 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.85</temperature></plugin>
+        </visual>
+      <visual name="floor_174">
+        <pose>1.400 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.48</temperature></plugin>
+        </visual>
+      <visual name="floor_175">
+        <pose>1.400 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.85</temperature></plugin>
+        </visual>
+      <visual name="floor_176">
+        <pose>1.400 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.72</temperature></plugin>
+        </visual>
+      <visual name="floor_177">
+        <pose>1.400 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.04</temperature></plugin>
+        </visual>
+      <visual name="floor_178">
+        <pose>1.400 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.72</temperature></plugin>
+        </visual>
+      <visual name="floor_179">
+        <pose>1.400 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.48</temperature></plugin>
+        </visual>
+      <visual name="floor_180">
+        <pose>1.700 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>293.13</temperature></plugin>
+        </visual>
+      <visual name="floor_181">
+        <pose>1.700 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.67</temperature></plugin>
+        </visual>
+      <visual name="floor_182">
+        <pose>1.700 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.63</temperature></plugin>
+        </visual>
+      <visual name="floor_183">
+        <pose>1.700 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.19</temperature></plugin>
+        </visual>
+      <visual name="floor_184">
+        <pose>1.700 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.19</temperature></plugin>
+        </visual>
+      <visual name="floor_185">
+        <pose>1.700 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.38</temperature></plugin>
+        </visual>
+      <visual name="floor_186">
+        <pose>1.700 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.16</temperature></plugin>
+        </visual>
+      <visual name="floor_187">
+        <pose>1.700 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.16</temperature></plugin>
+        </visual>
+      <visual name="floor_188">
+        <pose>1.700 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.98</temperature></plugin>
+        </visual>
+      <visual name="floor_189">
+        <pose>1.700 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.10</temperature></plugin>
+        </visual>
+      <visual name="floor_190">
+        <pose>1.700 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.87</temperature></plugin>
+        </visual>
+      <visual name="floor_191">
+        <pose>1.700 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.45</temperature></plugin>
+        </visual>
+      <visual name="floor_192">
+        <pose>2.000 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.70</temperature></plugin>
+        </visual>
+      <visual name="floor_193">
+        <pose>2.000 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.42</temperature></plugin>
+        </visual>
+      <visual name="floor_194">
+        <pose>2.000 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.82</temperature></plugin>
+        </visual>
+      <visual name="floor_195">
+        <pose>2.000 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.22</temperature></plugin>
+        </visual>
+      <visual name="floor_196">
+        <pose>2.000 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.31</temperature></plugin>
+        </visual>
+      <visual name="floor_197">
+        <pose>2.000 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.12</temperature></plugin>
+        </visual>
+      <visual name="floor_198">
+        <pose>2.000 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.28</temperature></plugin>
+        </visual>
+      <visual name="floor_199">
+        <pose>2.000 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.07</temperature></plugin>
+        </visual>
+      <visual name="floor_200">
+        <pose>2.000 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.81</temperature></plugin>
+        </visual>
+      <visual name="floor_201">
+        <pose>2.000 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.35</temperature></plugin>
+        </visual>
+      <visual name="floor_202">
+        <pose>2.000 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.49</temperature></plugin>
+        </visual>
+      <visual name="floor_203">
+        <pose>2.000 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.68</temperature></plugin>
+        </visual>
+      <visual name="floor_204">
+        <pose>2.300 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.38</temperature></plugin>
+        </visual>
+      <visual name="floor_205">
+        <pose>2.300 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.22</temperature></plugin>
+        </visual>
+      <visual name="floor_206">
+        <pose>2.300 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.96</temperature></plugin>
+        </visual>
+      <visual name="floor_207">
+        <pose>2.300 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.14</temperature></plugin>
+        </visual>
+      <visual name="floor_208">
+        <pose>2.300 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.51</temperature></plugin>
+        </visual>
+      <visual name="floor_209">
+        <pose>2.300 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.15</temperature></plugin>
+        </visual>
+      <visual name="floor_210">
+        <pose>2.300 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.33</temperature></plugin>
+        </visual>
+      <visual name="floor_211">
+        <pose>2.300 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.06</temperature></plugin>
+        </visual>
+      <visual name="floor_212">
+        <pose>2.300 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.41</temperature></plugin>
+        </visual>
+      <visual name="floor_213">
+        <pose>2.300 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.34</temperature></plugin>
+        </visual>
+      <visual name="floor_214">
+        <pose>2.300 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.50</temperature></plugin>
+        </visual>
+      <visual name="floor_215">
+        <pose>2.300 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.36</temperature></plugin>
+        </visual>
+      <visual name="floor_216">
+        <pose>2.600 -1.562 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.79</temperature></plugin>
+        </visual>
+      <visual name="floor_217">
+        <pose>2.600 -1.262 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.51</temperature></plugin>
+        </visual>
+      <visual name="floor_218">
+        <pose>2.600 -0.962 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.78</temperature></plugin>
+        </visual>
+      <visual name="floor_219">
+        <pose>2.600 -0.662 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.34</temperature></plugin>
+        </visual>
+      <visual name="floor_220">
+        <pose>2.600 -0.362 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.98</temperature></plugin>
+        </visual>
+      <visual name="floor_221">
+        <pose>2.600 -0.062 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.38</temperature></plugin>
+        </visual>
+      <visual name="floor_222">
+        <pose>2.600 0.238 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.27</temperature></plugin>
+        </visual>
+      <visual name="floor_223">
+        <pose>2.600 0.538 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.29</temperature></plugin>
+        </visual>
+      <visual name="floor_224">
+        <pose>2.600 0.838 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.96</temperature></plugin>
+        </visual>
+      <visual name="floor_225">
+        <pose>2.600 1.138 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.81</temperature></plugin>
+        </visual>
+      <visual name="floor_226">
+        <pose>2.600 1.438 0.002 0 0 0</pose><geometry><box><size>0.300 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.67</temperature></plugin>
+        </visual>
+      <visual name="floor_227">
+        <pose>2.600 1.650 0.002 0 0 0</pose><geometry><box><size>0.300 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.00</temperature></plugin>
+        </visual>
+      <visual name="floor_228">
+        <pose>2.850 -1.562 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.41</temperature></plugin>
+        </visual>
+      <visual name="floor_229">
+        <pose>2.850 -1.262 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.65</temperature></plugin>
+        </visual>
+      <visual name="floor_230">
+        <pose>2.850 -0.962 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.07</temperature></plugin>
+        </visual>
+      <visual name="floor_231">
+        <pose>2.850 -0.662 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.57</temperature></plugin>
+        </visual>
+      <visual name="floor_232">
+        <pose>2.850 -0.362 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.12</temperature></plugin>
+        </visual>
+      <visual name="floor_233">
+        <pose>2.850 -0.062 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.89</temperature></plugin>
+        </visual>
+      <visual name="floor_234">
+        <pose>2.850 0.238 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.88</temperature></plugin>
+        </visual>
+      <visual name="floor_235">
+        <pose>2.850 0.538 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.53</temperature></plugin>
+        </visual>
+      <visual name="floor_236">
+        <pose>2.850 0.838 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.48</temperature></plugin>
+        </visual>
+      <visual name="floor_237">
+        <pose>2.850 1.138 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.25</temperature></plugin>
+        </visual>
+      <visual name="floor_238">
+        <pose>2.850 1.438 0.002 0 0 0</pose><geometry><box><size>0.200 0.300 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.58</temperature></plugin>
+        </visual>
+      <visual name="floor_239">
+        <pose>2.850 1.650 0.002 0 0 0</pose><geometry><box><size>0.200 0.125 0.001</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.06</temperature></plugin>
+        </visual>
+      <visual name="wall_240">
+        <pose>-2.800 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.83</temperature></plugin>
+        </visual>
+      <visual name="wall_241">
+        <pose>-2.800 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.37</temperature></plugin>
+        </visual>
+      <visual name="wall_242">
+        <pose>-2.500 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>293.05</temperature></plugin>
+        </visual>
+      <visual name="wall_243">
+        <pose>-2.500 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.11</temperature></plugin>
+        </visual>
+      <visual name="wall_244">
+        <pose>-2.200 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.02</temperature></plugin>
+        </visual>
+      <visual name="wall_245">
+        <pose>-2.200 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.55</temperature></plugin>
+        </visual>
+      <visual name="wall_246">
+        <pose>-1.900 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.71</temperature></plugin>
+        </visual>
+      <visual name="wall_247">
+        <pose>-1.900 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.81</temperature></plugin>
+        </visual>
+      <visual name="wall_248">
+        <pose>-1.600 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.25</temperature></plugin>
+        </visual>
+      <visual name="wall_249">
+        <pose>-1.600 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.38</temperature></plugin>
+        </visual>
+      <visual name="wall_250">
+        <pose>-1.300 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.91</temperature></plugin>
+        </visual>
+      <visual name="wall_251">
+        <pose>-1.300 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.36</temperature></plugin>
+        </visual>
+      <visual name="wall_252">
+        <pose>-1.000 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.54</temperature></plugin>
+        </visual>
+      <visual name="wall_253">
+        <pose>-1.000 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.57</temperature></plugin>
+        </visual>
+      <visual name="wall_254">
+        <pose>-0.700 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.67</temperature></plugin>
+        </visual>
+      <visual name="wall_255">
+        <pose>-0.700 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.17</temperature></plugin>
+        </visual>
+      <visual name="wall_256">
+        <pose>-0.400 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.38</temperature></plugin>
+        </visual>
+      <visual name="wall_257">
+        <pose>-0.400 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.50</temperature></plugin>
+        </visual>
+      <visual name="wall_258">
+        <pose>-0.100 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.33</temperature></plugin>
+        </visual>
+      <visual name="wall_259">
+        <pose>-0.100 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.02</temperature></plugin>
+        </visual>
+      <visual name="wall_260">
+        <pose>0.200 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.33</temperature></plugin>
+        </visual>
+      <visual name="wall_261">
+        <pose>0.200 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.85</temperature></plugin>
+        </visual>
+      <visual name="wall_262">
+        <pose>0.500 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.69</temperature></plugin>
+        </visual>
+      <visual name="wall_263">
+        <pose>0.500 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.88</temperature></plugin>
+        </visual>
+      <visual name="wall_264">
+        <pose>0.800 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.97</temperature></plugin>
+        </visual>
+      <visual name="wall_265">
+        <pose>0.800 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.45</temperature></plugin>
+        </visual>
+      <visual name="wall_266">
+        <pose>1.100 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.23</temperature></plugin>
+        </visual>
+      <visual name="wall_267">
+        <pose>1.100 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.60</temperature></plugin>
+        </visual>
+      <visual name="wall_268">
+        <pose>1.400 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.69</temperature></plugin>
+        </visual>
+      <visual name="wall_269">
+        <pose>1.400 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.94</temperature></plugin>
+        </visual>
+      <visual name="wall_270">
+        <pose>1.700 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.41</temperature></plugin>
+        </visual>
+      <visual name="wall_271">
+        <pose>1.700 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.10</temperature></plugin>
+        </visual>
+      <visual name="wall_272">
+        <pose>2.000 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.99</temperature></plugin>
+        </visual>
+      <visual name="wall_273">
+        <pose>2.000 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.26</temperature></plugin>
+        </visual>
+      <visual name="wall_274">
+        <pose>2.300 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.83</temperature></plugin>
+        </visual>
+      <visual name="wall_275">
+        <pose>2.300 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.23</temperature></plugin>
+        </visual>
+      <visual name="wall_276">
+        <pose>2.600 -1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.22</temperature></plugin>
+        </visual>
+      <visual name="wall_277">
+        <pose>2.600 1.712 0.152 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.56</temperature></plugin>
+        </visual>
+      <visual name="wall_278">
+        <pose>2.850 -1.712 0.152 0 0 0</pose><geometry><box><size>0.200 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.02</temperature></plugin>
+        </visual>
+      <visual name="wall_279">
+        <pose>2.850 1.712 0.152 0 0 0</pose><geometry><box><size>0.200 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.63</temperature></plugin>
+        </visual>
+      <visual name="wall_280">
+        <pose>-2.950 -1.562 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.48</temperature></plugin>
+        </visual>
+      <visual name="wall_281">
+        <pose>2.950 -1.562 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.92</temperature></plugin>
+        </visual>
+      <visual name="wall_282">
+        <pose>-2.950 -1.262 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.76</temperature></plugin>
+        </visual>
+      <visual name="wall_283">
+        <pose>2.950 -1.262 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.14</temperature></plugin>
+        </visual>
+      <visual name="wall_284">
+        <pose>-2.950 -0.962 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.90</temperature></plugin>
+        </visual>
+      <visual name="wall_285">
+        <pose>2.950 -0.962 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.50</temperature></plugin>
+        </visual>
+      <visual name="wall_286">
+        <pose>-2.950 -0.662 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.49</temperature></plugin>
+        </visual>
+      <visual name="wall_287">
+        <pose>2.950 -0.662 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.70</temperature></plugin>
+        </visual>
+      <visual name="wall_288">
+        <pose>-2.950 -0.362 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.01</temperature></plugin>
+        </visual>
+      <visual name="wall_289">
+        <pose>2.950 -0.362 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.52</temperature></plugin>
+        </visual>
+      <visual name="wall_290">
+        <pose>-2.950 -0.062 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.02</temperature></plugin>
+        </visual>
+      <visual name="wall_291">
+        <pose>2.950 -0.062 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.39</temperature></plugin>
+        </visual>
+      <visual name="wall_292">
+        <pose>-2.950 0.238 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.76</temperature></plugin>
+        </visual>
+      <visual name="wall_293">
+        <pose>2.950 0.238 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.70</temperature></plugin>
+        </visual>
+      <visual name="wall_294">
+        <pose>-2.950 0.538 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.81</temperature></plugin>
+        </visual>
+      <visual name="wall_295">
+        <pose>2.950 0.538 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.97</temperature></plugin>
+        </visual>
+      <visual name="wall_296">
+        <pose>-2.950 0.838 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.13</temperature></plugin>
+        </visual>
+      <visual name="wall_297">
+        <pose>2.950 0.838 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.72</temperature></plugin>
+        </visual>
+      <visual name="wall_298">
+        <pose>-2.950 1.138 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.46</temperature></plugin>
+        </visual>
+      <visual name="wall_299">
+        <pose>2.950 1.138 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.57</temperature></plugin>
+        </visual>
+      <visual name="wall_300">
+        <pose>-2.950 1.438 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.02</temperature></plugin>
+        </visual>
+      <visual name="wall_301">
+        <pose>2.950 1.438 0.152 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.00</temperature></plugin>
+        </visual>
+      <visual name="wall_302">
+        <pose>-2.950 1.650 0.152 0 0 0</pose><geometry><box><size>0.001 0.125 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.03</temperature></plugin>
+        </visual>
+      <visual name="wall_303">
+        <pose>2.950 1.650 0.152 0 0 0</pose><geometry><box><size>0.001 0.125 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.90</temperature></plugin>
+        </visual>
+      <visual name="wall_304">
+        <pose>-2.800 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.15</temperature></plugin>
+        </visual>
+      <visual name="wall_305">
+        <pose>-2.800 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.52</temperature></plugin>
+        </visual>
+      <visual name="wall_306">
+        <pose>-2.500 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.00</temperature></plugin>
+        </visual>
+      <visual name="wall_307">
+        <pose>-2.500 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.43</temperature></plugin>
+        </visual>
+      <visual name="wall_308">
+        <pose>-2.200 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.40</temperature></plugin>
+        </visual>
+      <visual name="wall_309">
+        <pose>-2.200 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>293.06</temperature></plugin>
+        </visual>
+      <visual name="wall_310">
+        <pose>-1.900 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.05</temperature></plugin>
+        </visual>
+      <visual name="wall_311">
+        <pose>-1.900 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.64</temperature></plugin>
+        </visual>
+      <visual name="wall_312">
+        <pose>-1.600 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.56</temperature></plugin>
+        </visual>
+      <visual name="wall_313">
+        <pose>-1.600 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.99</temperature></plugin>
+        </visual>
+      <visual name="wall_314">
+        <pose>-1.300 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.33</temperature></plugin>
+        </visual>
+      <visual name="wall_315">
+        <pose>-1.300 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.34</temperature></plugin>
+        </visual>
+      <visual name="wall_316">
+        <pose>-1.000 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.17</temperature></plugin>
+        </visual>
+      <visual name="wall_317">
+        <pose>-1.000 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.16</temperature></plugin>
+        </visual>
+      <visual name="wall_318">
+        <pose>-0.700 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.88</temperature></plugin>
+        </visual>
+      <visual name="wall_319">
+        <pose>-0.700 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.86</temperature></plugin>
+        </visual>
+      <visual name="wall_320">
+        <pose>-0.400 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.55</temperature></plugin>
+        </visual>
+      <visual name="wall_321">
+        <pose>-0.400 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.60</temperature></plugin>
+        </visual>
+      <visual name="wall_322">
+        <pose>-0.100 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.22</temperature></plugin>
+        </visual>
+      <visual name="wall_323">
+        <pose>-0.100 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.59</temperature></plugin>
+        </visual>
+      <visual name="wall_324">
+        <pose>0.200 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.78</temperature></plugin>
+        </visual>
+      <visual name="wall_325">
+        <pose>0.200 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.71</temperature></plugin>
+        </visual>
+      <visual name="wall_326">
+        <pose>0.500 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.82</temperature></plugin>
+        </visual>
+      <visual name="wall_327">
+        <pose>0.500 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.51</temperature></plugin>
+        </visual>
+      <visual name="wall_328">
+        <pose>0.800 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.10</temperature></plugin>
+        </visual>
+      <visual name="wall_329">
+        <pose>0.800 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.22</temperature></plugin>
+        </visual>
+      <visual name="wall_330">
+        <pose>1.100 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.24</temperature></plugin>
+        </visual>
+      <visual name="wall_331">
+        <pose>1.100 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.38</temperature></plugin>
+        </visual>
+      <visual name="wall_332">
+        <pose>1.400 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.27</temperature></plugin>
+        </visual>
+      <visual name="wall_333">
+        <pose>1.400 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.94</temperature></plugin>
+        </visual>
+      <visual name="wall_334">
+        <pose>1.700 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.15</temperature></plugin>
+        </visual>
+      <visual name="wall_335">
+        <pose>1.700 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.49</temperature></plugin>
+        </visual>
+      <visual name="wall_336">
+        <pose>2.000 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.08</temperature></plugin>
+        </visual>
+      <visual name="wall_337">
+        <pose>2.000 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.20</temperature></plugin>
+        </visual>
+      <visual name="wall_338">
+        <pose>2.300 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.37</temperature></plugin>
+        </visual>
+      <visual name="wall_339">
+        <pose>2.300 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.85</temperature></plugin>
+        </visual>
+      <visual name="wall_340">
+        <pose>2.600 -1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.52</temperature></plugin>
+        </visual>
+      <visual name="wall_341">
+        <pose>2.600 1.712 0.452 0 0 0</pose><geometry><box><size>0.300 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.17</temperature></plugin>
+        </visual>
+      <visual name="wall_342">
+        <pose>2.850 -1.712 0.452 0 0 0</pose><geometry><box><size>0.200 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.96</temperature></plugin>
+        </visual>
+      <visual name="wall_343">
+        <pose>2.850 1.712 0.452 0 0 0</pose><geometry><box><size>0.200 0.001 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.32</temperature></plugin>
+        </visual>
+      <visual name="wall_344">
+        <pose>-2.950 -1.562 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.61</temperature></plugin>
+        </visual>
+      <visual name="wall_345">
+        <pose>2.950 -1.562 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.05</temperature></plugin>
+        </visual>
+      <visual name="wall_346">
+        <pose>-2.950 -1.262 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.99</temperature></plugin>
+        </visual>
+      <visual name="wall_347">
+        <pose>2.950 -1.262 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.63</temperature></plugin>
+        </visual>
+      <visual name="wall_348">
+        <pose>-2.950 -0.962 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.55</temperature></plugin>
+        </visual>
+      <visual name="wall_349">
+        <pose>2.950 -0.962 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.49</temperature></plugin>
+        </visual>
+      <visual name="wall_350">
+        <pose>-2.950 -0.662 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.17</temperature></plugin>
+        </visual>
+      <visual name="wall_351">
+        <pose>2.950 -0.662 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.81</temperature></plugin>
+        </visual>
+      <visual name="wall_352">
+        <pose>-2.950 -0.362 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.92</temperature></plugin>
+        </visual>
+      <visual name="wall_353">
+        <pose>2.950 -0.362 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.16</temperature></plugin>
+        </visual>
+      <visual name="wall_354">
+        <pose>-2.950 -0.062 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.60</temperature></plugin>
+        </visual>
+      <visual name="wall_355">
+        <pose>2.950 -0.062 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.24</temperature></plugin>
+        </visual>
+      <visual name="wall_356">
+        <pose>-2.950 0.238 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.21</temperature></plugin>
+        </visual>
+      <visual name="wall_357">
+        <pose>2.950 0.238 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.97</temperature></plugin>
+        </visual>
+      <visual name="wall_358">
+        <pose>-2.950 0.538 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.87</temperature></plugin>
+        </visual>
+      <visual name="wall_359">
+        <pose>2.950 0.538 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.10</temperature></plugin>
+        </visual>
+      <visual name="wall_360">
+        <pose>-2.950 0.838 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.05</temperature></plugin>
+        </visual>
+      <visual name="wall_361">
+        <pose>2.950 0.838 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.15</temperature></plugin>
+        </visual>
+      <visual name="wall_362">
+        <pose>-2.950 1.138 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>293.05</temperature></plugin>
+        </visual>
+      <visual name="wall_363">
+        <pose>2.950 1.138 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.44</temperature></plugin>
+        </visual>
+      <visual name="wall_364">
+        <pose>-2.950 1.438 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.96</temperature></plugin>
+        </visual>
+      <visual name="wall_365">
+        <pose>2.950 1.438 0.452 0 0 0</pose><geometry><box><size>0.001 0.300 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.91</temperature></plugin>
+        </visual>
+      <visual name="wall_366">
+        <pose>-2.950 1.650 0.452 0 0 0</pose><geometry><box><size>0.001 0.125 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.19</temperature></plugin>
+        </visual>
+      <visual name="wall_367">
+        <pose>2.950 1.650 0.452 0 0 0</pose><geometry><box><size>0.001 0.125 0.300</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.61</temperature></plugin>
+        </visual>
+      <visual name="wall_368">
+        <pose>-2.800 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.70</temperature></plugin>
+        </visual>
+      <visual name="wall_369">
+        <pose>-2.800 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.46</temperature></plugin>
+        </visual>
+      <visual name="wall_370">
+        <pose>-2.500 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.37</temperature></plugin>
+        </visual>
+      <visual name="wall_371">
+        <pose>-2.500 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.32</temperature></plugin>
+        </visual>
+      <visual name="wall_372">
+        <pose>-2.200 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.31</temperature></plugin>
+        </visual>
+      <visual name="wall_373">
+        <pose>-2.200 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.50</temperature></plugin>
+        </visual>
+      <visual name="wall_374">
+        <pose>-1.900 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.12</temperature></plugin>
+        </visual>
+      <visual name="wall_375">
+        <pose>-1.900 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.08</temperature></plugin>
+        </visual>
+      <visual name="wall_376">
+        <pose>-1.600 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.00</temperature></plugin>
+        </visual>
+      <visual name="wall_377">
+        <pose>-1.600 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.59</temperature></plugin>
+        </visual>
+      <visual name="wall_378">
+        <pose>-1.300 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.56</temperature></plugin>
+        </visual>
+      <visual name="wall_379">
+        <pose>-1.300 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.95</temperature></plugin>
+        </visual>
+      <visual name="wall_380">
+        <pose>-1.000 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.80</temperature></plugin>
+        </visual>
+      <visual name="wall_381">
+        <pose>-1.000 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.81</temperature></plugin>
+        </visual>
+      <visual name="wall_382">
+        <pose>-0.700 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.38</temperature></plugin>
+        </visual>
+      <visual name="wall_383">
+        <pose>-0.700 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.90</temperature></plugin>
+        </visual>
+      <visual name="wall_384">
+        <pose>-0.400 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.91</temperature></plugin>
+        </visual>
+      <visual name="wall_385">
+        <pose>-0.400 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.57</temperature></plugin>
+        </visual>
+      <visual name="wall_386">
+        <pose>-0.100 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.36</temperature></plugin>
+        </visual>
+      <visual name="wall_387">
+        <pose>-0.100 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.93</temperature></plugin>
+        </visual>
+      <visual name="wall_388">
+        <pose>0.200 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>292.30</temperature></plugin>
+        </visual>
+      <visual name="wall_389">
+        <pose>0.200 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.64</temperature></plugin>
+        </visual>
+      <visual name="wall_390">
+        <pose>0.500 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.88</temperature></plugin>
+        </visual>
+      <visual name="wall_391">
+        <pose>0.500 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.91</temperature></plugin>
+        </visual>
+      <visual name="wall_392">
+        <pose>0.800 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.26</temperature></plugin>
+        </visual>
+      <visual name="wall_393">
+        <pose>0.800 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>289.41</temperature></plugin>
+        </visual>
+      <visual name="wall_394">
+        <pose>1.100 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.63</temperature></plugin>
+        </visual>
+      <visual name="wall_395">
+        <pose>1.100 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.26</temperature></plugin>
+        </visual>
+      <visual name="wall_396">
+        <pose>1.400 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.35</temperature></plugin>
+        </visual>
+      <visual name="wall_397">
+        <pose>1.400 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.35</temperature></plugin>
+        </visual>
+      <visual name="wall_398">
+        <pose>1.700 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.88</temperature></plugin>
+        </visual>
+      <visual name="wall_399">
+        <pose>1.700 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.28</temperature></plugin>
+        </visual>
+      <visual name="wall_400">
+        <pose>2.000 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.97</temperature></plugin>
+        </visual>
+      <visual name="wall_401">
+        <pose>2.000 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.17</temperature></plugin>
+        </visual>
+      <visual name="wall_402">
+        <pose>2.300 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.55</temperature></plugin>
+        </visual>
+      <visual name="wall_403">
+        <pose>2.300 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.29</temperature></plugin>
+        </visual>
+      <visual name="wall_404">
+        <pose>2.600 -1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.18</temperature></plugin>
+        </visual>
+      <visual name="wall_405">
+        <pose>2.600 1.712 0.701 0 0 0</pose><geometry><box><size>0.300 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.84</temperature></plugin>
+        </visual>
+      <visual name="wall_406">
+        <pose>2.850 -1.712 0.701 0 0 0</pose><geometry><box><size>0.200 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.52</temperature></plugin>
+        </visual>
+      <visual name="wall_407">
+        <pose>2.850 1.712 0.701 0 0 0</pose><geometry><box><size>0.200 0.001 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.16</temperature></plugin>
+        </visual>
+      <visual name="wall_408">
+        <pose>-2.950 -1.562 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.25</temperature></plugin>
+        </visual>
+      <visual name="wall_409">
+        <pose>2.950 -1.562 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>288.08</temperature></plugin>
+        </visual>
+      <visual name="wall_410">
+        <pose>-2.950 -1.262 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.90</temperature></plugin>
+        </visual>
+      <visual name="wall_411">
+        <pose>2.950 -1.262 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.73</temperature></plugin>
+        </visual>
+      <visual name="wall_412">
+        <pose>-2.950 -0.962 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.79</temperature></plugin>
+        </visual>
+      <visual name="wall_413">
+        <pose>2.950 -0.962 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.47</temperature></plugin>
+        </visual>
+      <visual name="wall_414">
+        <pose>-2.950 -0.662 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.26</temperature></plugin>
+        </visual>
+      <visual name="wall_415">
+        <pose>2.950 -0.662 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.93</temperature></plugin>
+        </visual>
+      <visual name="wall_416">
+        <pose>-2.950 -0.362 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.42</temperature></plugin>
+        </visual>
+      <visual name="wall_417">
+        <pose>2.950 -0.362 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>286.87</temperature></plugin>
+        </visual>
+      <visual name="wall_418">
+        <pose>-2.950 -0.062 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.53</temperature></plugin>
+        </visual>
+      <visual name="wall_419">
+        <pose>2.950 -0.062 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.55</temperature></plugin>
+        </visual>
+      <visual name="wall_420">
+        <pose>-2.950 0.238 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.43</temperature></plugin>
+        </visual>
+      <visual name="wall_421">
+        <pose>2.950 0.238 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.67</temperature></plugin>
+        </visual>
+      <visual name="wall_422">
+        <pose>-2.950 0.538 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>290.44</temperature></plugin>
+        </visual>
+      <visual name="wall_423">
+        <pose>2.950 0.538 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>287.65</temperature></plugin>
+        </visual>
+      <visual name="wall_424">
+        <pose>-2.950 0.838 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>285.00</temperature></plugin>
+        </visual>
+      <visual name="wall_425">
+        <pose>2.950 0.838 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.18</temperature></plugin>
+        </visual>
+      <visual name="wall_426">
+        <pose>-2.950 1.138 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.47</temperature></plugin>
+        </visual>
+      <visual name="wall_427">
+        <pose>2.950 1.138 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>283.67</temperature></plugin>
+        </visual>
+      <visual name="wall_428">
+        <pose>-2.950 1.438 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>284.91</temperature></plugin>
+        </visual>
+      <visual name="wall_429">
+        <pose>2.950 1.438 0.701 0 0 0</pose><geometry><box><size>0.001 0.300 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.19</temperature></plugin>
+        </visual>
+      <visual name="wall_430">
+        <pose>-2.950 1.650 0.701 0 0 0</pose><geometry><box><size>0.001 0.125 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.00</temperature></plugin>
+        </visual>
+      <visual name="wall_431">
+        <pose>2.950 1.650 0.701 0 0 0</pose><geometry><box><size>0.001 0.125 0.198</size></box></geometry><material><ambient>0.35 0.35 0.35 1</ambient><diffuse>0.38 0.38 0.38 1</diffuse></material><cast_shadows>false</cast_shadows><plugin filename="ignition-gazebo-thermal-system" name="ignition::gazebo::systems::Thermal"><temperature>291.85</temperature></plugin>
+        </visual>
+      </link>
+    </model>
+    </world>
 </sdf>
