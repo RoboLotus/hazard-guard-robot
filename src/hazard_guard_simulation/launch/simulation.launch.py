@@ -6,11 +6,12 @@ from hazard_guard_sensor_config import TMC160B
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     IncludeLaunchDescription,
     SetEnvironmentVariable,
     TimerAction,
 )
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     Command,
@@ -128,15 +129,13 @@ def generate_launch_description() -> LaunchDescription:
                     str(simulation_share / "models"),
                 ],
             ),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(gazebo_launch),
-                launch_arguments={
-                    "gz_args": ["-r -v 3 ", world],
-                    "gz_version": "6",
-                    "on_exit_shutdown": "true",
-                }.items(),
-                condition=IfCondition(gui),
-            ),
+            # Always a headless server, with the GUI as its own process when
+            # asked for. Letting `ign gazebo <world>` start both forks the
+            # server out of an already-threaded process, and that fork hangs:
+            # the server never advertises a topic, the GUI polls "requesting
+            # list of world names" forever, and the robot spawn below dies with
+            # "Request to create entity ... timed out". Reproduced on every
+            # gui:=true run; headless runs were never affected.
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(gazebo_launch),
                 launch_arguments={
@@ -144,7 +143,13 @@ def generate_launch_description() -> LaunchDescription:
                     "gz_version": "6",
                     "on_exit_shutdown": "true",
                 }.items(),
-                condition=UnlessCondition(gui),
+            ),
+            # The GUI retries the world list on its own, so it can start
+            # straight away and simply wait for the server.
+            ExecuteProcess(
+                cmd=["ign", "gazebo", "-g", "--force-version", "6"],
+                output="screen",
+                condition=IfCondition(gui),
             ),
             Node(
                 package="robot_state_publisher",
