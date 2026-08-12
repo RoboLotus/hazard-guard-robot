@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <limits>
 #include <string>
 #include <vector>
 
@@ -15,10 +14,8 @@
 #include <ignition/gazebo/components/Model.hh>
 #include <ignition/gazebo/components/Name.hh>
 #include <ignition/gazebo/components/Pose.hh>
-#include <ignition/gazebo/components/Temperature.hh>
 #include <ignition/gazebo/components/Visual.hh>
 #include <ignition/math/Pose3.hh>
-#include <ignition/math/Temperature.hh>
 #include <ignition/plugin/Register.hh>
 
 namespace hazard_guard_simulation
@@ -39,7 +36,6 @@ private:
     ignition::gazebo::Entity entity{ignition::gazebo::kNullEntity};
     std::vector<ignition::gazebo::Entity> thermalEntities;
     bool visible{false};
-    double lastTemperature{std::numeric_limits<double>::quiet_NaN()};
   };
 
 public:
@@ -122,7 +118,6 @@ public:
         this->SetLayerPose(layer, layer.visiblePose, ecm);
         layer.visible = true;
       }
-      this->SetLayerTemperature(layer, temperature, ecm);
     }
   }
 
@@ -166,7 +161,9 @@ private:
     for (const auto entity : ecm.Descendants(layer.entity))
     {
       if (ecm.Component<ignition::gazebo::components::Visual>(entity))
+      {
         layer.thermalEntities.push_back(entity);
+      }
     }
   }
 
@@ -186,24 +183,6 @@ private:
       ignition::gazebo::ComponentState::OneTimeChange);
   }
 
-  void SetLayerTemperature(
-    Layer & layer,
-    const double temperature,
-    ignition::gazebo::EntityComponentManager & ecm)
-  {
-    if (std::isfinite(layer.lastTemperature) &&
-      std::abs(temperature - layer.lastTemperature) < 0.02)
-    {
-      return;
-    }
-    for (const auto entity : layer.thermalEntities)
-    {
-      ecm.SetComponentData<ignition::gazebo::components::Temperature>(
-        entity, ignition::math::Temperature(temperature));
-    }
-    layer.lastTemperature = temperature;
-  }
-
   void ResetLayer(
     Layer & layer,
     ignition::gazebo::EntityComponentManager & ecm)
@@ -212,10 +191,8 @@ private:
     {
       this->SetLayerPose(
         layer, ignition::math::Pose3d(0, 0, -10, 0, 0, 0), ecm);
-      this->SetLayerTemperature(layer, this->ambientTemperature, ecm);
     }
     layer.visible = false;
-    layer.lastTemperature = std::numeric_limits<double>::quiet_NaN();
   }
 
   double ambientTemperature{293.15};

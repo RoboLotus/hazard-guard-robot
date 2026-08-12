@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Add a realistic random-walking person and dynamic heat to the demo world.
+"""Add a realistic random-walking person and surface heat to the demo world.
 
 The source world and heat profile are never modified. A generated runtime
-world receives configured equipment heat sources, low-cost transient diffusion
-layers, and one complete factory worker with body heat and constrained random
-movement.
+world receives configured equipment heat sources, low-cost transient surface
+zones, and one complete factory worker with body heat and constrained random
+movement. Thermal zones reuse real equipment OBJ submeshes, so the thermal
+camera sees heated machinery surfaces instead of floating diffusion spheres.
 """
 
 from __future__ import annotations
@@ -21,7 +22,81 @@ EFFECTIVE_DIFFUSIVITY_M2_S = 0.0018
 DIFFUSION_RESPONSE_TIME_S = 3.5
 DIFFUSION_UPDATE_PERIOD_S = 0.5
 DIFFUSION_DISTANCE_MULTIPLIERS = (1.6, 3.0, 4.8)
-DIFFUSION_BLOB_COUNT = 6
+EQUIPMENT_MODEL_POSE = (-0.145177, -0.038474, 0.0, 0.0, 0.0, 0.0)
+EQUIPMENT_MESH_SCALE = 0.07474982
+# A 0.15% expansion prevents z-fighting while remaining within 3 mm of the
+# original equipment surface at the largest model extents.
+THERMAL_OVERLAY_SCALE = EQUIPMENT_MESH_SCALE * 1.0015
+
+# Each temperature zone reuses submeshes from the existing factory equipment.
+# The core is held at the configured source temperature. The three surrounding
+# groups warm progressively through HeatTransferSystem.
+SURFACE_HEAT_ZONES: dict[str, dict[str, object]] = {
+    "sim-hot-motor": {
+        "mesh_uri": "model://primary_shredder/meshes/primary_shredder.obj",
+        "core": ("shredder_motor.006",),
+        "layers": (
+            ("discharge_conveyor_drum.012",),
+            (
+                "discharge_conveyor_side.013",
+                "discharge_conveyor_frame.006",
+                "shredder_body.006",
+            ),
+            ("shredder_base.006", "shredder_housing.006"),
+        ),
+    },
+    "sim-pump-block": {
+        "mesh_uri": (
+            "model://secondary_processor/meshes/secondary_processor.obj"
+        ),
+        "core": ("sec_drive.006",),
+        "layers": (
+            ("sec_body.006",),
+            ("sec_base.006", "sec_cover.006"),
+            ("sec_hopper.006",),
+        ),
+    },
+    "sim-tank-block": {
+        "mesh_uri": "model://baler/meshes/baler.obj",
+        "core": ("baler_cabinet.006",),
+        "layers": (
+            ("baler_infeed_leg.040", "baler_base.006"),
+            ("baler_body.006", "baler_outfeed_table.006"),
+            (
+                "baler_press_head.006",
+                "baler_infeed_side.012",
+                "baler_infeed_side.013",
+            ),
+        ),
+    },
+    "sim-waste-pile": {
+        "mesh_uri": "model://bunker/meshes/bunker.obj",
+        "core": ("waste_chunk.1940",),
+        "layers": (
+            (
+                "waste_chunk.1814",
+                "waste_chunk.2037",
+                "waste_chunk.2058",
+                "waste_chunk.1837",
+            ),
+            (
+                "waste_chunk.1827",
+                "waste_chunk.2088",
+                "waste_chunk.1862",
+                "waste_chunk.1938",
+                "waste_chunk.1982",
+            ),
+            (
+                "waste_chunk.2076",
+                "waste_chunk.2048",
+                "waste_chunk.2081",
+                "waste_chunk.1869",
+                "waste_chunk.2023",
+                "waste_chunk.1811",
+            ),
+        ),
+    },
+}
 
 
 def thermal_plugin(temperature_k: float) -> str:
@@ -31,59 +106,85 @@ def thermal_plugin(temperature_k: float) -> str:
           </plugin>"""
 
 
-def material(diffuse: str) -> str:
+def surface_profile(
+    source: dict[str, object],
+) -> dict[str, object]:
+    detection_id = str(source["detection_id"])
+    try:
+        return SURFACE_HEAT_ZONES[detection_id]
+    except KeyError as error:
+        raise ValueError(
+            f"No equipment surface profile for heat source {detection_id!r}"
+        ) from error
+
+
+def surface_visual(
+    profile: dict[str, object],
+    visual_name: str,
+    submesh_name: str,
+    temperature_k: float | None = None,
+) -> str:
+    temperature_xml = (
+        thermal_plugin(temperature_k) if temperature_k is not None else ""
+    )
     return f"""
-          <material>
-            <ambient>{diffuse}</ambient>
-            <diffuse>{diffuse}</diffuse>
-            <specular>0.02 0.02 0.02 1</specular>
-          </material>"""
+        <visual name="{visual_name}">
+          <geometry>
+            <mesh>
+              <uri>{profile['mesh_uri']}</uri>
+              <scale>{THERMAL_OVERLAY_SCALE:.8f} {THERMAL_OVERLAY_SCALE:.8f} {THERMAL_OVERLAY_SCALE:.8f}</scale>
+              <submesh>
+                <name>{submesh_name}</name>
+                <center>false</center>
+              </submesh>
+            </mesh>
+          </geometry>
+          <cast_shadows>false</cast_shadows>{temperature_xml}
+        </visual>"""
 
 
 def equipment_core(source: dict[str, object]) -> str:
-    radius = float(source["radius_m"])
+    profile = surface_profile(source)
     temperature_k = float(source["temperature_c"]) + 273.15
+    visuals = "".join(
+        surface_visual(profile, f"core_surface_{index}", submesh, temperature_k)
+        for index, submesh in enumerate(profile["core"])
+    )
+    pose = " ".join(f"{value:.6f}" for value in EQUIPMENT_MODEL_POSE)
     return f"""
-    <model name="{source['detection_id']}_core">
+    <model name="{source['detection_id']}_surface_core">
       <static>true</static>
-      <pose>{source['x']} {source['y']} {source['z']} 0 0 0</pose>
-      <link name="heat_link">
-        <visual name="heat_visual">
-          <geometry><sphere><radius>{radius:.4f}</radius></sphere></geometry>
-          {material('0.36 0.12 0.08 1')}
-          <cast_shadows>false</cast_shadows>{thermal_plugin(temperature_k)}
-        </visual>
+      <pose>{pose}</pose>
+      <link name="heat_link">{visuals}
       </link>
     </model>"""
 
 
-def diffusion_layer_model(
+def surface_layer_model(
     source: dict[str, object], layer_index: int, distance: float
 ) -> str:
-    source_radius = float(source["radius_m"])
-    blob_radius = max(source_radius * 0.48, distance * 0.42)
-    visuals = []
-    for index in range(DIFFUSION_BLOB_COUNT):
-        angle = 2.0 * math.pi * index / DIFFUSION_BLOB_COUNT
-        x = distance * math.cos(angle)
-        y = distance * math.sin(angle)
-        visuals.append(
-            f"""
-        <visual name="diffusion_{index}">
-          <pose>{x:.4f} {y:.4f} 0 0 0 0</pose>
-          <geometry><sphere><radius>{blob_radius:.4f}</radius></sphere></geometry>
-          {material('0.25 0.18 0.12 1')}
-          <cast_shadows>false</cast_shadows>
-        </visual>"""
+    profile = surface_profile(source)
+    submeshes = profile["layers"][layer_index - 1]
+    source_temperature_k = float(source["temperature_c"]) + 273.15
+    radius = float(source["radius_m"])
+    decay_length = max(0.16, radius * 3.5)
+    temperature_rise = max(
+        0.0, source_temperature_k - AMBIENT_TEMPERATURE_K
+    ) * math.exp(-distance / decay_length)
+    surface_temperature_k = AMBIENT_TEMPERATURE_K + temperature_rise
+    visuals = "".join(
+        surface_visual(
+            profile, f"surface_{index}", submesh, surface_temperature_k
         )
+        for index, submesh in enumerate(submeshes)
+    )
     return f"""
     <model name="{source['detection_id']}_diffusion_{layer_index}">
       <static>true</static>
       <pose>0 0 -10 0 0 0</pose>
-      <link name="heat_link">{''.join(visuals)}
+      <link name="heat_link">{visuals}
       </link>
     </model>"""
-
 
 def person_model() -> str:
     # Rounded centerline keeps the 0.53 m-wide mesh inside the 0.62 m aisle.
@@ -180,7 +281,7 @@ def transfer_controller(sources: list[dict[str, object]]) -> str:
         radius = float(source["radius_m"])
         source_temperature_k = float(source["temperature_c"]) + 273.15
         decay_length = max(0.16, radius * 3.5)
-        pose = f"{source['x']} {source['y']} {source['z']} 0 0 0"
+        pose = " ".join(f"{value:.6f}" for value in EQUIPMENT_MODEL_POSE)
         for layer_index, multiplier in enumerate(
             DIFFUSION_DISTANCE_MULTIPLIERS, start=1
         ):
@@ -224,7 +325,7 @@ def additions(profile: dict[str, object]) -> str:
             DIFFUSION_DISTANCE_MULTIPLIERS, start=1
         ):
             parts.append(
-                diffusion_layer_model(source, layer_index, radius * multiplier)
+                surface_layer_model(source, layer_index, radius * multiplier)
             )
     parts.append(transfer_controller(sources))
     parts.append("    <!-- END HAZARD GUARD PEOPLE AND HEAT TRANSFER -->\n")

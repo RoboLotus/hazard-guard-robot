@@ -28,7 +28,7 @@ def test_generated_world_uses_transient_diffusion_and_random_motion(tmp_path):
                 "world_id": "demo_facility_scaled",
                 "sources": [
                     {
-                        "detection_id": "test-source",
+                        "detection_id": "sim-hot-motor",
                         "x": 1.0,
                         "y": 2.0,
                         "z": 0.3,
@@ -52,6 +52,29 @@ def test_generated_world_uses_transient_diffusion_and_random_motion(tmp_path):
     distances = [float(layer.findtext("distance")) for layer in layers]
     assert distances == sorted(distances)
     assert controller.find(".//delay") is None
+
+    core = root.find(".//model[@name='sim-hot-motor_surface_core']")
+    assert core is not None
+    assert core.find(".//sphere") is None
+    core_submeshes = [
+        node.text for node in core.findall(".//submesh/name")
+    ]
+    assert core_submeshes == ["shredder_motor.006"]
+    surface_layers = [
+        root.find(f".//model[@name='sim-hot-motor_diffusion_{index}']")
+        for index in range(1, len(MODULE.DIFFUSION_DISTANCE_MULTIPLIERS) + 1)
+    ]
+    assert all(layer is not None for layer in surface_layers)
+    assert all(layer.find(".//sphere") is None for layer in surface_layers)
+    assert all(layer.findall(".//submesh/name") for layer in surface_layers)
+    layer_temperatures = [
+        float(layer.findtext(".//temperature")) for layer in surface_layers
+    ]
+    assert layer_temperatures == sorted(layer_temperatures, reverse=True)
+    assert layer_temperatures[0] < 80.0 + 273.15
+    assert layer_temperatures[-1] > MODULE.AMBIENT_TEMPERATURE_K
+    assert all(layer.findall(".//temperature") for layer in surface_layers)
+    assert root.findall(".//sphere") == []
 
     walker = root.find(".//plugin[@name='hazard_guard_simulation::RandomWalkSystem']")
     assert walker is not None
