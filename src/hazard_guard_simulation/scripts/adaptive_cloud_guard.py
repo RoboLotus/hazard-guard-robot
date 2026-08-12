@@ -232,25 +232,42 @@ def evenly_sample_cloud(
     message: PointCloud2, target_points: int
 ) -> PointCloud2:
     """Evenly sample point indexes while preserving PointCloud2 fields."""
-    total_points = int(message.width) * int(message.height)
+    width = int(message.width)
+    height = int(message.height)
+    point_step = int(message.point_step)
+    row_step = int(message.row_step)
+    if width < 0 or height < 0:
+        raise ValueError("PointCloud2 dimensions must not be negative")
+    if point_step <= 0:
+        raise ValueError("PointCloud2 point_step must be positive")
+
+    minimum_row_step = width * point_step
+    if row_step < minimum_row_step:
+        raise ValueError(
+            "PointCloud2 row_step is smaller than width * point_step"
+        )
+
+    required_bytes = row_step * height
+    if len(message.data) < required_bytes:
+        raise ValueError(
+            "PointCloud2 data buffer is shorter than row_step * height"
+        )
+
+    total_points = width * height
     target_points = max(1, int(target_points))
     if total_points <= target_points:
         return message
-    if message.point_step <= 0:
-        raise ValueError("PointCloud2 point_step must be positive")
 
     source = memoryview(message.data)
-    output_data = bytearray(target_points * int(message.point_step))
+    output_data = bytearray(target_points * point_step)
     for output_index in range(target_points):
         source_index = output_index * total_points // target_points
-        row, column = divmod(source_index, int(message.width))
-        source_offset = (
-            row * int(message.row_step) + column * int(message.point_step)
-        )
-        destination_offset = output_index * int(message.point_step)
+        row, column = divmod(source_index, width)
+        source_offset = row * row_step + column * point_step
+        destination_offset = output_index * point_step
         output_data[
-            destination_offset:destination_offset + message.point_step
-        ] = source[source_offset:source_offset + message.point_step]
+            destination_offset:destination_offset + point_step
+        ] = source[source_offset:source_offset + point_step]
 
     result = PointCloud2()
     result.header = message.header
@@ -258,8 +275,8 @@ def evenly_sample_cloud(
     result.width = target_points
     result.fields = message.fields
     result.is_bigendian = message.is_bigendian
-    result.point_step = message.point_step
-    result.row_step = target_points * message.point_step
+    result.point_step = point_step
+    result.row_step = target_points * point_step
     result.data = bytes(output_data)
     result.is_dense = message.is_dense
     return result

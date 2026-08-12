@@ -2,15 +2,27 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import struct
 
+import pytest
+from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
 from sensor_msgs.msg import PointCloud2
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "adaptive_cloud_guard.py"
+CAMERA_INFO_SCRIPT = (
+    Path(__file__).parents[1] / "scripts" / "camera_info_relay.py"
+)
 REAL_LAUNCH = Path(__file__).parents[1] / "launch" / "rtabmap_real.launch.py"
 SPEC = spec_from_file_location("adaptive_cloud_guard", SCRIPT)
 MODULE = module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
+CAMERA_INFO_SPEC = spec_from_file_location(
+    "camera_info_relay",
+    CAMERA_INFO_SCRIPT,
+)
+CAMERA_INFO_MODULE = module_from_spec(CAMERA_INFO_SPEC)
+assert CAMERA_INFO_SPEC.loader is not None
+CAMERA_INFO_SPEC.loader.exec_module(CAMERA_INFO_MODULE)
 
 
 def load_sample(value):
@@ -78,6 +90,30 @@ def test_even_sampling_handles_padded_organized_rows():
 def test_small_cloud_is_forwarded_without_copy():
     cloud = make_cloud(width=2, height=1, row_step=8, values=[10, 20])
     assert MODULE.evenly_sample_cloud(cloud, 3) is cloud
+
+
+def test_short_cloud_buffer_is_rejected_before_sampling():
+    cloud = make_cloud(width=2, height=1, row_step=8, values=[10])
+
+    with pytest.raises(ValueError, match="data buffer"):
+        MODULE.evenly_sample_cloud(cloud, 3)
+
+
+def test_row_step_smaller_than_point_layout_is_rejected():
+    cloud = make_cloud(width=3, height=1, row_step=8, values=[1, 2, 3])
+
+    with pytest.raises(ValueError, match="row_step"):
+        MODULE.evenly_sample_cloud(cloud, 2)
+
+
+def test_camera_info_relay_accepts_sensor_qos_and_latches_output():
+    input_qos = CAMERA_INFO_MODULE.CAMERA_INFO_INPUT_QOS
+    output_qos = CAMERA_INFO_MODULE.CAMERA_INFO_OUTPUT_QOS
+
+    assert input_qos.reliability == ReliabilityPolicy.BEST_EFFORT
+    assert input_qos.durability == DurabilityPolicy.VOLATILE
+    assert output_qos.reliability == ReliabilityPolicy.RELIABLE
+    assert output_qos.durability == DurabilityPolicy.TRANSIENT_LOCAL
 
 
 def test_real_map_assembler_publishes_circular_buffer_immediately():
