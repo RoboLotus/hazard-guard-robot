@@ -49,6 +49,7 @@ endif()
 install(PROGRAMS
   scripts/build_demo_people_heat_world.py
   scripts/run_demo_people_heat_simulation.sh
+  scripts/trailer_aware_patrol.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
