@@ -22,7 +22,7 @@ def generate_launch_description() -> LaunchDescription:
                     share / "config" / "demo_facility_scaled_rois.json"
                 ),
             ),
-            DeclareLaunchArgument("history_path", default_value=""),
+            DeclareLaunchArgument("history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
             DeclareLaunchArgument(
                 "thermal_image_topic",
                 default_value="/thermal_camera/image_raw",

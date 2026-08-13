@@ -135,8 +135,8 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "thermal_history_path",
-                default_value="",
-                description="JSONL path written only when record_visit is called",
+                default_value="~/.local/share/hazard_guard/thermal_history.jsonl",
+                description="Persistent JSONL path written when record_visit is called",
             ),
             SetEnvironmentVariable(
                 "IGN_GAZEBO_RESOURCE_PATH",

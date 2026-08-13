@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import time
 
 import rclpy
 from hazard_guard_interfaces.msg import HazardDetection
@@ -180,6 +181,7 @@ class ThermalVoxelAnalyzer(Node):
                 "sec": int(cloud.header.stamp.sec),
                 "nanosec": int(cloud.header.stamp.nanosec),
             }
+            current["recorded_at_unix_sec"] = time.time()
             self._visit.add(current)
             result = evaluate_visit(current, self._history, self._trend_config)
         except Exception as exc:
@@ -256,6 +258,7 @@ class ThermalVoxelAnalyzer(Node):
             "nanosec": int(self._latest_header.stamp.nanosec),
         }
         current = self._visit.finalize(stamp)
+        current["recorded_at_unix_sec"] = time.time()
         if self._config is not None:
             current["frame_id"] = self._config.frame_id
             current["schema_version"] = self._config.schema_version
@@ -320,7 +323,14 @@ class ThermalVoxelAnalyzer(Node):
                 if not isinstance(decision, dict):
                     continue
                 status = str(decision.get("status", "normal"))
-                candidates.append((SEVERITY.get(status, 0), float(voxel["p95_temperature_c"]), voxel, status))
+                p95 = float(voxel["p95_temperature_c"])
+                peak = float(voxel.get("max_temperature_c", p95))
+                reported_temperature = (
+                    peak if bool(decision.get("critical_max")) else p95
+                )
+                candidates.append(
+                    (SEVERITY.get(status, 0), reported_temperature, voxel, status)
+                )
             if not candidates:
                 continue
 

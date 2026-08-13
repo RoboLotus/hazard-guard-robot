@@ -53,7 +53,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
             DeclareLaunchArgument("heat_source_profile", default_value=""),
             DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
-            DeclareLaunchArgument("thermal_history_path", default_value="/tmp/hazard_guard_thermal_history.jsonl"),
+            DeclareLaunchArgument("thermal_history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "slam.launch.py")

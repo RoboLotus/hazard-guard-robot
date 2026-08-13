@@ -73,7 +73,7 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="/tmp/hazard_guard_rtabmap_sim.db",
             ),
             DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
-            DeclareLaunchArgument("thermal_history_path", default_value="/tmp/hazard_guard_thermal_history.jsonl"),
+            DeclareLaunchArgument("thermal_history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "simulation.launch.py")
