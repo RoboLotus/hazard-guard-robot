@@ -50,12 +50,26 @@ MODEL = PACKAGE / "models" / "paper_calibration_target"
 PLUGIN = "ignition-gazebo-thermal-system"
 PLUGIN_NAME = "ignition::gazebo::systems::Thermal"
 
-# One RGB square. Sized from the thermal camera, which is the binding
-# constraint: the coarse square is twice this, and a coarse square has to stay
-# comfortably above the few pixels a corner detector needs. At 50 mm the
-# thermal square is 100 mm, which is 16 px at 0.9 m through a 147 px/rad lens,
-# and the whole board still fits the 57 degree field from 0.7 m out.
-SQUARE = 0.050
+# One RGB square. The coarse thermal square is twice this.
+#
+# Sized so the whole board fits the thermal field from 0.5 m, because working
+# distance is the lever on translation accuracy: a 68 mm baseline shows up as
+# parallax of f*t/Z, so halving the range doubles the signal that separates
+# translation from rotation. The first version used 50 mm squares on a
+# 600 x 200 mm board, which could not be brought closer than about 1.1 m
+# without the pattern leaving frame, and its translation error sat at 3.5 mm
+# against 1.9 mm for the circle-board run at 0.5-0.75 m.
+#
+# At 25 mm the thermal square is 50 mm, and the board is 300 x 200 mm. The
+# thermal field is 1.086*Z wide and 0.815*Z tall, so at 0.5 m the board covers
+# 55% of the width and 49% of the height - enough margin left for the lateral
+# and vertical offsets the pose plan needs, and for tilting it. The thermal
+# square spans 14.7 px at 0.5 m and 9.2 px at 0.8 m; the detector took 8.2 px
+# on the first attempt during the range sweep, so both ends have room.
+#
+# The grid stays 12 x 8. Changing the board size and the grid at once would
+# leave no way to say which of them moved the result.
+SQUARE = 0.025
 FINE_COLUMNS, FINE_ROWS = 12, 8
 
 # How many fine squares make one thermal square. The paper's rule assumes 2 and

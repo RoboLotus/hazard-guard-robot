@@ -7,7 +7,7 @@
         <pose>0 0 0 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.005 0.6000 0.4000</size>
+            <size>0.005 0.3000 0.2000</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -23,15 +23,15 @@
       <collision name="collision">
         <geometry>
           <box>
-            <size>0.005 0.6000 0.4000</size>
+            <size>0.005 0.3000 0.2000</size>
           </box>
         </geometry>
       </collision>
       <visual name="tile_0_0">
-        <pose>0.0030 0.2750 0.1750 0 0 0</pose>
+        <pose>0.0030 0.1375 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -45,10 +45,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_1">
-        <pose>0.0030 0.2250 0.1750 0 0 0</pose>
+        <pose>0.0030 0.1125 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -62,10 +62,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_2">
-        <pose>0.0030 0.1750 0.1750 0 0 0</pose>
+        <pose>0.0030 0.0875 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -79,10 +79,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_3">
-        <pose>0.0030 0.1250 0.1750 0 0 0</pose>
+        <pose>0.0030 0.0625 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -96,10 +96,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_4">
-        <pose>0.0030 0.0750 0.1750 0 0 0</pose>
+        <pose>0.0030 0.0375 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -113,10 +113,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_5">
-        <pose>0.0030 0.0250 0.1750 0 0 0</pose>
+        <pose>0.0030 0.0125 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -130,10 +130,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_6">
-        <pose>0.0030 -0.0250 0.1750 0 0 0</pose>
+        <pose>0.0030 -0.0125 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -147,10 +147,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_7">
-        <pose>0.0030 -0.0750 0.1750 0 0 0</pose>
+        <pose>0.0030 -0.0375 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -164,10 +164,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_8">
-        <pose>0.0030 -0.1250 0.1750 0 0 0</pose>
+        <pose>0.0030 -0.0625 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -181,10 +181,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_9">
-        <pose>0.0030 -0.1750 0.1750 0 0 0</pose>
+        <pose>0.0030 -0.0875 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -198,10 +198,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_10">
-        <pose>0.0030 -0.2250 0.1750 0 0 0</pose>
+        <pose>0.0030 -0.1125 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -215,10 +215,10 @@
         </plugin>
       </visual>
       <visual name="tile_0_11">
-        <pose>0.0030 -0.2750 0.1750 0 0 0</pose>
+        <pose>0.0030 -0.1375 0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -232,10 +232,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_0">
-        <pose>0.0030 0.2750 0.1250 0 0 0</pose>
+        <pose>0.0030 0.1375 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -249,10 +249,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_1">
-        <pose>0.0030 0.2250 0.1250 0 0 0</pose>
+        <pose>0.0030 0.1125 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -266,10 +266,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_2">
-        <pose>0.0030 0.1750 0.1250 0 0 0</pose>
+        <pose>0.0030 0.0875 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -283,10 +283,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_3">
-        <pose>0.0030 0.1250 0.1250 0 0 0</pose>
+        <pose>0.0030 0.0625 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -300,10 +300,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_4">
-        <pose>0.0030 0.0750 0.1250 0 0 0</pose>
+        <pose>0.0030 0.0375 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -317,10 +317,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_5">
-        <pose>0.0030 0.0250 0.1250 0 0 0</pose>
+        <pose>0.0030 0.0125 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -334,10 +334,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_6">
-        <pose>0.0030 -0.0250 0.1250 0 0 0</pose>
+        <pose>0.0030 -0.0125 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -351,10 +351,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_7">
-        <pose>0.0030 -0.0750 0.1250 0 0 0</pose>
+        <pose>0.0030 -0.0375 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -368,10 +368,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_8">
-        <pose>0.0030 -0.1250 0.1250 0 0 0</pose>
+        <pose>0.0030 -0.0625 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -385,10 +385,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_9">
-        <pose>0.0030 -0.1750 0.1250 0 0 0</pose>
+        <pose>0.0030 -0.0875 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -402,10 +402,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_10">
-        <pose>0.0030 -0.2250 0.1250 0 0 0</pose>
+        <pose>0.0030 -0.1125 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -419,10 +419,10 @@
         </plugin>
       </visual>
       <visual name="tile_1_11">
-        <pose>0.0030 -0.2750 0.1250 0 0 0</pose>
+        <pose>0.0030 -0.1375 0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -436,10 +436,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_0">
-        <pose>0.0030 0.2750 0.0750 0 0 0</pose>
+        <pose>0.0030 0.1375 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -453,10 +453,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_1">
-        <pose>0.0030 0.2250 0.0750 0 0 0</pose>
+        <pose>0.0030 0.1125 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -470,10 +470,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_2">
-        <pose>0.0030 0.1750 0.0750 0 0 0</pose>
+        <pose>0.0030 0.0875 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -487,10 +487,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_3">
-        <pose>0.0030 0.1250 0.0750 0 0 0</pose>
+        <pose>0.0030 0.0625 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -504,10 +504,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_4">
-        <pose>0.0030 0.0750 0.0750 0 0 0</pose>
+        <pose>0.0030 0.0375 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -521,10 +521,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_5">
-        <pose>0.0030 0.0250 0.0750 0 0 0</pose>
+        <pose>0.0030 0.0125 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -538,10 +538,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_6">
-        <pose>0.0030 -0.0250 0.0750 0 0 0</pose>
+        <pose>0.0030 -0.0125 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -555,10 +555,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_7">
-        <pose>0.0030 -0.0750 0.0750 0 0 0</pose>
+        <pose>0.0030 -0.0375 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -572,10 +572,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_8">
-        <pose>0.0030 -0.1250 0.0750 0 0 0</pose>
+        <pose>0.0030 -0.0625 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -589,10 +589,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_9">
-        <pose>0.0030 -0.1750 0.0750 0 0 0</pose>
+        <pose>0.0030 -0.0875 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -606,10 +606,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_10">
-        <pose>0.0030 -0.2250 0.0750 0 0 0</pose>
+        <pose>0.0030 -0.1125 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -623,10 +623,10 @@
         </plugin>
       </visual>
       <visual name="tile_2_11">
-        <pose>0.0030 -0.2750 0.0750 0 0 0</pose>
+        <pose>0.0030 -0.1375 0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -640,10 +640,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_0">
-        <pose>0.0030 0.2750 0.0250 0 0 0</pose>
+        <pose>0.0030 0.1375 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -657,10 +657,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_1">
-        <pose>0.0030 0.2250 0.0250 0 0 0</pose>
+        <pose>0.0030 0.1125 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -674,10 +674,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_2">
-        <pose>0.0030 0.1750 0.0250 0 0 0</pose>
+        <pose>0.0030 0.0875 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -691,10 +691,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_3">
-        <pose>0.0030 0.1250 0.0250 0 0 0</pose>
+        <pose>0.0030 0.0625 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -708,10 +708,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_4">
-        <pose>0.0030 0.0750 0.0250 0 0 0</pose>
+        <pose>0.0030 0.0375 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -725,10 +725,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_5">
-        <pose>0.0030 0.0250 0.0250 0 0 0</pose>
+        <pose>0.0030 0.0125 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -742,10 +742,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_6">
-        <pose>0.0030 -0.0250 0.0250 0 0 0</pose>
+        <pose>0.0030 -0.0125 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -759,10 +759,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_7">
-        <pose>0.0030 -0.0750 0.0250 0 0 0</pose>
+        <pose>0.0030 -0.0375 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -776,10 +776,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_8">
-        <pose>0.0030 -0.1250 0.0250 0 0 0</pose>
+        <pose>0.0030 -0.0625 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -793,10 +793,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_9">
-        <pose>0.0030 -0.1750 0.0250 0 0 0</pose>
+        <pose>0.0030 -0.0875 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -810,10 +810,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_10">
-        <pose>0.0030 -0.2250 0.0250 0 0 0</pose>
+        <pose>0.0030 -0.1125 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -827,10 +827,10 @@
         </plugin>
       </visual>
       <visual name="tile_3_11">
-        <pose>0.0030 -0.2750 0.0250 0 0 0</pose>
+        <pose>0.0030 -0.1375 0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -844,10 +844,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_0">
-        <pose>0.0030 0.2750 -0.0250 0 0 0</pose>
+        <pose>0.0030 0.1375 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -861,10 +861,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_1">
-        <pose>0.0030 0.2250 -0.0250 0 0 0</pose>
+        <pose>0.0030 0.1125 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -878,10 +878,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_2">
-        <pose>0.0030 0.1750 -0.0250 0 0 0</pose>
+        <pose>0.0030 0.0875 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -895,10 +895,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_3">
-        <pose>0.0030 0.1250 -0.0250 0 0 0</pose>
+        <pose>0.0030 0.0625 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -912,10 +912,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_4">
-        <pose>0.0030 0.0750 -0.0250 0 0 0</pose>
+        <pose>0.0030 0.0375 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -929,10 +929,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_5">
-        <pose>0.0030 0.0250 -0.0250 0 0 0</pose>
+        <pose>0.0030 0.0125 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -946,10 +946,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_6">
-        <pose>0.0030 -0.0250 -0.0250 0 0 0</pose>
+        <pose>0.0030 -0.0125 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -963,10 +963,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_7">
-        <pose>0.0030 -0.0750 -0.0250 0 0 0</pose>
+        <pose>0.0030 -0.0375 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -980,10 +980,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_8">
-        <pose>0.0030 -0.1250 -0.0250 0 0 0</pose>
+        <pose>0.0030 -0.0625 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -997,10 +997,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_9">
-        <pose>0.0030 -0.1750 -0.0250 0 0 0</pose>
+        <pose>0.0030 -0.0875 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1014,10 +1014,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_10">
-        <pose>0.0030 -0.2250 -0.0250 0 0 0</pose>
+        <pose>0.0030 -0.1125 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1031,10 +1031,10 @@
         </plugin>
       </visual>
       <visual name="tile_4_11">
-        <pose>0.0030 -0.2750 -0.0250 0 0 0</pose>
+        <pose>0.0030 -0.1375 -0.0125 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1048,10 +1048,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_0">
-        <pose>0.0030 0.2750 -0.0750 0 0 0</pose>
+        <pose>0.0030 0.1375 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1065,10 +1065,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_1">
-        <pose>0.0030 0.2250 -0.0750 0 0 0</pose>
+        <pose>0.0030 0.1125 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1082,10 +1082,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_2">
-        <pose>0.0030 0.1750 -0.0750 0 0 0</pose>
+        <pose>0.0030 0.0875 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1099,10 +1099,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_3">
-        <pose>0.0030 0.1250 -0.0750 0 0 0</pose>
+        <pose>0.0030 0.0625 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1116,10 +1116,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_4">
-        <pose>0.0030 0.0750 -0.0750 0 0 0</pose>
+        <pose>0.0030 0.0375 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1133,10 +1133,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_5">
-        <pose>0.0030 0.0250 -0.0750 0 0 0</pose>
+        <pose>0.0030 0.0125 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1150,10 +1150,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_6">
-        <pose>0.0030 -0.0250 -0.0750 0 0 0</pose>
+        <pose>0.0030 -0.0125 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1167,10 +1167,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_7">
-        <pose>0.0030 -0.0750 -0.0750 0 0 0</pose>
+        <pose>0.0030 -0.0375 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1184,10 +1184,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_8">
-        <pose>0.0030 -0.1250 -0.0750 0 0 0</pose>
+        <pose>0.0030 -0.0625 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1201,10 +1201,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_9">
-        <pose>0.0030 -0.1750 -0.0750 0 0 0</pose>
+        <pose>0.0030 -0.0875 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1218,10 +1218,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_10">
-        <pose>0.0030 -0.2250 -0.0750 0 0 0</pose>
+        <pose>0.0030 -0.1125 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1235,10 +1235,10 @@
         </plugin>
       </visual>
       <visual name="tile_5_11">
-        <pose>0.0030 -0.2750 -0.0750 0 0 0</pose>
+        <pose>0.0030 -0.1375 -0.0375 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1252,10 +1252,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_0">
-        <pose>0.0030 0.2750 -0.1250 0 0 0</pose>
+        <pose>0.0030 0.1375 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1269,10 +1269,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_1">
-        <pose>0.0030 0.2250 -0.1250 0 0 0</pose>
+        <pose>0.0030 0.1125 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1286,10 +1286,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_2">
-        <pose>0.0030 0.1750 -0.1250 0 0 0</pose>
+        <pose>0.0030 0.0875 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1303,10 +1303,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_3">
-        <pose>0.0030 0.1250 -0.1250 0 0 0</pose>
+        <pose>0.0030 0.0625 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1320,10 +1320,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_4">
-        <pose>0.0030 0.0750 -0.1250 0 0 0</pose>
+        <pose>0.0030 0.0375 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1337,10 +1337,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_5">
-        <pose>0.0030 0.0250 -0.1250 0 0 0</pose>
+        <pose>0.0030 0.0125 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1354,10 +1354,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_6">
-        <pose>0.0030 -0.0250 -0.1250 0 0 0</pose>
+        <pose>0.0030 -0.0125 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1371,10 +1371,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_7">
-        <pose>0.0030 -0.0750 -0.1250 0 0 0</pose>
+        <pose>0.0030 -0.0375 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1388,10 +1388,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_8">
-        <pose>0.0030 -0.1250 -0.1250 0 0 0</pose>
+        <pose>0.0030 -0.0625 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1405,10 +1405,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_9">
-        <pose>0.0030 -0.1750 -0.1250 0 0 0</pose>
+        <pose>0.0030 -0.0875 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1422,10 +1422,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_10">
-        <pose>0.0030 -0.2250 -0.1250 0 0 0</pose>
+        <pose>0.0030 -0.1125 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1439,10 +1439,10 @@
         </plugin>
       </visual>
       <visual name="tile_6_11">
-        <pose>0.0030 -0.2750 -0.1250 0 0 0</pose>
+        <pose>0.0030 -0.1375 -0.0625 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1456,10 +1456,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_0">
-        <pose>0.0030 0.2750 -0.1750 0 0 0</pose>
+        <pose>0.0030 0.1375 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1473,10 +1473,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_1">
-        <pose>0.0030 0.2250 -0.1750 0 0 0</pose>
+        <pose>0.0030 0.1125 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1490,10 +1490,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_2">
-        <pose>0.0030 0.1750 -0.1750 0 0 0</pose>
+        <pose>0.0030 0.0875 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1507,10 +1507,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_3">
-        <pose>0.0030 0.1250 -0.1750 0 0 0</pose>
+        <pose>0.0030 0.0625 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1524,10 +1524,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_4">
-        <pose>0.0030 0.0750 -0.1750 0 0 0</pose>
+        <pose>0.0030 0.0375 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1541,10 +1541,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_5">
-        <pose>0.0030 0.0250 -0.1750 0 0 0</pose>
+        <pose>0.0030 0.0125 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1558,10 +1558,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_6">
-        <pose>0.0030 -0.0250 -0.1750 0 0 0</pose>
+        <pose>0.0030 -0.0125 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1575,10 +1575,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_7">
-        <pose>0.0030 -0.0750 -0.1750 0 0 0</pose>
+        <pose>0.0030 -0.0375 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1592,10 +1592,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_8">
-        <pose>0.0030 -0.1250 -0.1750 0 0 0</pose>
+        <pose>0.0030 -0.0625 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1609,10 +1609,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_9">
-        <pose>0.0030 -0.1750 -0.1750 0 0 0</pose>
+        <pose>0.0030 -0.0875 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1626,10 +1626,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_10">
-        <pose>0.0030 -0.2250 -0.1750 0 0 0</pose>
+        <pose>0.0030 -0.1125 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
@@ -1643,10 +1643,10 @@
         </plugin>
       </visual>
       <visual name="tile_7_11">
-        <pose>0.0030 -0.2750 -0.1750 0 0 0</pose>
+        <pose>0.0030 -0.1375 -0.0875 0 0 0</pose>
         <geometry>
           <box>
-            <size>0.001 0.0500 0.0500</size>
+            <size>0.001 0.0250 0.0250</size>
           </box>
         </geometry>
         <cast_shadows>false</cast_shadows>
