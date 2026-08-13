@@ -73,8 +73,8 @@ def residuals(params, data) -> np.ndarray:
     out = []
     for index in range(data["views"]):
         rotation_vector, translation = poses[index, 0:3], poses[index, 3:6]
-        rgb_projected = project(data["object_points"], rotation_vector, translation,
-                                data["rgb_k"])
+        rgb_projected = project(data["object_points"][index], rotation_vector,
+                                translation, data["rgb_k"])
         out.append((rgb_projected - data["rgb_corners"][index]).reshape(-1))
 
         # The board in the thermal camera: through the board's own pose into
@@ -97,7 +97,7 @@ def sparsity(data) -> lil_matrix:
     view's rows; the extrinsic touches only the thermal rows.
     """
     views = data["views"]
-    rgb_rows = 2 * len(data["object_points"])
+    rgb_rows = 2 * data["object_points"].shape[1]
     tir_rows = 2 * data["object_matched"].shape[1]
     total = views * (rgb_rows + tir_rows)
     matrix = lil_matrix((total, 6 + 6 * views), dtype=int)
@@ -116,7 +116,8 @@ def initial_poses(data) -> np.ndarray:
     poses = np.zeros((data["views"], 6))
     for index in range(data["views"]):
         ok, rotation_vector, translation = cv2.solvePnP(
-            data["object_points"], data["rgb_corners"][index], data["rgb_k"], None,
+            data["object_points"][index], data["rgb_corners"][index],
+            data["rgb_k"], None,
             flags=cv2.SOLVEPNP_ITERATIVE)
         if not ok:
             raise RuntimeError(f"뷰 {index} 의 PnP 실패")
@@ -158,7 +159,7 @@ def initial_extrinsic(data, method: str) -> np.ndarray:
 def split_errors(params, data):
     """Reprojection error broken out the way the paper reports it."""
     stacked = residuals(params, data)
-    rgb_count = 2 * len(data["object_points"])
+    rgb_count = 2 * data["object_points"].shape[1]
     tir_count = 2 * data["object_matched"].shape[1]
     block = rgb_count + tir_count
 
