@@ -13,7 +13,9 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 
-def test_generated_world_uses_transient_diffusion_and_random_motion(tmp_path):
+def test_generated_world_uses_transient_diffusion_and_stationary_worker(
+    tmp_path,
+):
     source = tmp_path / "source.sdf"
     profile = tmp_path / "profile.json"
     destination = tmp_path / "generated.sdf"
@@ -76,11 +78,14 @@ def test_generated_world_uses_transient_diffusion_and_random_motion(tmp_path):
     assert all(layer.findall(".//temperature") for layer in surface_layers)
     assert root.findall(".//sphere") == []
 
-    walker = root.find(".//plugin[@name='hazard_guard_simulation::RandomWalkSystem']")
-    assert walker is not None
-    assert float(walker.findtext("minimum_speed")) < float(
-        walker.findtext("maximum_speed")
+    worker = root.find(".//model[@name='thermal_factory_worker']")
+    assert worker is not None
+    assert worker.findtext("static") == "true"
+    walker = worker.find(
+        ".//plugin[@name='hazard_guard_simulation::RandomWalkSystem']"
     )
-    assert float(walker.findtext("maximum_pause")) > 0.0
-    assert 0.0 < float(walker.findtext("backtrack_probability")) < 1.0
-    assert walker.findtext("seed") == "0"
+    assert walker is None
+    scale = [float(value) for value in worker.findtext(".//mesh/scale").split()]
+    assert scale == [MODULE.PERSON_SCALE] * 3
+    pose = [float(value) for value in worker.findtext("pose").split()]
+    assert pose == list(MODULE.PERSON_POSE)
