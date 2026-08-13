@@ -162,3 +162,34 @@ def test_history_reader_skips_partial_lines(tmp_path):
     history = read_history(path)
 
     assert len(history) == 2
+
+
+def test_visit_index_keeps_increasing_after_history_window_and_restart(tmp_path):
+    config = TrendConfig(history_window_visits=5)
+    history = []
+    completed = []
+
+    for visit_number in range(1, 9):
+        result = evaluate_visit(
+            make_visit(30.0 + visit_number, recorded_at=visit_number * 60.0),
+            history,
+            config,
+        )
+        assert result["trend_analysis"]["visit_index"] == visit_number
+        completed.append(result)
+        history = (history + [result])[-config.history_window_visits :]
+
+    path = tmp_path / "history.jsonl"
+    path.write_text(
+        "".join(json.dumps(item) + "\n" for item in completed),
+        encoding="utf-8",
+    )
+    restarted_history = read_history(path, config.history_window_visits)
+    next_result = evaluate_visit(
+        make_visit(40.0, recorded_at=9 * 60.0),
+        restarted_history,
+        config,
+    )
+
+    assert len(restarted_history) == config.history_window_visits
+    assert next_result["trend_analysis"]["visit_index"] == 9

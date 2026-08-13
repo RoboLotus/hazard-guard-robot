@@ -128,6 +128,20 @@ def _voxel_by_id(equipment: Mapping[str, object]) -> dict[str, Mapping]:
     }
 
 
+def _next_visit_index(history: Sequence[Mapping[str, object]]) -> int:
+    """Continue the persisted patrol sequence independently of window size."""
+
+    indexes: list[int] = []
+    for visit in history:
+        analysis = visit.get("trend_analysis")
+        if not isinstance(analysis, Mapping):
+            continue
+        value = _number(analysis.get("visit_index"))
+        if value is not None and value >= 1 and value.is_integer():
+            indexes.append(int(value))
+    return (max(indexes) + 1) if indexes else (len(history) + 1)
+
+
 def _evaluate_voxel(
     voxel: Mapping[str, object],
     prior_voxels: Sequence[
@@ -344,7 +358,7 @@ def evaluate_visit(
 
     result["trend_analysis"] = {
         "schema_version": 1,
-        "visit_index": len(history) + 1,
+        "visit_index": _next_visit_index(history),
         "decision_rule": "critical OR (trend AND adaptive)",
         "config": asdict(config),
         "equipment": summaries,

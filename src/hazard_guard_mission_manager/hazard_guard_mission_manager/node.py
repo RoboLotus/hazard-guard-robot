@@ -458,14 +458,8 @@ class HazardGuardMissionManager(Node):
 
     @staticmethod
     def _thermal_equipment_id(waypoint: Any) -> str | None:
-        known = (
-            "primary_shredder_motor",
-            "secondary_processor_pump",
-            "baler_hydraulic_tank",
-            "bunker_waste_pile",
-        )
-        text = f"{waypoint.id} {waypoint.name}".lower().replace("-", "_").replace(" ", "_")
-        return next((equipment_id for equipment_id in known if equipment_id in text), None)
+        equipment_id = str(getattr(waypoint, "equipment_id", "")).strip()
+        return equipment_id or None
 
     def _set_thermal_focus(self, equipment_id: str | None) -> None:
         message = String()

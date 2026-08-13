@@ -90,3 +90,23 @@ def test_generated_world_uses_transient_diffusion_and_random_motion(tmp_path):
     assert float(walker.findtext("maximum_pause")) > 0.0
     assert 0.0 < float(walker.findtext("backtrack_probability")) < 1.0
     assert walker.findtext("seed") == "0"
+
+
+def test_physical_patrol_exposes_opt_in_thermal_pipeline():
+    launch_path = (
+        Path(__file__).parents[1] / "launch" / "physical_patrol.launch.py"
+    )
+    source = launch_path.read_text(encoding="utf-8")
+
+    assert '"enable_thermal_pipeline", default_value="false"' in source
+    assert '"thermal_roi_config", default_value=""' in source
+    assert '"simulated": "false"' in source
+    assert '"use_sim_time": "false"' in source
+    for argument in (
+        "thermal_image_topic",
+        "thermal_info_topic",
+        "thermal_depth_image_topic",
+        "thermal_depth_info_topic",
+        "thermal_history_path",
+    ):
+        assert source.count(f'"{argument}"') >= 2
