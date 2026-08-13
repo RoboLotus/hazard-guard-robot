@@ -1,17 +1,45 @@
 """Live RGB-D RTAB-Map for the physical ROSMASTER M1 / HP60C setup.
 
 SLAM Toolbox remains the authority for the 2D ``map -> odom`` transform.
-RTAB-Map publishes its independent ``rtabmap_map -> odom`` transform so its
-3D reconstruction can be viewed without affecting Nav2's 2D map.
+RTAB-Map keeps its optimized ``rtabmap_map`` coordinates in map messages but
+does not publish another parent transform for ``odom``. This preserves the
+single TF tree required by Nav2 while still allowing 3D map comparison.
 """
 
 from pathlib import Path
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+
+def validate_cloud_configuration(
+    fixed_frame: str,
+    output_frame: str,
+    stamp_mode: str,
+) -> None:
+    """Reject frame/timestamp combinations known to distort physical data."""
+
+    frames = {fixed_frame, output_frame}
+    if not frames <= {"odom", "map"}:
+        raise ValueError("cloud frames must be 'odom' or 'map'")
+    if "map" in frames and stamp_mode == "latest":
+        raise ValueError(
+            "cloud_stamp_mode=latest cannot be combined with a map-frame "
+            "assembler; measure the sensor skew and use preserve or offset"
+        )
+
+
+def validate_launch_configuration(context):
+    validate_cloud_configuration(
+        LaunchConfiguration("cloud_fixed_frame").perform(context),
+        LaunchConfiguration("cloud_output_frame").perform(context),
+        LaunchConfiguration("cloud_stamp_mode").perform(context),
+    )
+    return []
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -68,6 +96,54 @@ def generate_launch_description() -> LaunchDescription:
                 "cloud_angular_update",
                 default_value="0.10472",
             ),
+            DeclareLaunchArgument(
+                "cloud_stamp_mode",
+                default_value="latest",
+                choices=["preserve", "offset", "latest"],
+                description="preserve, offset, or latest (zero stamp)",
+            ),
+            DeclareLaunchArgument(
+                "cloud_stamp_offset_sec",
+                default_value="0.0",
+                description=(
+                    "Seconds added to the cloud stamp in offset mode; "
+                    "use a negative value when the camera clock is ahead"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "sync_diagnostics",
+                default_value="false",
+                description=(
+                    "Enable short-lived physical sensor timing diagnostics"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "rtabmap_registration_strategy",
+                default_value="1",
+                choices=["0", "1", "2"],
+                description="RTAB-Map registration: 0=Visual, 1=ICP, 2=Visual+ICP",
+            ),
+            DeclareLaunchArgument(
+                "cloud_fixed_frame",
+                default_value="odom",
+                choices=["odom", "map"],
+                description="Frame used while accumulating visualization clouds",
+            ),
+            DeclareLaunchArgument(
+                "cloud_output_frame",
+                default_value="odom",
+                choices=["odom", "map"],
+                description="Frame written into the assembled visualization cloud",
+            ),
+            DeclareLaunchArgument(
+                "optimized_cloud",
+                default_value="false",
+                description=(
+                    "Publish RTAB-Map graph-optimized comparison cloud on an "
+                    "internal topic; disabled by default to protect Jetson load"
+                ),
+            ),
+            OpaqueFunction(function=validate_launch_configuration),
             # The camera publishes its internal TF tree only. These transforms
             # attach it to the physical M1 frame tree used by SLAM Toolbox.
             Node(
@@ -112,7 +188,10 @@ def generate_launch_description() -> LaunchDescription:
                         "odom_frame_id": "odom",
                         "map_frame_id": "rtabmap_map",
                         "database_path": database_path,
-                        "publish_tf": True,
+                        # SLAM Toolbox exclusively owns map -> odom for Nav2.
+                        # Publishing rtabmap_map -> odom would give odom two
+                        # parents and corrupt the physical robot TF tree.
+                        "publish_tf": False,
                         "subscribe_rgbd": True,
                         "subscribe_scan": True,
                         "approx_sync": True,
@@ -120,7 +199,12 @@ def generate_launch_description() -> LaunchDescription:
                         "qos_camera_info": 2,
                         "qos_scan": 2,
                         "qos_odom": 2,
-                        "Reg/Strategy": "1",
+                        "Reg/Strategy": ParameterValue(
+                            LaunchConfiguration("rtabmap_registration_strategy"),
+                            # RTAB-Map exposes core parameters as strings even
+                            # when their documented values are numeric.
+                            value_type=str,
+                        ),
                         "Reg/Force3DoF": "true",
                         "RGBD/NeighborLinkRefining": "true",
                         "RGBD/OptimizeMaxError": "10.0",
@@ -247,9 +331,50 @@ def generate_launch_description() -> LaunchDescription:
                 executable="cloud_stamp_relay.py",
                 name="color_cloud_stamp_relay",
                 output="screen",
+                parameters=[
+                    {
+                        "stamp_mode": LaunchConfiguration("cloud_stamp_mode"),
+                        "stamp_offset_sec": ParameterValue(
+                            LaunchConfiguration("cloud_stamp_offset_sec"),
+                            value_type=float,
+                        ),
+                    }
+                ],
                 remappings=[
                     ("input", "/hazard_guard/rtabmap/cloud_frame_limited"),
                     ("output", "/hazard_guard/rtabmap/cloud_frame"),
+                ],
+            ),
+            Node(
+                package="hazard_guard_simulation",
+                executable="timestamp_diagnostics.py",
+                name="timestamp_diagnostics",
+                output="screen",
+                condition=IfCondition(LaunchConfiguration("sync_diagnostics")),
+                parameters=[
+                    {
+                        "target_frame": "odom",
+                        "report_dir": PathJoinSubstitution(
+                            [storage_path, "diagnostics"]
+                        ),
+                    }
+                ],
+                remappings=[
+                    (
+                        "rgb",
+                        "/ascamera_hp60c/camera_publisher/rgb0/image",
+                    ),
+                    (
+                        "depth",
+                        "/ascamera_hp60c/camera_publisher/depth0/image_raw",
+                    ),
+                    (
+                        "camera_info",
+                        "/ascamera_hp60c/camera_publisher/rgb0/camera_info",
+                    ),
+                    ("odom", "/odom"),
+                    ("scan", "/scan"),
+                    ("cloud", "/hazard_guard/rtabmap/cloud_frame_generated"),
                 ],
             ),
             Node(
@@ -261,12 +386,13 @@ def generate_launch_description() -> LaunchDescription:
                 parameters=[
                     {
                         "use_sim_time": False,
-                        # Assemble in the continuously available physical odom
-                        # tree. RTAB-Map's map transform can be published after
-                        # the first optimized graph update, which otherwise
-                        # leaves the camera tree temporarily disconnected.
-                        "fixed_frame_id": "odom",
-                        "frame_id": "odom",
+                        # The physical odom tree is the compatible default.
+                        # A SLAM Toolbox map-frame run is available only with a
+                        # timestamp-aware preserve/offset policy.
+                        "fixed_frame_id": LaunchConfiguration(
+                            "cloud_fixed_frame"
+                        ),
+                        "frame_id": LaunchConfiguration("cloud_output_frame"),
                         # Publish the whole current mapping session upstream.
                         # The WebUI replaces each received cloud, so a rolling
                         # buffer here made explored areas disappear visually.
@@ -300,6 +426,37 @@ def generate_launch_description() -> LaunchDescription:
                         "assembled_cloud",
                         "/hazard_guard/rtabmap/cloud_surface_internal",
                     ),
+                ],
+            ),
+            # This optional comparison backend rebuilds the cloud from
+            # RTAB-Map's optimized graph and node data. It does not replace the
+            # public WebUI topic until physical comparison selects a winner.
+            Node(
+                package="rtabmap_util",
+                executable="map_assembler",
+                namespace="rtabmap",
+                name="optimized_map_assembler",
+                output="screen",
+                condition=IfCondition(LaunchConfiguration("optimized_cloud")),
+                parameters=[
+                    {
+                        "use_sim_time": False,
+                        "map_always_update": True,
+                        "map_cleanup": True,
+                        "cloud_output_voxelized": True,
+                        # Core Grid/* parameters are declared as strings by
+                        # map_assembler; map output controls above are bools.
+                        "Grid/3D": "true",
+                        "Grid/RangeMin": "0.2",
+                        "Grid/RangeMax": "4.0",
+                        "Grid/CellSize": "0.08",
+                    }
+                ],
+                remappings=[
+                    (
+                        "cloud_map",
+                        "/hazard_guard/rtabmap/cloud_surface_optimized",
+                    )
                 ],
             ),
         ]

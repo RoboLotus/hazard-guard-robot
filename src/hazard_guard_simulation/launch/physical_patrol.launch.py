@@ -35,31 +35,56 @@ def include(
 
 
 def generate_launch_description() -> LaunchDescription:
+    simulation_share = Path(
+        get_package_share_directory("hazard_guard_simulation")
+    )
+    nav2_share = Path(get_package_share_directory("nav2_bringup"))
     map_path = LaunchConfiguration("map")
+    # Do not call this launch argument "params_file". The included YDLIDAR
+    # launch uses that generic name too, and launch configurations are visible
+    # to nested includes. Sharing the name makes the lidar read Nav2's YAML.
+    nav2_params_file = LaunchConfiguration("nav2_params_file")
     initial_pose_x = LaunchConfiguration("initial_pose_x")
     initial_pose_y = LaunchConfiguration("initial_pose_y")
     initial_pose_yaw = LaunchConfiguration("initial_pose_yaw")
     return LaunchDescription(
         [
             DeclareLaunchArgument("map"),
+            DeclareLaunchArgument(
+                "nav2_params_file",
+                default_value=str(
+                    simulation_share / "config" / "physical_nav2.yaml"
+                ),
+            ),
             DeclareLaunchArgument("initial_pose_x", default_value="0.0"),
             DeclareLaunchArgument("initial_pose_y", default_value="0.0"),
             DeclareLaunchArgument("initial_pose_yaw", default_value="0.0"),
             SetLaunchConfiguration("use_sim_time", "false"),
             include("yahboomcar_nav", "laser_bringup_launch.py"),
-            include(
-                "yahboomcar_nav",
-                "navigation_dwa_launch.py",
-                {"use_sim_time": "false", "map": map_path},
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(nav2_share / "launch" / "bringup_launch.py")
+                ),
+                launch_arguments={
+                    "map": map_path,
+                    "params_file": nav2_params_file,
+                    # Humble bringup evaluates this through PythonExpression.
+                    "slam": "False",
+                    "use_sim_time": "false",
+                    "autostart": "true",
+                    "use_composition": "False",
+                    "use_respawn": "false",
+                }.items(),
             ),
             Node(
                 package="hazard_guard_mission_manager",
                 executable="mission_manager",
                 name="hazard_guard_mission_manager",
                 output="screen",
+                parameters=[nav2_params_file],
             ),
             TimerAction(
-                period=8.0,
+                period=5.0,
                 actions=[
                     Node(
                         package="hazard_guard_mock_robot",
@@ -81,8 +106,10 @@ def generate_launch_description() -> LaunchDescription:
                                     initial_pose_yaw,
                                     value_type=float,
                                 ),
+                                # Span lifecycle activation without repeatedly
+                                # resetting localization after patrol is ready.
                                 "repeat_count": 3,
-                                "interval_sec": 0.5,
+                                "interval_sec": 1.0,
                             }
                         ],
                     )

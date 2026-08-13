@@ -19,6 +19,12 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
+from .alignment import (
+    AlignmentDecision,
+    AlignmentThresholds,
+    decide_alignment,
+    sample_median_pose,
+)
 from .errors import MissionCanceled, MissionFailure, MissionScheduleEnded
 from .geometry import pose_errors
 from .navigation import Nav2Adapter
@@ -55,9 +61,16 @@ class HazardGuardMissionManager(Node):
             "/compute_path_to_pose",
         )
         self.declare_parameter("base_frame", "base_link")
-        self.declare_parameter("position_tolerance_m", 0.08)
-        self.declare_parameter("yaw_tolerance_rad", 0.05)
-        self.declare_parameter("alignment_retries", 2)
+        self.declare_parameter("position_tolerance_m", 0.10)
+        self.declare_parameter("yaw_tolerance_rad", 0.10)
+        self.declare_parameter("acceptable_position_tolerance_m", 0.15)
+        self.declare_parameter("acceptable_yaw_tolerance_rad", 0.17)
+        self.declare_parameter("hard_position_tolerance_m", 0.25)
+        self.declare_parameter("hard_yaw_tolerance_rad", math.radians(15.0))
+        self.declare_parameter("alignment_retries", 1)
+        self.declare_parameter("pose_sample_count", 5)
+        self.declare_parameter("pose_min_valid_samples", 3)
+        self.declare_parameter("pose_sample_interval_sec", 0.15)
         self.declare_parameter("navigation_timeout_sec", 180.0)
         self.declare_parameter("alignment_timeout_sec", 45.0)
         self.declare_parameter("server_wait_timeout_sec", 8.0)
@@ -585,37 +598,92 @@ class HazardGuardMissionManager(Node):
     ) -> tuple[float, float]:
         target = (float(waypoint.x), float(waypoint.y), float(waypoint.yaw))
         retries = max(0, int(self.get_parameter("alignment_retries").value))
-        position_tolerance = float(
-            self.get_parameter("position_tolerance_m").value
+        thresholds = AlignmentThresholds(
+            normal_position_m=float(
+                self.get_parameter("position_tolerance_m").value
+            ),
+            normal_yaw_rad=float(
+                self.get_parameter("yaw_tolerance_rad").value
+            ),
+            acceptable_position_m=float(
+                self.get_parameter("acceptable_position_tolerance_m").value
+            ),
+            acceptable_yaw_rad=float(
+                self.get_parameter("acceptable_yaw_tolerance_rad").value
+            ),
+            hard_position_m=float(
+                self.get_parameter("hard_position_tolerance_m").value
+            ),
+            hard_yaw_rad=float(
+                self.get_parameter("hard_yaw_tolerance_rad").value
+            ),
         )
-        yaw_tolerance = float(self.get_parameter("yaw_tolerance_rad").value)
+        sample_count = int(self.get_parameter("pose_sample_count").value)
+        min_valid_samples = int(
+            self.get_parameter("pose_min_valid_samples").value
+        )
+        sample_interval = float(
+            self.get_parameter("pose_sample_interval_sec").value
+        )
 
         for attempt in range(retries + 1):
             self._raise_if_canceled(mission_goal)
-            time.sleep(0.35)
-            actual = self._nav.current_pose(frame_id)
+            actual = sample_median_pose(
+                lambda: self._nav.current_pose(frame_id),
+                sample_count=sample_count,
+                min_valid_samples=min_valid_samples,
+                interval_sec=sample_interval,
+            )
             if actual is None:
                 raise MissionFailure("최종 로봇 위치와 방향을 확인할 수 없습니다.")
             position_error, yaw_error = pose_errors(actual, target)
-            if (
-                position_error <= position_tolerance
-                and yaw_error <= yaw_tolerance
+            decision = decide_alignment(
+                position_error,
+                yaw_error,
+                thresholds,
+                attempt=attempt,
+                retries=retries,
+            )
+            if decision in (
+                AlignmentDecision.ALIGNED,
+                AlignmentDecision.ACCEPTED,
             ):
+                quality = (
+                    "normal"
+                    if decision == AlignmentDecision.ALIGNED
+                    else "acceptable"
+                )
+                prefix = "정렬 완료" if quality == "normal" else "허용 오차로 계속"
+                if quality == "acceptable":
+                    self.get_logger().warning(
+                        f"Accepted waypoint alignment: {waypoint.name}, "
+                        f"position={position_error:.3f}m, "
+                        f"yaw={math.degrees(yaw_error):.2f}deg"
+                    )
                 self._update_waypoint(
                     index,
                     "aligned",
                     (
-                        f"정렬 완료 · 위치 오차 {position_error:.2f}m "
+                        f"{prefix} · 위치 오차 {position_error:.2f}m "
                         f"· 방향 오차 {math.degrees(yaw_error):.1f}°"
                     ),
                     position_error_m=round(position_error, 3),
                     yaw_error_deg=round(math.degrees(yaw_error), 2),
                     actual_yaw_deg=round(math.degrees(actual[2]), 2),
+                    alignment_quality=quality,
                 )
                 return position_error, yaw_error
-            if attempt >= retries:
+            if decision in (
+                AlignmentDecision.FAILED,
+                AlignmentDecision.FAILED_HARD,
+            ):
+                severity = (
+                    "안전 한계"
+                    if decision == AlignmentDecision.FAILED_HARD
+                    else "허용 범위"
+                )
                 raise MissionFailure(
-                    "최종 정렬 오차가 허용 범위를 벗어났습니다. "
+                    f"최종 정렬 오차가 {severity}를 벗어났습니다. "
                     f"위치 {position_error:.2f}m, "
                     f"방향 {math.degrees(yaw_error):.1f}°"
                 )
