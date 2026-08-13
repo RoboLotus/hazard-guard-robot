@@ -114,6 +114,12 @@ def test_physical_person_detection_uses_hp60c_rgb_and_depth_topics():
     assert "/ascamera_hp60c/camera_publisher/depth0/image_raw" in source
     assert '"start_person_camera"' in source
     assert '"person_depth_registration_verified"' in source
+    assert '"person_confidence"' in source
+    assert '"person_image_size"' in source
+    assert '"person_inference_rate_hz"' in source
+    assert '"confidence": person_confidence' in source
+    assert '"image_size": person_image_size' in source
+    assert '"inference_rate_hz": person_inference_rate_hz' in source
 
 
 def test_only_physical_motor_driver_consumes_gated_velocity() -> None:

@@ -19,6 +19,9 @@ def generate_launch_description():
             DeclareLaunchArgument("depth_topic", default_value="/camera/depth/image_raw"),
             DeclareLaunchArgument("model_path", default_value="yolo11n.pt"),
             DeclareLaunchArgument("device", default_value=""),
+            DeclareLaunchArgument("confidence", default_value="0.4"),
+            DeclareLaunchArgument("image_size", default_value="640"),
+            DeclareLaunchArgument("inference_rate_hz", default_value="10.0"),
             DeclareLaunchArgument("simulated", default_value="false"),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
             DeclareLaunchArgument(
@@ -37,6 +40,15 @@ def generate_launch_description():
                         "depth_topic": LaunchConfiguration("depth_topic"),
                         "model_path": LaunchConfiguration("model_path"),
                         "device": LaunchConfiguration("device"),
+                        "confidence": ParameterValue(
+                            LaunchConfiguration("confidence"), value_type=float
+                        ),
+                        "image_size": ParameterValue(
+                            LaunchConfiguration("image_size"), value_type=int
+                        ),
+                        "inference_rate_hz": ParameterValue(
+                            LaunchConfiguration("inference_rate_hz"), value_type=float
+                        ),
                         "simulated": ParameterValue(
                             LaunchConfiguration("simulated"), value_type=bool
                         ),

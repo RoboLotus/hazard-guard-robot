@@ -268,3 +268,256 @@ Ultralytics 코드와 모델 사용에는 배포 방식에 따른 라이선스 �
 6. 그 다음 ROS 토픽, RGB-D 정합, TensorRT engine 순으로 범위를 넓힌다.
 
 환경 문제를 해결하기 위해 검증 없이 전체 패키지를 최신 버전으로 올리지 않는다. 한 번에 한 계층만 변경하고, 매 변경 전후 환경 JSON과 벤치마크를 남긴다.
+
+## 12. Jetson Codex 인수인계 절차
+
+이 절은 실물 Jetson에서 Codex가 저장소를 처음 열었을 때 따라야 하는 작업 지시서다.
+목표는 **기존 네이티브 ROS/JetPack 환경을 보존하면서 YOLO11n TensorRT engine을
+준비하고, 사람 탐지 노드가 이를 읽을 수 있는 상태까지만 만드는 것**이다. 실제 바퀴를
+움직이는 검증은 사용자가 안전요원과 함께 별도로 승인한 뒤 수행한다.
+
+### 12.1 작업 경계
+
+- Docker 이미지를 새로 만들지 않는다. Jetson의 기존 네이티브 환경을 사용한다.
+- JetPack, CUDA, cuDNN, TensorRT를 업그레이드하거나 교체하지 않는다.
+- 일반 PyPI `torch`/`torchvision`으로 NVIDIA aarch64 빌드를 덮어쓰지 않는다.
+- 제조사 공장 이미지에 설치된 환경과 `/home/jetson/ultralytics` 예제를 먼저 조사한다.
+- 모델과 engine은 Git에 추가하지 않는다. `runtime/models/`는 의도적으로 무시된다.
+- 절대 경로를 소스 코드나 YAML에 커밋하지 않는다. launch 인자로 전달한다.
+- 실행하지 않은 검증을 성공으로 기록하지 않는다.
+- 환경 변경, commit, push는 사용자의 명시적인 승인 없이 수행하지 않는다.
+
+### 12.2 저장소 및 환경 확인
+
+저장소 루트에서 다음을 실행한다. 실제 저장소 위치는 고정하지 말고 `pwd` 결과를
+사용한다.
+
+```bash
+cd <hazard-guard-robot 저장소>
+export HAZARD_GUARD_ROBOT_ROOT="$PWD"
+mkdir -p runtime/debug runtime/models
+
+git branch --show-current
+git status --short
+uname -m
+cat /etc/nv_tegra_release 2>/dev/null || true
+python3 tools/check_yolo_environment.py --json \
+  > runtime/debug/yolo-jetson-before.json
+```
+
+환경 조사 결과에서 최소한 다음을 확인하고 사용자에게 보고한다.
+
+- `aarch64`, Jetson 모델, JetPack/L4T 버전
+- Python, ROS 2, CUDA, TensorRT 버전
+- `torch`, `torchvision`, `ultralytics`, NumPy, OpenCV 버전과 로드 경로
+- `torch.cuda.is_available()` 결과
+- 기존 `yolo11n.pt`, `.onnx`, `.engine` 위치와 SHA-256
+- 제조사 HP60C launch 및 RGB/Depth 토픽 존재 여부
+
+기존 모델은 먼저 다음과 같이 찾는다. 전체 루트 파일시스템을 무차별 탐색하지 않는다.
+
+```bash
+find "$HOME/ultralytics" "$HOME/Rosmaster" "$HAZARD_GUARD_ROBOT_ROOT" \
+  -maxdepth 5 -type f \
+  \( -name 'yolo11n.pt' -o -name 'yolo11n.onnx' -o -name '*.engine' \) \
+  2>/dev/null
+```
+
+### 12.3 PyTorch 기준 모델 준비
+
+기존 공식 `yolo11n.pt`가 있다면 새로 내려받지 말고 SHA-256을 기록한 뒤 로컬 런타임
+디렉터리에 복사한다. 같은 이름의 파일이 이미 있으면 덮어쓰지 말고 두 파일의
+SHA-256을 비교한다.
+
+```bash
+mkdir -p "$HAZARD_GUARD_ROBOT_ROOT/runtime/models"
+sha256sum <발견한-yolo11n.pt>
+cp -n <발견한-yolo11n.pt> \
+  "$HAZARD_GUARD_ROBOT_ROOT/runtime/models/yolo11n.pt"
+```
+
+기존 모델이 없고 네트워크 다운로드가 필요하면 출처와 버전을 사용자에게 보고한 뒤
+진행한다. 모델을 찾기 위해 패키지를 무작정 재설치하지 않는다.
+
+### 12.4 TensorRT FP16 engine 생성
+
+먼저 PyTorch 모델이 GPU에서 단일 추론되는지 확인한다. 그 다음 **실제 운용할 같은
+Jetson에서** engine을 생성한다. Ultralytics와 JetPack 조합이 확인된 동일 Python을
+사용한다.
+
+```bash
+cd "$HAZARD_GUARD_ROBOT_ROOT"
+export YOLO_AUTOINSTALL=false
+python3 - <<'PY'
+from pathlib import Path
+from ultralytics import YOLO
+
+root = Path.cwd()
+source = root / "runtime/models/yolo11n.pt"
+if not source.is_file():
+    raise SystemExit(f"missing source model: {source}")
+
+model = YOLO(str(source))
+exported = Path(model.export(
+    format="engine",
+    half=True,
+    imgsz=640,
+    batch=1,
+    device=0,
+))
+target = root / "runtime/models/yolo11n_fp16.engine"
+if target.exists() and target.resolve() != exported.resolve():
+    raise SystemExit(f"refusing to overwrite existing engine: {target}")
+if target.resolve() != exported.resolve():
+    exported.replace(target)
+print(target)
+PY
+```
+
+Ultralytics가 변환 중 ONNX를 자동 생성할 수 있지만 운영 launch는 최종 `.engine`을
+직접 읽는다. `YOLO_AUTOINSTALL=false`는 변환 과정이 환경을 몰래 변경하지 못하게 한다.
+누락된 export 의존성이 표시되면 설치하지 말고 정확한 패키지와 요구 버전을 사용자에게
+먼저 보고한다. export가 실패해도 의존성 전체를 업그레이드하지 않는다.
+
+생성 직후 engine 로드와 단일 GPU 추론을 확인한다.
+
+```bash
+python3 - <<'PY'
+from pathlib import Path
+import numpy as np
+from ultralytics import YOLO
+
+engine = Path("runtime/models/yolo11n_fp16.engine").resolve()
+if not engine.is_file():
+    raise SystemExit(f"missing engine: {engine}")
+result = YOLO(str(engine))(
+    np.zeros((480, 640, 3), dtype=np.uint8),
+    imgsz=640,
+    device=0,
+    verbose=False,
+)
+print(f"engine smoke test: OK, results={len(result)}")
+PY
+
+python3 tools/check_yolo_environment.py \
+  --model runtime/models/yolo11n.pt \
+  --model runtime/models/yolo11n_fp16.engine
+```
+
+### 12.5 ROS 빌드와 탐지 단독 확인
+
+```bash
+source /opt/ros/humble/setup.bash
+cd "$HAZARD_GUARD_ROBOT_ROOT"
+rosdep check --from-paths src --ignore-src
+colcon build --symlink-install --packages-up-to \
+  hazard_guard_person_detection \
+  hazard_guard_safety_supervisor \
+  hazard_guard_mission_manager \
+  hazard_guard_simulation
+source install/setup.bash
+```
+
+`rosdep check`가 누락 의존성을 보고하면 목록을 사용자에게 먼저 제시한다. 설치 승인을
+받은 경우에만 `rosdep install --from-paths src --ignore-src -r -y`를 실행한다. 기존
+제조사 패키지를 교체하려 한다면 중단하고 보고한다. HP60C 드라이버를 한 터미널에서
+실행한 뒤 토픽을 확인한다.
+
+```bash
+ros2 launch ascamera hp60c.launch.py
+
+# 다른 터미널
+source /opt/ros/humble/setup.bash
+source "$HAZARD_GUARD_ROBOT_ROOT/install/setup.bash"
+ros2 topic hz /ascamera_hp60c/camera_publisher/rgb0/image
+ros2 topic hz /ascamera_hp60c/camera_publisher/depth0/image_raw
+```
+
+모터 및 Nav2를 시작하지 않고 탐지 노드만 실행할 수 있다. RGB-Depth 픽셀 정합을
+아직 확인하지 않았으므로 처음에는 반드시 `false`를 유지한다.
+
+```bash
+ros2 launch hazard_guard_person_detection person_detection.launch.py \
+  rgb_topic:=/ascamera_hp60c/camera_publisher/rgb0/image \
+  depth_topic:=/ascamera_hp60c/camera_publisher/depth0/image_raw \
+  model_path:="$HAZARD_GUARD_ROBOT_ROOT/runtime/models/yolo11n_fp16.engine" \
+  device:=0 \
+  image_size:=640 \
+  inference_rate_hz:=10.0 \
+  confidence:=0.4 \
+  depth_registration_verified:=false
+```
+
+확인 토픽:
+
+```bash
+ros2 topic hz /hazard_guard/person/observations
+ros2 topic echo /hazard_guard/person/observations --once
+ros2 run rqt_image_view rqt_image_view \
+  /hazard_guard/person/annotated_image
+```
+
+이 단계에서 바운딩박스와 inference 시간이 보이면 engine 이식은 완료된 것이다. 거리는
+의도적으로 무효이며 안전 상태를 활성화해서는 안 된다.
+
+### 12.6 RGB-Depth 정합 승인 후 실물 launch
+
+`person_depth_registration_verified:=true`는 다음을 실물로 확인한 뒤에만 사용한다.
+
+1. RGB와 Depth 해상도가 동일하다.
+2. 두 영상의 같은 픽셀이 같은 물체를 나타낸다.
+3. 움직이는 물체에서도 timestamp 차이가 허용 범위 안이다.
+4. 사람 bbox 중앙 영역의 Depth가 실제 줄자 거리와 일치한다.
+
+정합되지 않으면 `true`로 우회하지 않는다. HP60C aligned-depth 토픽을 사용하거나
+`CameraInfo` 기반 좌표 투영 개발이 필요하다고 보고한다.
+
+승인 후 전체 순찰 launch는 다음과 같이 실행한다.
+
+```bash
+ros2 launch hazard_guard_simulation physical_patrol.launch.py \
+  map:="$HAZARD_GUARD_ROBOT_ROOT/runtime/maps/<map-name>.yaml" \
+  use_person_safety:=true \
+  start_person_camera:=true \
+  person_model_path:="$HAZARD_GUARD_ROBOT_ROOT/runtime/models/yolo11n_fp16.engine" \
+  person_device:=0 \
+  person_image_size:=640 \
+  person_inference_rate_hz:=10.0 \
+  person_confidence:=0.4 \
+  person_depth_registration_verified:=true
+```
+
+HP60C 드라이버가 이미 실행 중이면 `start_person_camera:=false`로 중복 실행을 막는다.
+
+### 12.7 Codex 완료 보고 형식
+
+Codex는 작업 종료 시 다음 형식으로 사용자에게 보고한다.
+
+```text
+## 환경
+- Git branch/commit:
+- Jetson/JetPack/L4T:
+- Python/ROS:
+- CUDA/TensorRT:
+- torch/torchvision/ultralytics:
+
+## 모델
+- PT 경로/SHA-256:
+- engine 경로/SHA-256:
+- export 옵션:
+- engine 단일 추론 결과:
+
+## ROS 확인
+- HP60C RGB/Depth 토픽과 Hz:
+- annotated image:
+- observations topic:
+- RGB-Depth 정합 승인 여부:
+
+## 실행한 검증
+- 실제로 성공한 명령:
+- 실패한 명령과 원문 오류:
+
+## 미해결 및 실물 검증 필요사항
+- 안전 기능 활성화를 막는 조건:
+- 다음 담당자가 수행할 항목:
+```

@@ -60,6 +60,9 @@ def generate_launch_description() -> LaunchDescription:
     start_person_camera = LaunchConfiguration("start_person_camera")
     person_model_path = LaunchConfiguration("person_model_path")
     person_device = LaunchConfiguration("person_device")
+    person_confidence = LaunchConfiguration("person_confidence")
+    person_image_size = LaunchConfiguration("person_image_size")
+    person_inference_rate_hz = LaunchConfiguration("person_inference_rate_hz")
     person_depth_registration_verified = LaunchConfiguration(
         "person_depth_registration_verified"
     )
@@ -104,6 +107,12 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument("person_model_path", default_value="yolo11n.pt"),
             DeclareLaunchArgument("person_device", default_value=""),
+            DeclareLaunchArgument("person_confidence", default_value="0.4"),
+            DeclareLaunchArgument("person_image_size", default_value="640"),
+            DeclareLaunchArgument(
+                "person_inference_rate_hz",
+                default_value="10.0",
+            ),
             DeclareLaunchArgument(
                 "person_depth_registration_verified",
                 default_value="false",
@@ -144,6 +153,9 @@ def generate_launch_description() -> LaunchDescription:
                     ),
                     "model_path": person_model_path,
                     "device": person_device,
+                    "confidence": person_confidence,
+                    "image_size": person_image_size,
+                    "inference_rate_hz": person_inference_rate_hz,
                     "simulated": "false",
                     "depth_registration_verified": (
                         person_depth_registration_verified

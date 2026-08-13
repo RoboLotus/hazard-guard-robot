@@ -154,8 +154,11 @@ ros2 launch hazard_guard_simulation physical_patrol.launch.py \
   map:=$PWD/runtime/maps/<map-name>.yaml \
   use_person_safety:=true \
   start_person_camera:=true \
-  person_model_path:=$PWD/runtime/models/yolo11n.pt \
+  person_model_path:=$PWD/runtime/models/yolo11n_fp16.engine \
   person_device:=0 \
+  person_image_size:=640 \
+  person_inference_rate_hz:=10.0 \
+  person_confidence:=0.4 \
   person_depth_registration_verified:=true
 ```
 
@@ -166,10 +169,18 @@ ros2 launch hazard_guard_simulation physical_patrol.launch.py \
   map:=$PWD/runtime/maps/<map-name>.yaml \
   use_person_safety:=true \
   start_person_camera:=false \
-  person_model_path:=$PWD/runtime/models/yolo11n.pt \
+  person_model_path:=$PWD/runtime/models/yolo11n_fp16.engine \
   person_device:=0 \
+  person_image_size:=640 \
+  person_inference_rate_hz:=10.0 \
+  person_confidence:=0.4 \
   person_depth_registration_verified:=true
 ```
+
+위 `.engine`은 실제 운용할 Jetson에서 생성해야 한다. 환경 조사, 모델 변환 및
+검증 전 준비 절차는 [YOLO_JETSON_SETUP.md](YOLO_JETSON_SETUP.md)의
+"Jetson Codex 인수인계 절차"를 따른다. PyTorch 기준 검증이 아직 끝나지 않았다면
+같은 명령에서 `person_model_path`만 `yolo11n.pt`로 바꾸어 기준 결과부터 기록한다.
 
 실물 입력은 다음 제조사 토픽을 사용한다.
 
