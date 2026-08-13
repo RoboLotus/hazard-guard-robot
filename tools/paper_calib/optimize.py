@@ -25,7 +25,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 from scipy.optimize import least_squares
-from scipy.sparse import lil_matrix
+from scipy.sparse import lil_matrix, vstack
 
 # What Gazebo actually renders, established by deriving it from the link
 # origins and confirmed independently by the legacy circle-board run. Not the
@@ -37,6 +37,50 @@ GROUND_TRUTH_RPY_DEG = np.array([0.0, 0.0, 0.0])
 
 # The mounting drawing, which is what a real robot would start from.
 CAD_MM = np.array([68.0, 0.0, 0.0])
+
+# The thermal principal point Gazebo actually renders with, recovered by
+# scanning the assumed centre and reading off where the known-zero ground-truth
+# rotation comes out zero: width/2 - 0.32 px on both axes, with a slope of
+# 0.38 deg per pixel.
+#
+# thermal_camera_info.py publishes width/2, and that 0.32 px lands entirely in
+# the extrinsic rotation - 0.12 deg of roll and pitch - while moving thermal
+# reprojection RMS by 0.0005 px. The residual cannot see it, because a constant
+# image shift and a small rotation are the same thing to it. Only the ground
+# truth separates them.
+#
+# This is used by the calibration tools alone; the published camera_info is
+# left as it is. And it is a diagnosis, not a procedure: recovering a principal
+# point from a rotation you already know is only possible in simulation. On the
+# real camera it comes from a single-camera intrinsic calibration, and skipping
+# that step spends the error on the extrinsic exactly as it does here.
+MEASURED_PRINCIPAL_POINT = (79.684, 59.684)
+PUBLISHED_PRINCIPAL_POINT = (80.0, 60.0)
+
+
+def with_principal_point(data: dict, point) -> dict:
+    """Copy of the dataset with the thermal principal point overridden."""
+    out = dict(data)
+    k = data["thermal_k"].copy()
+    k[0, 2], k[1, 2] = float(point[0]), float(point[1])
+    out["thermal_k"] = k
+    return out
+
+
+# What each mode holds still, and what it merely leans on.
+#
+#   A   nothing fixed, nothing assumed
+#   B   nothing fixed, a soft pull toward the mounting drawing
+#   C1  rotation fixed at zero - true here by construction, since both camera
+#       links carry the same orientation in the URDF
+#   C2  Tz fixed at zero, the paper's constraint. False here: the rendered
+#       geometry has Tz = -21 mm. Included precisely because it is false.
+MODES = {
+    "A": {"fixed": {}, "prior": False},
+    "B": {"fixed": {}, "prior": True},
+    "C1": {"fixed": {3: 0.0, 4: 0.0, 5: 0.0}, "prior": False},
+    "C2": {"fixed": {2: 0.0}, "prior": False},
+}
 
 
 def rodrigues(vector: np.ndarray) -> np.ndarray:
@@ -219,28 +263,78 @@ def sensitivity(params, data, steps_mm=1.0, steps_deg=0.1):
     return base, rows
 
 
-def solve(data, init: str = "stereo", verbose: bool = True):
+def prior_residual(extrinsic, sigma_mm, sigma_deg):
+    """How far the extrinsic has drifted from the mounting drawing, in sigmas.
+
+    Stacked onto the pixel residuals, so the fit trades one against the other.
+    The scale is the honest part: pixel residuals are raw pixels, which asserts
+    a one-pixel measurement sigma, while the real spread is about a quarter of
+    that. A prior written as (theta - drawing) / sigma therefore pulls roughly
+    sixteen times harder than its stated sigma suggests unless the pixel side is
+    normalised too - so it is, by the observed thermal RMS.
+    """
+    translation = (extrinsic[0:3] * 1000.0 - CAD_MM) / sigma_mm
+    rotation = np.degrees(extrinsic[3:6]) / sigma_deg
+    return np.concatenate([translation, rotation])
+
+
+def solve(data, init: str = "stereo", mode: str = "A", verbose: bool = True,
+          prior_sigma_mm: float = 10.0, prior_sigma_deg: float = 1.0,
+          pixel_sigma: float = 0.24):
+    """Fit the extrinsic under one of the four constraint modes."""
+    if mode not in MODES:
+        raise ValueError(f"알 수 없는 모드 {mode}")
+    fixed = MODES[mode]["fixed"]
+    use_prior = MODES[mode]["prior"]
+    free = [i for i in range(6) if i not in fixed]
+
     poses = initial_poses(data)
     extrinsic = initial_extrinsic(data, init)
-    start = pack(extrinsic, poses)
+    for index, value in fixed.items():
+        extrinsic[index] = value
+
+    def expand(reduced):
+        full = np.zeros(6)
+        for index, value in fixed.items():
+            full[index] = value
+        full[free] = reduced[:len(free)]
+        return np.concatenate([full, reduced[len(free):]])
+
+    def residual_function(reduced):
+        params = expand(reduced)
+        out = residuals(params, data)
+        if use_prior:
+            out = np.concatenate([
+                out,
+                prior_residual(params[:6], prior_sigma_mm, prior_sigma_deg)
+                * pixel_sigma])
+        return out
+
+    start = np.concatenate([extrinsic[free], poses.reshape(-1)])
+    pattern = sparsity(data)[:, [*free, *range(6, 6 + 6 * data["views"])]]
+    if use_prior:
+        prior_rows = lil_matrix((6, pattern.shape[1]), dtype=int)
+        prior_rows[:, :len(free)] = 1
+        pattern = vstack([pattern, prior_rows]).tolil()
 
     result = least_squares(
-        residuals, start, jac_sparsity=sparsity(data), x_scale="jac",
+        residual_function, start, jac_sparsity=pattern, x_scale="jac",
         method="trf", loss="linear", ftol=1e-12, xtol=1e-12, gtol=1e-12,
-        max_nfev=400, args=(data,), verbose=0)
+        max_nfev=400, verbose=0)
 
-    extrinsic, _ = unpack(result.x, data["views"])
-    rotation = rodrigues(extrinsic[3:6])
+    params = expand(result.x)
+    extrinsic = params[:6]
     report = {
+        "mode": mode,
         "translation_mm": (extrinsic[0:3] * 1000.0).tolist(),
-        "rpy_deg": rpy_from_rotation(rotation).tolist(),
+        "rpy_deg": rpy_from_rotation(rodrigues(extrinsic[3:6])).tolist(),
         "init": init,
+        "fixed": {str(k): v for k, v in fixed.items()},
+        "prior_sigma_mm": prior_sigma_mm if use_prior else None,
         "iterations": int(result.nfev),
     }
-    report.update(split_errors(result.x, data))
+    report.update(split_errors(params, data))
     if verbose:
-        before = split_errors(start, data)
-        print(f"  초기값({init})  전체 RMS {before['total_rms_px']:.3f} px")
-        print(f"  최적화 후      전체 RMS {report['total_rms_px']:.3f} px "
-              f"(RGB {report['rgb_rms_px']:.3f} / 열화상 {report['tir_rms_px']:.3f})")
-    return result.x, report
+        print(f"  Mode {mode}  전체 RMS {report['total_rms_px']:.4f} px "
+              f"(RGB {report['rgb_rms_px']:.4f} / 열화상 {report['tir_rms_px']:.4f})")
+    return params, report

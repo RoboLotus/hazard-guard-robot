@@ -176,6 +176,74 @@ def compare(arguments) -> int:
     return 0
 
 
+def modes(arguments) -> int:
+    """Mode A/B/C1/C2 on one dataset, with the corrected principal point."""
+    data = load_all(arguments.views)
+    point = (opt.MEASURED_PRINCIPAL_POINT if arguments.principal_point == "measured"
+             else opt.PUBLISHED_PRINCIPAL_POINT)
+    data = opt.with_principal_point(data, point)
+    print(f"뷰 {data['views']}개, 열화상 주점 ({point[0]}, {point[1]})")
+
+    labels = {"A": "A 무구속", "B": "B 소프트 사전",
+              "C1": "C1 회전=0 (유효)", "C2": "C2 tz=0 (무효)"}
+    rows = {}
+    for mode, label in labels.items():
+        params, report = opt.solve(data, mode=mode, verbose=False,
+                                   prior_sigma_mm=arguments.prior_sigma_mm)
+        _, sens = opt.sensitivity(params, data)
+        translation = np.array(report["translation_mm"])
+        rpy = np.array(report["rpy_deg"])
+        rows[label] = {
+            "translation_mm": translation.tolist(),
+            "translation_error_mm": (translation - opt.GROUND_TRUTH_MM).tolist(),
+            "translation_error_norm_mm": float(
+                np.linalg.norm(translation - opt.GROUND_TRUTH_MM)),
+            "rpy_deg": rpy.tolist(),
+            "rotation_error_norm_deg": float(np.linalg.norm(rpy)),
+            "rgb_rms_px": report["rgb_rms_px"],
+            "tir_rms_px": report["tir_rms_px"],
+            "total_rms_px": report["total_rms_px"],
+            "sensitivity": {r["parameter"]: r["delta_tir_rms_px"] for r in sens},
+        }
+
+    names = list(rows)
+    def line(title, values):
+        print(f"  {title:24s}" + "".join(f"{v:>16}" for v in values))
+    print("=" * (26 + 16 * len(names)))
+    line("", names)
+    print("-" * (26 + 16 * len(names)))
+    for index, axis in enumerate(("tx", "ty", "tz")):
+        line(f"{axis} 오차 mm",
+             [f"{rows[n]['translation_error_mm'][index]:+.2f}" for n in names])
+    line("이동 오차 크기 mm",
+         [f"{rows[n]['translation_error_norm_mm']:.2f}" for n in names])
+    for index, axis in enumerate(("roll", "pitch", "yaw")):
+        line(f"{axis} 오차 deg", [f"{rows[n]['rpy_deg'][index]:+.3f}" for n in names])
+    line("회전 오차 크기 deg",
+         [f"{rows[n]['rotation_error_norm_deg']:.3f}" for n in names])
+    for key, title in (("rgb_rms_px", "RGB RMS px"),
+                       ("tir_rms_px", "열화상 RMS px"),
+                       ("total_rms_px", "전체 RMS px")):
+        line(title, [f"{rows[n][key]:.4f}" for n in names])
+    for parameter in ("tx", "ty", "tz", "roll", "pitch", "yaw"):
+        step = "+1mm" if parameter in ("tx", "ty", "tz") else "+0.1deg"
+        line(f"민감도 {parameter} {step}",
+             [f"{rows[n]['sensitivity'][parameter]:+.4f}" for n in names])
+    print("=" * (26 + 16 * len(names)))
+
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    path = RESULTS / f"paper_modes_{time.strftime('%Y%m%d-%H%M%S')}.json"
+    path.write_text(json.dumps({
+        "views": data["views"],
+        "principal_point": list(point),
+        "ground_truth_mm": opt.GROUND_TRUTH_MM.tolist(),
+        "prior_sigma_mm": arguments.prior_sigma_mm,
+        "modes": rows,
+    }, indent=2) + "\n")
+    print(f"\n저장  {path.relative_to(ROOT)}")
+    return 0
+
+
 def capture(arguments) -> int:
     sys.argv = ["capture.py"] + arguments.rest
     runpy.run_path(str(ROOT / "tools" / "paper_calib" / "capture.py"),
@@ -203,6 +271,13 @@ def main() -> int:
                    help="한 항목에 쉼표로 여러 npz 를 주면 합쳐서 하나로 센다")
     c.add_argument("--labels", nargs="*", default=None)
     c.set_defaults(run=compare)
+
+    m = sub.add_parser("modes", help="Mode A/B/C1/C2 비교")
+    m.add_argument("--views", nargs="+", required=True)
+    m.add_argument("--principal-point", choices=("measured", "published"),
+                   default="measured")
+    m.add_argument("--prior-sigma-mm", type=float, default=10.0)
+    m.set_defaults(run=modes)
 
     arguments = parser.parse_args()
     return arguments.run(arguments)

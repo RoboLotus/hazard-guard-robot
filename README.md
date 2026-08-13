@@ -652,6 +652,97 @@ ros2 launch hazard_guard_simulation camera_view.launch.py show_rgb:=true
 필수입니다. `test/test_camera_topics.py` 가 `<camera_info_topic>` 누락, 토픽
 충돌, 브리지 목록 누락을 검사합니다.
 
+## 논문 기반 열화상-RGB 캘리브레이션
+
+`tools/paper_calib/` 는 Król 외 *On RGB-TIR Stereo Calibration under Extreme
+Resolution Asymmetry* (arXiv:2605.15860) 의 방식입니다. 기존 원형격자
+(`tools/calibrate_thermal_rgb.py`) 는 그대로 두고 나란히 비교합니다.
+
+해상도가 크게 다른 두 카메라에 하나의 패턴을 쓸 수 없다는 것이 요지입니다. 타일
+96개가 RGB 로는 12×8 체커보드, 열화상으로는 6×4 체커보드로 동시에 보이고, 대응
+규칙 `rgb = 2*tir + 1` 이 측정이 아니라 구성으로 참이 됩니다.
+
+### 터미널 세 개
+
+| 터미널 | 눈으로 확인 | 헤드리스 (빠름) |
+|---|---|---|
+| 1 | `simulation.launch.py gui:=true` | `simulation.launch.py gui:=false` |
+| 2 | `camera_view.launch.py` | `thermal_camera_info.py` |
+| 3 | 판 생성·수집·최적화 | 같음 |
+
+`camera_view.launch.py` 는 `thermal_camera_info.py` 를 직접 띄웁니다. 뷰어를 쓸
+때 2번을 따로 실행하면 같은 토픽에 발행자가 둘이 됩니다.
+
+**Gazebo 서버는 반드시 하나만.** 둘이면 카메라 영상은 한쪽에서 오고 판 이동
+명령은 다른 쪽에 꽂혀서, 같은 자세인데 검출이 됐다 안 됐다 합니다.
+
+```bash
+pgrep -af "ign gazebo"    # sh 래퍼 1 + 서버 1 = 두 줄이면 정상
+```
+
+### 데이터 수집
+
+판을 다시 만들고 월드의 옛 판을 지우는 두 줄은 capture 와 한 덩어리입니다.
+떼어놓으면 작은 판을 먼 거리에서 찍은 엉뚱한 데이터가 만들어지고, 채택률은
+멀쩡해서 알아채기 어렵습니다.
+
+```bash
+# 근거리 33뷰 (0.50 / 0.65 / 0.80 m, 300 × 200 mm 판)
+python3 tools/paper_calib/target.py
+ign service -s /world/demo_facility_scaled/remove \
+  --reqtype ignition.msgs.Entity --reptype ignition.msgs.Boolean \
+  --timeout 3000 --req 'name: "paper_cal_target", type: MODEL'
+python3 tools/paper_calib/capture.py --out runtime/calibration/paper_views_near.npz
+
+# 원거리 25뷰 (1.1 / 1.4 / 1.7 m, 600 × 400 mm 판)
+python3 tools/paper_calib/target.py --square 0.05
+ign service -s /world/demo_facility_scaled/remove \
+  --reqtype ignition.msgs.Entity --reptype ignition.msgs.Boolean \
+  --timeout 3000 --req 'name: "paper_cal_target", type: MODEL'
+python3 tools/paper_calib/capture.py --near 1.1 --mid 1.4 --far 1.7 \
+    --out runtime/calibration/paper_views_far.npz
+```
+
+거리 다양성이 이동과 회전을 분리합니다. 한 판으로는 넓은 거리를 못 덮습니다 —
+0.5 m 까지 오는 작은 판은 1.7 m 에서 열화상 정사각형이 4.6 px 로 떨어져 읽히지
+않습니다. 그래서 판 두 개를 쓰고, 최적화기가 뷰별 물체점을 들고 다닙니다.
+
+### 최적화
+
+여기부터 시뮬레이터가 필요 없습니다. npz 만 있으면 됩니다.
+
+```bash
+# Mode A, 두 데이터셋을 하나의 문제로
+python3 tools/calibrate_paper.py solve \
+    --views runtime/calibration/paper_views_far.npz \
+            runtime/calibration/paper_views_near.npz
+
+# 데이터셋 나란히 비교 (쉼표로 묶은 항목은 합쳐서 한 열)
+python3 tools/calibrate_paper.py compare --views a.npz b.npz a.npz,b.npz --labels ...
+
+# Mode A / B / C1 / C2
+python3 tools/calibrate_paper.py modes --views a.npz b.npz
+```
+
+결과는 `runtime/calibration/*.json` 에 남습니다. npz 는 용량이 커서 제외되고
+JSON 만 저장소에 남깁니다.
+
+### 열화상 주점
+
+`thermal_camera_info.py` 는 `cx = width/2 = 80.0` 을 발행하지만, Gazebo 가 실제로
+렌더링하는 주점은 `width/2 − 0.32 px` 입니다. 0.32 px 은 `atan(0.32/147.3)` =
+0.12° 의 회전으로 보이고, **전부 외부파라미터 회전으로 흡수됩니다.** 열화상 재투영
+RMS 는 0.0005 px 밖에 안 움직여서 잔차로는 구별할 수 없습니다.
+
+캘리브레이션 도구는 `optimize.MEASURED_PRINCIPAL_POINT` 로 보정값을 쓰고,
+발행되는 `camera_info` 는 건드리지 않습니다.
+
+**이 값은 실기기에 그대로 쓸 수 없습니다.** 정답 회전이 0 이라는 사실을 이용해
+역산한 것이고 실물에는 그런 기준이 없습니다. 실기기에서는 열화상 내부파라미터
+캘리브레이션을 별도로 수행해 `fx, fy, cx, cy` 와 왜곡을 직접 구해야 합니다.
+건너뛰면 그 오차가 전부 외부파라미터로 흘러갑니다 — fx 3 % 오차가 tz 로 약 50 mm,
+주점 0.32 px 이 회전 0.17° 로 새는 것을 측정했습니다.
+
 ## 검증
 
 ```bash
