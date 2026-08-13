@@ -7,8 +7,10 @@ import rclpy
 from rclpy.node import Node
 
 from hazard_guard_interfaces.msg import PersonObservationArray, PersonSafetyState
+from nav2_msgs.msg import SpeedLimit
 
 from .policy import PersonObservation, PersonSafetyPolicy, PolicyConfig
+from .speed_limit import speed_limit_for_state
 
 
 class PersonSafetySupervisorNode(Node):
@@ -17,6 +19,7 @@ class PersonSafetySupervisorNode(Node):
 
         self.declare_parameter("observation_topic", "/hazard_guard/person/observations")
         self.declare_parameter("safety_state_topic", "/hazard_guard/person/safety_state")
+        self.declare_parameter("speed_limit_topic", "/speed_limit")
         self.declare_parameter("autonomous", True)
         self.declare_parameter("publish_rate_hz", 10.0)
         self.declare_parameter("caution_distance_m", 2.5)
@@ -26,6 +29,8 @@ class PersonSafetySupervisorNode(Node):
         self.declare_parameter("detection_timeout_sec", 0.5)
         self.declare_parameter("clear_hold_sec", 2.0)
         self.declare_parameter("hysteresis_m", 0.2)
+        self.declare_parameter("slow_speed_percentage", 45.0)
+        self.declare_parameter("restrictive_speed_percentage", 1.0)
 
         self._policy = PersonSafetyPolicy(
             PolicyConfig(
@@ -41,6 +46,7 @@ class PersonSafetySupervisorNode(Node):
 
         observation_topic = str(self.get_parameter("observation_topic").value)
         safety_state_topic = str(self.get_parameter("safety_state_topic").value)
+        speed_limit_topic = str(self.get_parameter("speed_limit_topic").value)
         publish_rate_hz = self._float_parameter("publish_rate_hz")
         if publish_rate_hz <= 0.0:
             raise ValueError("publish_rate_hz must be positive")
@@ -50,6 +56,11 @@ class PersonSafetySupervisorNode(Node):
         self._sensor_healthy = False
         self._sensor_reason = "no RGB-D health report received"
         self._publisher = self.create_publisher(PersonSafetyState, safety_state_topic, 10)
+        self._speed_limit_publisher = self.create_publisher(
+            SpeedLimit,
+            speed_limit_topic,
+            10,
+        )
         self._subscription = self.create_subscription(
             PersonObservationArray,
             observation_topic,
@@ -124,6 +135,20 @@ class PersonSafetySupervisorNode(Node):
         message.detector_stale = result.detector_stale
         message.reason = result.reason
         self._publisher.publish(message)
+
+        decision = speed_limit_for_state(
+            result.state,
+            slow_percentage=self._float_parameter("slow_speed_percentage"),
+            restrictive_percentage=self._float_parameter(
+                "restrictive_speed_percentage"
+            ),
+        )
+        speed_limit = SpeedLimit()
+        speed_limit.header.stamp = message.header.stamp
+        speed_limit.header.frame_id = "base_link"
+        speed_limit.percentage = decision.percentage
+        speed_limit.speed_limit = decision.speed_limit
+        self._speed_limit_publisher.publish(speed_limit)
 
 
 def main(args=None) -> None:

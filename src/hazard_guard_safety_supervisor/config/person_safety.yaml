@@ -2,6 +2,7 @@ person_safety_supervisor:
   ros__parameters:
     observation_topic: /hazard_guard/person/observations
     safety_state_topic: /hazard_guard/person/safety_state
+    speed_limit_topic: /speed_limit
     autonomous: true
     publish_rate_hz: 10.0
 
@@ -12,3 +13,6 @@ person_safety_supervisor:
     detection_timeout_sec: 0.5
     clear_hold_sec: 2.0
     hysteresis_m: 0.2
+    slow_speed_percentage: 45.0
+    # Nav2에서 0은 정지가 아니라 제한 해제이다. 실제 정지는 cmd_vel 게이트가 담당한다.
+    restrictive_speed_percentage: 1.0
