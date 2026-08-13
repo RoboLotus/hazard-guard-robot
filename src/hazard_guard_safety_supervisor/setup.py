@@ -30,6 +30,7 @@ setup(
     entry_points={
         "console_scripts": [
             "person_safety_supervisor = hazard_guard_safety_supervisor.node:main",
+            "cmd_vel_safety_gate = hazard_guard_safety_supervisor.gate_node:main",
         ]
     },
 )

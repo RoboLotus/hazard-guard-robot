@@ -17,6 +17,13 @@ def generate_launch_description() -> LaunchDescription:
                 name="person_safety_supervisor",
                 output="screen",
                 parameters=[config_file],
-            )
+            ),
+            Node(
+                package="hazard_guard_safety_supervisor",
+                executable="cmd_vel_safety_gate",
+                name="cmd_vel_safety_gate",
+                output="screen",
+                parameters=[config_file],
+            ),
         ]
     )
