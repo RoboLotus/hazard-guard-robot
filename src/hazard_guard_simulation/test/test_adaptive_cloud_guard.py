@@ -182,3 +182,12 @@ def test_selected_physical_cloud_defaults_are_documented_in_launches():
     ):
         assert variable in physical_source
         assert f'"{default}"' in physical_source
+def test_real_launch_exposes_stamp_policy_and_sync_diagnostics():
+    launch_source = REAL_LAUNCH.read_text(encoding="utf-8")
+
+    assert '"cloud_stamp_mode",\n                default_value="latest"' in launch_source
+    assert 'default_value="latest"' in launch_source
+    assert '"sync_diagnostics",\n                default_value="false"' in launch_source
+    assert '"stamp_mode": LaunchConfiguration("cloud_stamp_mode")' in launch_source
+    assert 'executable="timestamp_diagnostics.py"' in launch_source
+    assert '"/hazard_guard/rtabmap/cloud_frame_generated"' in launch_source

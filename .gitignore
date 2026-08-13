@@ -20,6 +20,9 @@ runtime/debug/
 runtime/settings/
 runtime/bags/
 runtime/benchmarks/
+# Captured calibration frames - tens of megabytes each. The JSON results beside
+# them are kept on purpose so runs can be compared.
+runtime/calibration/*.npz
 *.db3
 *.mcap
 

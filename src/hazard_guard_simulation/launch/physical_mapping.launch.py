@@ -90,6 +90,22 @@ def generate_launch_description() -> LaunchDescription:
             "HAZARD_GUARD_CLOUD_ANGULAR_UPDATE", "0.10472"
         ),
     }
+    rtabmap_arguments = {
+        "database_path": database_path,
+        "storage_path": storage_path,
+        "cloud_stamp_mode": LaunchConfiguration("cloud_stamp_mode"),
+        "cloud_stamp_offset_sec": LaunchConfiguration(
+            "cloud_stamp_offset_sec"
+        ),
+        "sync_diagnostics": LaunchConfiguration("sync_diagnostics"),
+        "rtabmap_registration_strategy": LaunchConfiguration(
+            "rtabmap_registration_strategy"
+        ),
+        "cloud_fixed_frame": LaunchConfiguration("cloud_fixed_frame"),
+        "cloud_output_frame": LaunchConfiguration("cloud_output_frame"),
+        "optimized_cloud": LaunchConfiguration("optimized_cloud"),
+        **cloud_arguments,
+    }
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -146,6 +162,38 @@ def generate_launch_description() -> LaunchDescription:
                 "cloud_angular_update",
                 default_value=cloud_defaults["cloud_angular_update"],
             ),
+            DeclareLaunchArgument(
+                "cloud_stamp_mode",
+                default_value="latest",
+                choices=["preserve", "offset", "latest"],
+            ),
+            DeclareLaunchArgument(
+                "cloud_stamp_offset_sec",
+                default_value="0.0",
+            ),
+            DeclareLaunchArgument(
+                "sync_diagnostics",
+                default_value="false",
+            ),
+            DeclareLaunchArgument(
+                "rtabmap_registration_strategy",
+                default_value="1",
+                choices=["0", "1", "2"],
+            ),
+            DeclareLaunchArgument(
+                "cloud_fixed_frame",
+                default_value="odom",
+                choices=["odom", "map"],
+            ),
+            DeclareLaunchArgument(
+                "cloud_output_frame",
+                default_value="odom",
+                choices=["odom", "map"],
+            ),
+            DeclareLaunchArgument(
+                "optimized_cloud",
+                default_value="false",
+            ),
             # The vendor top-level launch does not forward this argument,
             # while its nested SLAM launch reads the global configuration.
             SetLaunchConfiguration("use_sim_time", "false"),
@@ -158,11 +206,7 @@ def generate_launch_description() -> LaunchDescription:
             include(
                 "hazard_guard_simulation",
                 "rtabmap_real.launch.py",
-                {
-                    "database_path": database_path,
-                    "storage_path": storage_path,
-                    **cloud_arguments,
-                },
+                rtabmap_arguments,
                 condition=IfCondition(enable_rtabmap),
             ),
         ]

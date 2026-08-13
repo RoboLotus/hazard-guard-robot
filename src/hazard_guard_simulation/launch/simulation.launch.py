@@ -6,11 +6,12 @@ from hazard_guard_sensor_config import TMC160B
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     IncludeLaunchDescription,
     SetEnvironmentVariable,
     TimerAction,
 )
-from launch.conditions import IfCondition, UnlessCondition
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     Command,
@@ -134,15 +135,13 @@ def generate_launch_description() -> LaunchDescription:
                     str(simulation_share / "models"),
                 ],
             ),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(gazebo_launch),
-                launch_arguments={
-                    "gz_args": ["-r -v 3 ", world],
-                    "gz_version": "6",
-                    "on_exit_shutdown": "true",
-                }.items(),
-                condition=IfCondition(gui),
-            ),
+            # Always a headless server, with the GUI as its own process when
+            # asked for. Letting `ign gazebo <world>` start both forks the
+            # server out of an already-threaded process, and that fork hangs:
+            # the server never advertises a topic, the GUI polls "requesting
+            # list of world names" forever, and the robot spawn below dies with
+            # "Request to create entity ... timed out". Reproduced on every
+            # gui:=true run; headless runs were never affected.
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(gazebo_launch),
                 launch_arguments={
@@ -150,7 +149,13 @@ def generate_launch_description() -> LaunchDescription:
                     "gz_version": "6",
                     "on_exit_shutdown": "true",
                 }.items(),
-                condition=UnlessCondition(gui),
+            ),
+            # The GUI retries the world list on its own, so it can start
+            # straight away and simply wait for the server.
+            ExecuteProcess(
+                cmd=["ign", "gazebo", "-g", "--force-version", "6"],
+                output="screen",
+                condition=IfCondition(gui),
             ),
             Node(
                 package="robot_state_publisher",
@@ -176,22 +181,28 @@ def generate_launch_description() -> LaunchDescription:
                     "/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan",
                     "/imu/data_raw@sensor_msgs/msg/Imu[gz.msgs.IMU",
                     "/joint_states@sensor_msgs/msg/JointState[gz.msgs.Model",
-                    "/camera@sensor_msgs/msg/Image[gz.msgs.Image",
+                    # Image topics are one level deep so that Fortress derives
+                    # a per-camera /<name>/camera_info; the remappings below
+                    # put the ROS names back to <name>/image_raw.
+                    "/camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
                     "/camera/camera_info@sensor_msgs/msg/CameraInfo"
                     "[gz.msgs.CameraInfo",
-                    "/depth_camera@sensor_msgs/msg/Image[gz.msgs.Image",
+                    "/depth_camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
                     "/depth_camera/camera_info@sensor_msgs/msg/CameraInfo"
                     "[gz.msgs.CameraInfo",
-                    "/depth_camera/points@sensor_msgs/msg/PointCloud2"
+                    "/depth_camera/image/points@sensor_msgs/msg/PointCloud2"
                     "[gz.msgs.PointCloudPacked",
-                    "/thermal_camera@sensor_msgs/msg/Image[gz.msgs.Image",
-                    "/thermal_camera/camera_info@sensor_msgs/msg/CameraInfo"
-                    "[gz.msgs.CameraInfo",
+                    "/thermal_camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
+                    # No thermal camera_info here on purpose. Fortress fills it
+                    # from the default camera (fx 277, centre 160x120 for a
+                    # 160x120 / 57 deg sensor), so thermal_camera_info.py
+                    # publishes the real intrinsics instead.
                 ],
                 remappings=[
-                    ("/camera", "/camera/image_raw"),
-                    ("/depth_camera", "/depth_camera/image_raw"),
-                    ("/thermal_camera", "/thermal_camera/image_raw"),
+                    ("/camera/image", "/camera/image_raw"),
+                    ("/depth_camera/image", "/depth_camera/image_raw"),
+                    ("/depth_camera/image/points", "/depth_camera/points"),
+                    ("/thermal_camera/image", "/thermal_camera/image_raw"),
                 ],
                 parameters=[
                     {

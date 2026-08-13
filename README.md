@@ -570,11 +570,11 @@ WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미�
 | 로봇 위치·오도메트리 | `/tf`, `/odom` |
 | 주행 명령 | `/cmd_vel` |
 | LiDAR | `/scan` |
-| RGB | `/camera/image_raw` |
-| Depth | `/depth_camera/image_raw` |
+| RGB | `/camera/image_raw`, `/camera/camera_info` |
+| Depth | `/depth_camera/image_raw`, `/depth_camera/camera_info`, `/depth_camera/points` |
 | RTAB-Map 컬러 3D 지도 | `/hazard_guard/rtabmap/cloud_surface` |
 | 3D 지도 부하 상태 | `/hazard_guard/rtabmap/cloud_guard/status` |
-| 열화상 | `/thermal_camera/image_raw` |
+| 열화상 | `/thermal_camera/image_raw`, `/thermal_camera/camera_info` |
 | IMU | `/imu/data_raw` |
 | 로봇 상태 | `/hazard_guard/telemetry` |
 | 열원 탐지 | `/hazard_guard/thermal_detections` |
@@ -587,6 +587,70 @@ WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미�
 8.7 Hz를 반영합니다. 지도에 보이는 5 m 부채꼴 길이는 화면 표현을 위한
 시뮬레이션 경계이며 제조사가 보장하는 측정거리가 아닙니다. 현재 열화상과
 열원 값은 합성 데이터이므로 실제 화재 판정 성능을 의미하지 않습니다.
+
+### 열화상 카메라 사양과 장착 위치
+
+제조사 사양표 기준입니다(`hazard_guard_sensor_config` 의 `TMC160B`).
+
+| 항목 | 값 |
+|---|---|
+| 센서 | 비냉각 VOx 마이크로볼로미터, 8~14 µm, 픽셀 피치 12 µm |
+| 해상도 / 프레임 | 160×120 / 8.7 Hz |
+| 화각 | **57°** (95° 렌즈 옵션도 있음 — 다른 렌즈면 URDF와 프로필을 함께 고쳐야 함) |
+| NETD | ≤ 50 mK |
+| 측정 범위 | High Gain −10~140 ℃ / Low Gain −10~450 ℃ |
+| 정확도 | High Gain ±5 ℃ 또는 ±5% / Low Gain ±10 ℃ 또는 ±10% |
+| 인터페이스 | USB-FS (UVC, CDC ACM) |
+| 크기 | 보드 38×38 mm / 하우징 45×45×45 mm |
+
+장착은 **RGB-D 유닛 옆**입니다. 위에 얹을 수 없습니다 — LiDAR 스캔 평면이
+base_link 기준 z 0.14712 인데 카메라 하우징 윗면이 이미 0.1197 이라, 38 mm
+보드를 그 위에 올리면 0.158 까지 올라가 전방 스캔을 가립니다.
+
+옆에 두면 보드가 0.087~0.125 구간에 머물러 스캔 평면 아래로 빠지고, 두 광학
+프레임이 x·z 는 같고 y 만 68 mm 벌어진 **순수 횡방향 베이스라인**이 됩니다.
+캘리브레이션 결과를 눈으로 검산하기 가장 쉬운 배치입니다. 하우징과는 4 mm,
+차체 옆면보다 6.5 mm 바깥이며 Nav2 풋프린트(반폭 0.155 m) 안입니다.
+
+장착 위치는 xacro 인자입니다. 캘리브레이션이 알려진 오차를 복원하는지
+시험할 때 일부러 틀어놓는 용도입니다.
+
+```bash
+xacro ... thermal_mount_y:=0.073 thermal_mount_yaw:=0.035   # 5 mm, 2° 틀기
+```
+
+`test/test_thermal_mount.py` 가 LiDAR 평면 침범, 하우징 겹침, 베이스라인
+정렬을 검사합니다.
+
+### 카메라 스트림 보기
+
+시뮬레이션이 떠 있는 상태에서 창을 띄웁니다. 기본은 열화상과 뎁스 2개이고,
+`show_rgb:=true` 로 RGB도 함께 볼 수 있습니다.
+
+```bash
+ros2 launch hazard_guard_simulation camera_view.launch.py
+ros2 launch hazard_guard_simulation camera_view.launch.py show_rgb:=true
+```
+
+열화상 창은 처음에 평평하게 보입니다. mono16 에 밝기가 아니라 온도가 실려
+있어서(켈빈 ×100, 29315 = 20.0 ℃) 툴바의 **Dynamic range** 를 켜야 대비가
+생깁니다.
+
+### 카메라 토픽 구조
+
+카메라마다 SDF 에 `<camera_info_topic>` 을 **명시**합니다. 이걸 빼면 Fortress
+가 이미지 토픽의 마지막 경로 조각을 떼고 `/camera_info` 를 붙여 만드는데,
+세 카메라 토픽이 모두 루트라 전부 `/camera_info` 하나로 접힙니다.
+
+| 설정 | gz CameraInfo | 결과 |
+|---|---|---|
+| `<camera_info_topic>` 없음 | 셋 다 `/camera_info` | 마지막에 발행한 카메라 값만 남음 |
+| `<camera_info_topic>` 명시 | `/camera/camera_info` 등 | 카메라별로 분리 |
+
+브리지도 정상 동작하고 토픽도 계속 갱신되므로 **조용히 틀린 값이 흐릅니다.**
+열화상-뎁스 캘리브레이션은 카메라별 intrinsics 가 있어야 성립하므로 명시가
+필수입니다. `test/test_camera_topics.py` 가 `<camera_info_topic>` 누락, 토픽
+충돌, 브리지 목록 누락을 검사합니다.
 
 ## 검증
 
