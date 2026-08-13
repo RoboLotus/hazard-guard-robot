@@ -1,0 +1,14 @@
+person_safety_supervisor:
+  ros__parameters:
+    observation_topic: /hazard_guard/person/observations
+    safety_state_topic: /hazard_guard/person/safety_state
+    autonomous: true
+    publish_rate_hz: 10.0
+
+    caution_distance_m: 2.5
+    slow_distance_m: 1.8
+    stop_distance_m: 0.9
+    minimum_confidence: 0.4
+    detection_timeout_sec: 0.5
+    clear_hold_sec: 2.0
+    hysteresis_m: 0.2
