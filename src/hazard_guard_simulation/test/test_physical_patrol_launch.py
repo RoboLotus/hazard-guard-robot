@@ -91,3 +91,43 @@ def test_physical_mission_alignment_uses_relaxed_sampled_policy():
     assert mission["pose_min_valid_samples"] == 3
     assert mission["pose_sample_interval_sec"] == 0.15
     assert "parameters=[nav2_params_file]" in source
+
+
+def test_person_safety_is_opt_in_and_gates_only_motor_facing_cmd_vel():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert 'DeclareLaunchArgument(\n                "use_person_safety"' in source
+    assert 'default_value="false"' in source
+    assert '"physical_m1_bringup.launch.py"' in source
+    assert '"motor_cmd_vel_topic": "/cmd_vel_safe"' in source
+    assert 'condition=UnlessCondition(use_person_safety)' in source
+    assert 'condition=IfCondition(use_person_safety)' in source
+    assert '"hazard_guard_person_detection"' in source
+    assert '"hazard_guard_safety_supervisor"' in source
+    assert 'name="safety_supervision_enabled"' in source
+
+
+def test_physical_person_detection_uses_hp60c_rgb_and_depth_topics():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert "/ascamera_hp60c/camera_publisher/rgb0/image" in source
+    assert "/ascamera_hp60c/camera_publisher/depth0/image_raw" in source
+    assert '"start_person_camera"' in source
+    assert '"person_depth_registration_verified"' in source
+    assert '"person_confidence"' in source
+    assert '"person_image_size"' in source
+    assert '"person_inference_rate_hz"' in source
+    assert '"confidence": person_confidence' in source
+    assert '"image_size": person_image_size' in source
+    assert '"inference_rate_hz": person_inference_rate_hz' in source
+
+
+def test_only_physical_motor_driver_consumes_gated_velocity() -> None:
+    source = (PACKAGE / "launch" / "physical_m1_bringup.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'executable="Mcnamu_driver_M1"' in source
+    assert 'remappings=[("cmd_vel", motor_cmd_vel_topic)]' in source
+    assert 'Node(package="yahboomcar_ctrl", executable="yahboom_joy_M1")' in source
+    assert "SetRemap" not in source

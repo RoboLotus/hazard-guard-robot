@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import threading
 import time
@@ -7,6 +8,7 @@ from typing import Any
 
 import rclpy
 from hazard_guard_interfaces.action import RunPatrol
+from hazard_guard_interfaces.msg import PersonSafetyState
 from rclpy.action import (
     ActionServer,
     CancelResponse,
@@ -25,7 +27,12 @@ from .alignment import (
     decide_alignment,
     sample_median_pose,
 )
-from .errors import MissionCanceled, MissionFailure, MissionScheduleEnded
+from .errors import (
+    MissionCanceled,
+    MissionFailure,
+    MissionSafetyPaused,
+    MissionScheduleEnded,
+)
 from .geometry import pose_errors
 from .navigation import Nav2Adapter
 from .schedule import (
@@ -36,6 +43,7 @@ from .schedule import (
     REPEAT_UNTIL_TIME,
     unix_time_ms,
 )
+from .safety import SafetyPauseLatch
 from .state import MissionStateStore
 
 
@@ -74,6 +82,19 @@ class HazardGuardMissionManager(Node):
         self.declare_parameter("navigation_timeout_sec", 180.0)
         self.declare_parameter("alignment_timeout_sec", 45.0)
         self.declare_parameter("server_wait_timeout_sec", 8.0)
+        self.declare_parameter("safety_supervision_enabled", False)
+        self.declare_parameter(
+            "person_safety_topic",
+            "/hazard_guard/person/safety_state",
+        )
+        self.declare_parameter(
+            "thermal_start_service",
+            "/hazard_guard/thermal/start_visit",
+        )
+        self.declare_parameter(
+            "thermal_record_service",
+            "/hazard_guard/thermal/record_visit",
+        )
 
         self._callback_group = ReentrantCallbackGroup()
         status_qos = QoSProfile(
@@ -92,6 +113,19 @@ class HazardGuardMissionManager(Node):
             self._cancel_service_callback,
             callback_group=self._callback_group,
         )
+        self._thermal_inspection_publisher = self.create_publisher(
+            String, "/hazard_guard/thermal/inspection_control", 10
+        )
+        self._thermal_start_client = self.create_client(
+            Trigger,
+            str(self.get_parameter("thermal_start_service").value),
+            callback_group=self._callback_group,
+        )
+        self._thermal_record_client = self.create_client(
+            Trigger,
+            str(self.get_parameter("thermal_record_service").value),
+            callback_group=self._callback_group,
+        )
         self._action_server = ActionServer(
             self,
             RunPatrol,
@@ -106,6 +140,18 @@ class HazardGuardMissionManager(Node):
         self._mission_active = False
         self._cancel_requested = threading.Event()
         self._active_schedule: PatrolSchedule | None = None
+        self._safety = SafetyPauseLatch(
+            enabled=bool(
+                self.get_parameter("safety_supervision_enabled").value
+            )
+        )
+        self._safety_subscription = self.create_subscription(
+            PersonSafetyState,
+            str(self.get_parameter("person_safety_topic").value),
+            self._on_person_safety,
+            10,
+            callback_group=self._callback_group,
+        )
         self._mission_state = MissionStateStore(self._publish_state_payload)
         self._nav = Nav2Adapter(
             self,
@@ -121,11 +167,29 @@ class HazardGuardMissionManager(Node):
                 self.get_parameter("server_wait_timeout_sec").value
             ),
             check_canceled=self._raise_if_canceled,
+            safety_is_paused=self._safety.is_paused,
         )
         self._mission_state.publish()
         self.get_logger().info(
             "Mission manager ready: /hazard_guard/run_patrol -> Nav2"
         )
+
+    def _on_person_safety(self, message: PersonSafetyState) -> None:
+        changed = self._safety.update(message.state, message.reason)
+        if not self._safety.is_paused():
+            return
+        with self._state_lock:
+            active = self._mission_active
+        if active:
+            self._nav.cancel_active_for_safety()
+            if changed:
+                self._update_state(
+                    status="safety_paused",
+                    message=(
+                        "사람 안전 정지로 순찰을 일시정지했습니다. "
+                        f"{message.reason}"
+                    ).strip(),
+                )
 
     def _goal_callback(self, request: RunPatrol.Goal) -> GoalResponse:
         with self._state_lock:
@@ -308,6 +372,8 @@ class HazardGuardMissionManager(Node):
                     message=self._cycle_message(current_cycle, schedule),
                 )
 
+                self._start_thermal_visit(f"cycle {current_cycle}")
+
                 completed = self._run_cycle(
                     goal_handle,
                     request,
@@ -321,7 +387,7 @@ class HazardGuardMissionManager(Node):
                         current_index=None,
                         message=f"{current_cycle}회차 시작 위치로 복귀 중입니다.",
                     )
-                    self._nav.navigate(
+                    self._navigate_with_safety_retry(
                         start_pose,
                         request.frame_id,
                         goal_handle,
@@ -329,6 +395,8 @@ class HazardGuardMissionManager(Node):
                             self.get_parameter("navigation_timeout_sec").value
                         ),
                     )
+
+                self._record_thermal_visit(f"cycle {current_cycle}")
 
                 completed_cycles += 1
                 self._update_state(
@@ -443,6 +511,65 @@ class HazardGuardMissionManager(Node):
             self._nav.clear_active()
             self._cancel_requested.clear()
 
+    @staticmethod
+    def _thermal_equipment_id(waypoint: Any) -> str | None:
+        equipment_id = str(getattr(waypoint, "equipment_id", "")).strip()
+        return equipment_id or None
+
+    def _set_thermal_focus(self, equipment_id: str | None) -> None:
+        message = String()
+        payload = {"action": "focus_equipment", "equipment_id": equipment_id} if equipment_id else {"action": "clear_focus"}
+        message.data = json.dumps(payload, separators=(",", ":"))
+        self._thermal_inspection_publisher.publish(message)
+
+    def _start_thermal_visit(self, cycle_name: str) -> None:
+        """Reset the thermal accumulator once before a patrol cycle."""
+
+        if not self._thermal_start_client.service_is_ready():
+            self.get_logger().info(
+                f"{cycle_name}: thermal visit start service is not active"
+            )
+            return
+        future = self._thermal_start_client.call_async(Trigger.Request())
+
+        def completed(done_future: Any) -> None:
+            try:
+                response = done_future.result()
+            except Exception as exc:
+                self.get_logger().warning(
+                    f"{cycle_name}: thermal visit start failed: {exc}"
+                )
+                return
+            if not response.success:
+                self.get_logger().warning(f"{cycle_name}: {response.message}")
+
+        future.add_done_callback(completed)
+
+    def _record_thermal_visit(self, waypoint_name: str) -> None:
+        """Record one completed inspection without blocking the patrol."""
+
+        if not self._thermal_record_client.service_is_ready():
+            self.get_logger().info(
+                f"{waypoint_name}: thermal history service is not active"
+            )
+            return
+        future = self._thermal_record_client.call_async(Trigger.Request())
+
+        def completed(done_future: Any) -> None:
+            try:
+                response = done_future.result()
+            except Exception as exc:
+                self.get_logger().warning(
+                    f"{waypoint_name}: thermal history request failed: {exc}"
+                )
+                return
+            if response.success:
+                self.get_logger().info(f"{waypoint_name}: {response.message}")
+            else:
+                self.get_logger().warning(f"{waypoint_name}: {response.message}")
+
+        future.add_done_callback(completed)
+
     def _run_cycle(
         self,
         goal_handle: Any,
@@ -470,7 +597,7 @@ class HazardGuardMissionManager(Node):
                 float(waypoint.y),
                 float(waypoint.yaw),
             )
-            self._nav.navigate(
+            self._navigate_with_safety_retry(
                 target,
                 request.frame_id,
                 goal_handle,
@@ -487,6 +614,7 @@ class HazardGuardMissionManager(Node):
 
             dwell_seconds = max(0.0, float(waypoint.dwell_seconds))
             if dwell_seconds:
+                self._set_thermal_focus(self._thermal_equipment_id(waypoint))
                 self._update_waypoint(
                     index,
                     "dwelling",
@@ -504,12 +632,16 @@ class HazardGuardMissionManager(Node):
                     position_error=position_error,
                     yaw_error=math.degrees(yaw_error),
                 )
-                deadline = time.monotonic() + dwell_seconds
-                while time.monotonic() < deadline:
+                remaining = dwell_seconds
+                while remaining > 0.0:
                     self._raise_if_canceled(goal_handle)
-                    remaining = max(0.0, deadline - time.monotonic())
-                    time.sleep(min(0.1, remaining))
-
+                    self._wait_for_safety_clear(goal_handle)
+                    slice_seconds = min(0.1, remaining)
+                    started = time.monotonic()
+                    time.sleep(slice_seconds)
+                    if not self._safety.is_paused():
+                        remaining -= time.monotonic() - started
+                self._set_thermal_focus(None)
             completed = index + 1
             self._update_waypoint(index, "completed", "도착 및 점검 완료")
             self._update_state(
@@ -526,6 +658,53 @@ class HazardGuardMissionManager(Node):
                 yaw_error=math.degrees(yaw_error),
             )
         return completed
+
+    def _navigate_with_safety_retry(
+        self,
+        target: tuple[float, float, float],
+        frame_id: str,
+        goal_handle: Any,
+        *,
+        timeout: float,
+    ) -> None:
+        """Retry the same Nav2 target after a person-safety pause clears."""
+        while True:
+            self._raise_if_canceled(goal_handle)
+            self._wait_for_safety_clear(goal_handle)
+            self._raise_if_canceled(goal_handle)
+            try:
+                self._nav.navigate(
+                    target,
+                    frame_id,
+                    goal_handle,
+                    timeout=timeout,
+                )
+                return
+            except MissionSafetyPaused:
+                # The safety callback canceled Nav2 deliberately. Keep the
+                # mission and waypoint intact, wait for clear, then replan.
+                continue
+
+    def _wait_for_safety_clear(self, goal_handle: Any) -> None:
+        announced = False
+        while self._safety.is_paused():
+            self._raise_if_canceled(goal_handle)
+            if not announced:
+                _state, reason = self._safety.snapshot()
+                self._update_state(
+                    status="safety_paused",
+                    message=(
+                        "사람 안전 구역이 확보될 때까지 대기합니다. "
+                        f"{reason}"
+                    ).strip(),
+                )
+                announced = True
+            time.sleep(0.05)
+        if announced:
+            self._update_state(
+                status="executing",
+                message="안전 구역이 확보되어 현재 목적지를 다시 계획합니다.",
+            )
 
     def _wait_for_scheduled_start(
         self,
@@ -596,6 +775,7 @@ class HazardGuardMissionManager(Node):
         frame_id: str,
         mission_goal: Any,
     ) -> tuple[float, float]:
+        self._wait_for_safety_clear(mission_goal)
         target = (float(waypoint.x), float(waypoint.y), float(waypoint.yaw))
         retries = max(0, int(self.get_parameter("alignment_retries").value))
         thresholds = AlignmentThresholds(
@@ -628,6 +808,7 @@ class HazardGuardMissionManager(Node):
 
         for attempt in range(retries + 1):
             self._raise_if_canceled(mission_goal)
+            self._wait_for_safety_clear(mission_goal)
             actual = sample_median_pose(
                 lambda: self._nav.current_pose(frame_id),
                 sample_count=sample_count,
@@ -699,7 +880,7 @@ class HazardGuardMissionManager(Node):
                 status="aligning",
                 message=f"{waypoint.name}에서 카메라 방향을 정렬하고 있습니다.",
             )
-            self._nav.navigate(
+            self._navigate_with_safety_retry(
                 target,
                 frame_id,
                 mission_goal,

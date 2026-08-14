@@ -17,6 +17,8 @@ Gazebo Fortress, SLAM Toolbox, Nav2와 WebUI 연동을 검증할 수 있는 개�
 - Nav2 단일 목적지·다중 웨이포인트 주행
 - 하드웨어 없이 사용하는 mock telemetry·열원 탐지
 - ROS 2 Action 기반 다중 웨이포인트 임무 관리자
+- YOLO11n 사람 탐지와 RGB-D 거리 추정
+- Nav2 SpeedLimit 감속, 최종 `cmd_vel` 정지 게이트, 순찰 일시정지·재개
 - FastAPI WebUI bridge에서 사용할 ROS 토픽과 액션
 
 Jetson 전용 CUDA·TensorRT, 실제 ROSMASTER 하드웨어 드라이버, 경고장치 제어는
@@ -28,6 +30,8 @@ Jetson 전용 CUDA·TensorRT, 실제 ROSMASTER 하드웨어 드라이버, 경고
 src/
 ├─ hazard_guard_interfaces/    메시·서비스·순찰 Action 정의
 ├─ hazard_guard_mission_manager/ Nav2 순찰 임무 실행 노드
+├─ hazard_guard_person_detection/ YOLO11n 사람 탐지·RGB-D 거리
+├─ hazard_guard_safety_supervisor/ 안전 상태·Nav2 감속·최종 속도 게이트
 ├─ hazard_guard_mock_robot/    mock 상태·명령·열원·검증 노드
 ├─ hazard_guard_bringup/       기본 mock bringup
 └─ hazard_guard_simulation/    Fortress 모델, 월드, SLAM, Nav2
@@ -42,6 +46,16 @@ src/
 
 팀 공용 Docker 기반 환경은 별도 `RoboLotus/slam-jetson-env` 저장소에서
 관리합니다. 이 저장소는 ROS 패키지와 시뮬레이션 소스만 관리합니다.
+
+## 사람 탐지와 안전 제어
+
+사람 탐지는 Nav2 장애물 회피를 대체하지 않습니다. Nav2가 경로 계획과 회피를
+계속 담당하고, YOLO11n과 Depth가 사람의 의미·거리를 제공하여 감속 또는 최종
+정지를 추가합니다. 기본 launch에서는 비활성화되어 있으며 모델과 Jetson 환경을
+검증한 뒤 `use_person_safety:=true`로 켭니다.
+
+- 구조·토픽·실행·실물 검증: [PERSON_SAFETY_ARCHITECTURE.md](PERSON_SAFETY_ARCHITECTURE.md)
+- YOLO·Jetson 환경 설치와 기록: [YOLO_JETSON_SETUP.md](YOLO_JETSON_SETUP.md)
 
 ## 빌드
 

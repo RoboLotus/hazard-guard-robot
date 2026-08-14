@@ -19,7 +19,7 @@ class InitialPosePublisher(Node):
         self.declare_parameter("repeat_count", 3)
         self.declare_parameter("interval_sec", 0.5)
 
-        qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
         self._publisher = self.create_publisher(
             PoseWithCovarianceStamped, "/initialpose", qos
         )

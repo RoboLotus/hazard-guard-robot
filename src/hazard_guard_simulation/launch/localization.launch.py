@@ -5,7 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -13,6 +13,12 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description() -> LaunchDescription:
     simulation_share = Path(get_package_share_directory("hazard_guard_simulation"))
     nav2_share = Path(get_package_share_directory("nav2_bringup"))
+    detection_share = Path(
+        get_package_share_directory("hazard_guard_person_detection")
+    )
+    safety_share = Path(
+        get_package_share_directory("hazard_guard_safety_supervisor")
+    )
     nav2_parameters = simulation_share / "config" / "nav2.yaml"
 
     gui = LaunchConfiguration("gui")
@@ -34,6 +40,18 @@ def generate_launch_description() -> LaunchDescription:
     initial_pose_x = LaunchConfiguration("initial_pose_x")
     initial_pose_y = LaunchConfiguration("initial_pose_y")
     initial_pose_yaw = LaunchConfiguration("initial_pose_yaw")
+    use_person_safety = LaunchConfiguration("use_person_safety")
+    person_model_path = LaunchConfiguration("person_model_path")
+    person_device = LaunchConfiguration("person_device")
+    bridge_velocity_topic = PythonExpression(
+        [
+            "'/cmd_vel_safe' if '",
+            use_person_safety,
+            "'.lower() == 'true' else '/cmd_vel'",
+        ]
+    )
+    use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
+    thermal_history_path = LaunchConfiguration("thermal_history_path")
 
     return LaunchDescription(
         [
@@ -81,6 +99,11 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("initial_pose_x", default_value=spawn_x),
             DeclareLaunchArgument("initial_pose_y", default_value=spawn_y),
             DeclareLaunchArgument("initial_pose_yaw", default_value=spawn_yaw),
+            DeclareLaunchArgument("use_person_safety", default_value="false"),
+            DeclareLaunchArgument("person_model_path", default_value="yolo11n.pt"),
+            DeclareLaunchArgument("person_device", default_value=""),
+            DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
+            DeclareLaunchArgument("thermal_history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "simulation.launch.py")
@@ -99,8 +122,46 @@ def generate_launch_description() -> LaunchDescription:
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
                     "heat_source_profile": heat_source_profile,
+                    "cmd_vel_ros_topic": bridge_velocity_topic,
+                    "use_thermal_pipeline": use_thermal_pipeline,
+                    "thermal_history_path": thermal_history_path,
                 }.items(),
                 condition=IfCondition(start_simulation),
+            ),
+            TimerAction(
+                period=4.0,
+                actions=[
+                    IncludeLaunchDescription(
+                        PythonLaunchDescriptionSource(
+                            str(
+                                detection_share
+                                / "launch"
+                                / "person_detection.launch.py"
+                            )
+                        ),
+                        launch_arguments={
+                            "rgb_topic": "/camera/image_raw",
+                            "depth_topic": "/depth_camera/image_raw",
+                            "model_path": person_model_path,
+                            "device": person_device,
+                            "simulated": "true",
+                            "depth_registration_verified": "true",
+                            "use_sim_time": "true",
+                        }.items(),
+                        condition=IfCondition(use_person_safety),
+                    ),
+                    IncludeLaunchDescription(
+                        PythonLaunchDescriptionSource(
+                            str(
+                                safety_share
+                                / "launch"
+                                / "person_safety.launch.py"
+                            )
+                        ),
+                        launch_arguments={"use_sim_time": "true"}.items(),
+                        condition=IfCondition(use_person_safety),
+                    ),
+                ],
             ),
             TimerAction(
                 period=5.0,
@@ -153,7 +214,15 @@ def generate_launch_description() -> LaunchDescription:
                         executable="mission_manager",
                         name="hazard_guard_mission_manager",
                         output="screen",
-                        parameters=[{"use_sim_time": True}],
+                        parameters=[
+                            {
+                                "use_sim_time": True,
+                                "safety_supervision_enabled": ParameterValue(
+                                    use_person_safety,
+                                    value_type=bool,
+                                ),
+                            }
+                        ],
                     )
                 ],
             ),

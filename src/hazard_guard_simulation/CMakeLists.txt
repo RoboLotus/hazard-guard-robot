@@ -50,6 +50,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_physical_patrol_launch
     test/test_physical_patrol_launch.py
   )
+  ament_add_pytest_test(test_person_safety_launch
+    test/test_person_safety_launch.py
+  )
   ament_add_pytest_test(test_cloud_stamp_relay
     test/test_cloud_stamp_relay.py
   )
@@ -63,6 +66,7 @@ endif()
 
 install(PROGRAMS
   scripts/build_demo_people_heat_world.py
+  scripts/run_demo_people_heat_navigation.sh
   scripts/run_demo_people_heat_simulation.sh
   scripts/trailer_aware_patrol.py
   DESTINATION lib/${PROJECT_NAME}
