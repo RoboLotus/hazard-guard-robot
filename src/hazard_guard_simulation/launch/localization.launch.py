@@ -3,7 +3,7 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -14,6 +14,7 @@ def generate_launch_description() -> LaunchDescription:
     simulation_share = Path(get_package_share_directory("hazard_guard_simulation"))
     nav2_share = Path(get_package_share_directory("nav2_bringup"))
     nav2_parameters = simulation_share / "config" / "nav2.yaml"
+    slam_parameters = simulation_share / "config" / "slam.yaml"
 
     gui = LaunchConfiguration("gui")
     world = LaunchConfiguration("world")
@@ -34,6 +35,7 @@ def generate_launch_description() -> LaunchDescription:
     initial_pose_x = LaunchConfiguration("initial_pose_x")
     initial_pose_y = LaunchConfiguration("initial_pose_y")
     initial_pose_yaw = LaunchConfiguration("initial_pose_yaw")
+    slam = LaunchConfiguration("slam")
 
     return LaunchDescription(
         [
@@ -81,6 +83,16 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("initial_pose_x", default_value=spawn_x),
             DeclareLaunchArgument("initial_pose_y", default_value=spawn_y),
             DeclareLaunchArgument("initial_pose_yaw", default_value=spawn_yaw),
+            DeclareLaunchArgument(
+                "slam",
+                default_value="false",
+                description=(
+                    "Keep mapping while patrolling: SLAM Toolbox replaces "
+                    "map_server + AMCL, so the map keeps growing and can be "
+                    "saved again. The 'map' argument is then unused - "
+                    "SLAM Toolbox starts from an empty map."
+                ),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "simulation.launch.py")
@@ -117,6 +129,41 @@ def generate_launch_description() -> LaunchDescription:
                             "use_composition": "False",
                             "params_file": str(nav2_parameters),
                         }.items(),
+                        condition=UnlessCondition(slam),
+                    )
+                ],
+            ),
+            # slam:=true patrol. The same SLAM Toolbox node the mapping mode
+            # uses, so /map keeps updating and map_saver_cli can store it, with
+            # Nav2 on top of it. nav2_bringup's own slam path is not used: it
+            # starts the sync node with its own parameters.
+            TimerAction(
+                period=5.0,
+                actions=[
+                    Node(
+                        package="slam_toolbox",
+                        executable="async_slam_toolbox_node",
+                        name="slam_toolbox",
+                        output="screen",
+                        parameters=[str(slam_parameters)],
+                        condition=IfCondition(slam),
+                    )
+                ],
+            ),
+            TimerAction(
+                period=8.0,
+                actions=[
+                    IncludeLaunchDescription(
+                        PythonLaunchDescriptionSource(
+                            str(nav2_share / "launch" / "navigation_launch.py")
+                        ),
+                        launch_arguments={
+                            "use_sim_time": "true",
+                            "autostart": "true",
+                            "use_composition": "False",
+                            "params_file": str(nav2_parameters),
+                        }.items(),
+                        condition=IfCondition(slam),
                     )
                 ],
             ),
