@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import time
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import String
+from std_srvs.srv import Trigger
 
 
 @dataclass(frozen=True)
@@ -19,6 +22,15 @@ class RoutePoint:
     x: float
     y: float
     yaw: float
+
+@dataclass(frozen=True)
+class ScanStation:
+    name: str
+    equipment_id: str
+    x: float
+    y: float
+    yaws: tuple[float, ...]
+
 
 
 def normalize(angle: float) -> float:
@@ -77,6 +89,7 @@ def build_route(spacing: float = 0.065) -> list[RoutePoint]:
 class TrailerAwarePatrol(Node):
     def __init__(self) -> None:
         super().__init__("trailer_aware_patrol")
+        self.declare_parameter("equipment_scan", True)
         self.points = build_route()
         self.pose: tuple[float, float, float] | None = None
         self.route_initialized = False
@@ -90,18 +103,27 @@ class TrailerAwarePatrol(Node):
         # rear dispenser. From here the four configured equipment heat
         # sources span about 48 degrees, so a slow deterministic yaw sweep can
         # inspect the whole plant without entering its narrow inner aisles.
-        self.scan_x = 2.541
-        self.scan_y = -1.306
-        self.scan_trigger_distance = 0.11
-        self.scan_yaws = tuple(
-            math.radians(degrees) for degrees in (122.0, 148.0, 174.0, 45.0)
+        degrees = math.radians
+        self.scan_stations = (
+            ScanStation("hydraulic tank", "baler_hydraulic_tank", 1.130, -1.385, (degrees(90.0),)),
+            ScanStation("shredder motor", "primary_shredder_motor", 2.541, -1.306, (
+                degrees(122.0), degrees(148.0), degrees(174.0),
+            )),
+            ScanStation("processor pump", "secondary_processor_pump", 2.540, 1.300, (degrees(-150.0),)),
+            ScanStation("waste pile", "bunker_waste_pile", -2.600, -0.700, (degrees(0.0),)),
         )
+        self.scan_station_index = 0
+        self.scan_trigger_distance = 0.11
         self.scan_index = 0
         self.scan_started = False
-        self.scan_complete = False
+        self.scan_complete = not bool(self.get_parameter("equipment_scan").value)
         self.scan_hold_started: float | None = None
-        self.scan_hold_seconds = 1.5
+        self.scan_hold_seconds = 3.0
         self.scan_angular_speed = 0.20
+        self.visit_started = False
+        self.visit_start_requested = False
+        self.lap_complete = False
+        self.visit_record_requested = False
         self.done = False
 
         odom_qos = QoSProfile(
@@ -110,6 +132,15 @@ class TrailerAwarePatrol(Node):
             depth=5,
         )
         self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.inspection_pub = self.create_publisher(
+            String, "/hazard_guard/thermal/inspection_control", 10
+        )
+        self.visit_start_client = self.create_client(
+            Trigger, "/hazard_guard/thermal/start_visit"
+        )
+        self.visit_record_client = self.create_client(
+            Trigger, "/hazard_guard/thermal/record_visit"
+        )
         self.create_subscription(Odometry, "/odom", self.odom_callback, odom_qos)
         self.create_timer(0.05, self.control)
         self.get_logger().info(
@@ -142,6 +173,61 @@ class TrailerAwarePatrol(Node):
                 f"yaw {math.degrees(point.yaw):.1f} deg"
             )
 
+    def publish_inspection_control(
+        self, action: str, equipment_id: str | None = None
+    ) -> None:
+        message = String()
+        payload = {"action": action}
+        if equipment_id:
+            payload["equipment_id"] = equipment_id
+        message.data = json.dumps(payload, separators=(",", ":"))
+        self.inspection_pub.publish(message)
+
+    def start_thermal_visit(self) -> None:
+        if self.visit_started or self.visit_start_requested:
+            return
+        if not self.visit_start_client.service_is_ready():
+            return
+        self.visit_start_requested = True
+        future = self.visit_start_client.call_async(Trigger.Request())
+
+        def completed(done_future) -> None:
+            response = done_future.result()
+            if response is None or not response.success:
+                self.get_logger().error("FAIL: could not start thermal patrol visit")
+                self.done = True
+                return
+            self.visit_started = True
+            self.get_logger().info("Thermal patrol visit started")
+
+        future.add_done_callback(completed)
+
+    def record_thermal_visit(self) -> None:
+        if self.visit_record_requested:
+            return
+        if not self.visit_record_client.service_is_ready():
+            return
+        self.visit_record_requested = True
+        future = self.visit_record_client.call_async(Trigger.Request())
+
+        def completed(done_future) -> None:
+            response = done_future.result()
+            if response is None or not response.success:
+                detail = response.message if response is not None else "no response"
+                self.get_logger().error(
+                    f"FAIL: thermal patrol visit was not recorded: {detail}"
+                )
+            else:
+                self.get_logger().info(
+                    f"Thermal patrol visit recorded once for this lap: {response.message}"
+                )
+                self.get_logger().info(
+                    "PASS: one complete trailer-aware patrol lap finished"
+                )
+            self.done = True
+
+        future.add_done_callback(completed)
+
     def stop(self) -> None:
         self.cmd_pub.publish(Twist())
 
@@ -169,16 +255,21 @@ class TrailerAwarePatrol(Node):
 
     def control_equipment_scan(self, x: float, y: float, yaw: float) -> None:
         """Perform the fixed scan sequence regardless of detection results."""
+        station = self.scan_stations[self.scan_station_index]
         if not self.scan_started:
             self.scan_started = True
             self.scan_index = 0
             self.scan_hold_started = None
             self.stop()
+            self.publish_inspection_control(
+                "focus_equipment", station.equipment_id
+            )
             self.get_logger().info(
-                "Starting deterministic equipment scan: 122, 148, 174 deg"
+                f"Starting {station.name} scan at "
+                f"({station.x:.3f}, {station.y:.3f})"
             )
 
-        target_yaw = self.scan_yaws[self.scan_index]
+        target_yaw = station.yaws[self.scan_index]
         yaw_error = normalize(target_yaw - yaw)
         if (
             self.scan_hold_started is None
@@ -208,25 +299,43 @@ class TrailerAwarePatrol(Node):
 
         self.scan_index += 1
         self.scan_hold_started = None
-        if self.scan_index < len(self.scan_yaws):
+        if self.scan_index < len(station.yaws):
             return
 
-        self.scan_complete = True
+        self.scan_station_index += 1
+        self.publish_inspection_control("clear_focus")
         self.scan_started = False
         self.last_motion_pose = (x, y)
         self.last_motion_time = now
-        self.get_logger().info(
-            "Equipment scan complete; resuming the outer patrol route"
-        )
+        if self.scan_station_index >= len(self.scan_stations):
+            self.scan_complete = True
+            self.get_logger().info(
+                "All equipment scans complete; resuming the outer patrol route"
+            )
+        else:
+            self.get_logger().info(
+                f"{station.name} scan complete; continuing to the next station"
+            )
 
     def control(self) -> None:
         if self.done or self.pose is None or not self.route_initialized:
+            return
+        if not self.visit_started:
+            self.stop()
+            self.start_thermal_visit()
+            return
+        if self.lap_complete:
+            self.stop()
+            self.record_thermal_visit()
             return
         x, y, yaw = self.pose
         self.update_progress(x, y)
         count = len(self.points)
 
-        scan_distance = math.hypot(x - self.scan_x, y - self.scan_y)
+        scan_distance = math.inf
+        if not self.scan_complete:
+            station = self.scan_stations[self.scan_station_index]
+            scan_distance = math.hypot(x - station.x, y - station.y)
         if not self.scan_complete and (
             self.scan_started or scan_distance < self.scan_trigger_distance
         ):
@@ -237,8 +346,10 @@ class TrailerAwarePatrol(Node):
             finish = self.points[0]
             if math.hypot(x - finish.x, y - finish.y) < 0.14:
                 self.stop()
-                self.done = True
-                self.get_logger().info("PASS: one complete trailer-aware patrol lap finished")
+                self.lap_complete = True
+                self.get_logger().info(
+                    "One lap complete; recording one aggregated thermal visit"
+                )
                 return
 
         target = self.points[self.target_index() % count]

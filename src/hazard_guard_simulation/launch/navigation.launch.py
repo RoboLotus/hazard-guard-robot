@@ -41,6 +41,9 @@ def generate_launch_description() -> LaunchDescription:
             "'.lower() == 'true' else '/cmd_vel'",
         ]
     )
+    heat_source_profile = LaunchConfiguration("heat_source_profile")
+    use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
+    thermal_history_path = LaunchConfiguration("thermal_history_path")
 
     return LaunchDescription(
         [
@@ -69,6 +72,9 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("use_person_safety", default_value="false"),
             DeclareLaunchArgument("person_model_path", default_value="yolo11n.pt"),
             DeclareLaunchArgument("person_device", default_value=""),
+            DeclareLaunchArgument("heat_source_profile", default_value=""),
+            DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
+            DeclareLaunchArgument("thermal_history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "slam.launch.py")
@@ -86,6 +92,9 @@ def generate_launch_description() -> LaunchDescription:
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
                     "cmd_vel_ros_topic": bridge_velocity_topic,
+                    "heat_source_profile": heat_source_profile,
+                    "use_thermal_pipeline": use_thermal_pipeline,
+                    "thermal_history_path": thermal_history_path,
                 }.items(),
             ),
             TimerAction(

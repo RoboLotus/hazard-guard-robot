@@ -28,6 +28,8 @@ def generate_launch_description() -> LaunchDescription:
     enable_rtabmap = LaunchConfiguration("enable_rtabmap")
     rtabmap_database_path = LaunchConfiguration("rtabmap_database_path")
     cmd_vel_ros_topic = LaunchConfiguration("cmd_vel_ros_topic")
+    use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
+    thermal_history_path = LaunchConfiguration("thermal_history_path")
 
     return LaunchDescription(
         [
@@ -72,6 +74,8 @@ def generate_launch_description() -> LaunchDescription:
                 "rtabmap_database_path",
                 default_value="/tmp/hazard_guard_rtabmap_sim.db",
             ),
+            DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
+            DeclareLaunchArgument("thermal_history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "simulation.launch.py")
@@ -91,6 +95,8 @@ def generate_launch_description() -> LaunchDescription:
                     "dispenser_mass": dispenser_mass,
                     "heat_source_profile": heat_source_profile,
                     "cmd_vel_ros_topic": cmd_vel_ros_topic,
+                    "use_thermal_pipeline": use_thermal_pipeline,
+                    "thermal_history_path": thermal_history_path,
                 }.items(),
                 condition=IfCondition(start_simulation),
             ),

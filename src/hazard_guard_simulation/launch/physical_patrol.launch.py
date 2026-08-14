@@ -121,6 +121,32 @@ def generate_launch_description() -> LaunchDescription:
                     "registration. Safety remains fail-closed while false."
                 ),
             ),
+            DeclareLaunchArgument(
+                "enable_thermal_pipeline", default_value="false"
+            ),
+            DeclareLaunchArgument("thermal_roi_config", default_value=""),
+            DeclareLaunchArgument(
+                "thermal_history_path",
+                default_value="~/.local/share/hazard_guard/thermal_history.jsonl",
+            ),
+            DeclareLaunchArgument(
+                "thermal_image_topic",
+                default_value="/thermal_camera/image_raw",
+            ),
+            DeclareLaunchArgument(
+                "thermal_info_topic",
+                default_value="/thermal_camera/camera_info",
+            ),
+            DeclareLaunchArgument(
+                "thermal_depth_image_topic",
+                default_value="/depth_camera/image_raw",
+            ),
+            DeclareLaunchArgument(
+                "thermal_depth_info_topic",
+                default_value="/depth_camera/camera_info",
+            ),
+            DeclareLaunchArgument("thermal_scale", default_value="1.0"),
+            DeclareLaunchArgument("thermal_offset_c", default_value="0.0"),
             SetLaunchConfiguration("use_sim_time", "false"),
             # Preserve the field-tested vendor bringup exactly when the new
             # safety feature is disabled.
@@ -202,6 +228,37 @@ def generate_launch_description() -> LaunchDescription:
                         parameters=[nav2_params_file],
                     ),
                 ],
+            ),
+            include(
+                "hazard_guard_thermal_analysis",
+                "thermal_pipeline.launch.py",
+                {
+                    "use_sim_time": "false",
+                    "simulated": "false",
+                    "roi_config": LaunchConfiguration("thermal_roi_config"),
+                    "history_path": LaunchConfiguration(
+                        "thermal_history_path"
+                    ),
+                    "thermal_image_topic": LaunchConfiguration(
+                        "thermal_image_topic"
+                    ),
+                    "thermal_info_topic": LaunchConfiguration(
+                        "thermal_info_topic"
+                    ),
+                    "depth_image_topic": LaunchConfiguration(
+                        "thermal_depth_image_topic"
+                    ),
+                    "depth_info_topic": LaunchConfiguration(
+                        "thermal_depth_info_topic"
+                    ),
+                    "thermal_scale": LaunchConfiguration("thermal_scale"),
+                    "thermal_offset_c": LaunchConfiguration(
+                        "thermal_offset_c"
+                    ),
+                },
+                condition=IfCondition(
+                    LaunchConfiguration("enable_thermal_pipeline")
+                ),
             ),
             TimerAction(
                 period=5.0,
