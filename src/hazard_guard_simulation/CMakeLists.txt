@@ -39,6 +39,7 @@ install(PROGRAMS scripts/rtabmap_scan_demo.py scripts/camera_info_relay.py
   scripts/thermal_colorize.py scripts/thermal_overlay.py
   scripts/thermal_camera_info.py
   scripts/timestamp_diagnostics.py
+  scripts/person_detector.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -75,6 +76,7 @@ if(BUILD_TESTING)
   )
   ament_add_pytest_test(test_camera_topics test/test_camera_topics.py)
   ament_add_pytest_test(test_thermal_mount test/test_thermal_mount.py)
+  ament_add_pytest_test(test_person_detector test/test_person_detector.py)
 endif()
 
 ament_package()

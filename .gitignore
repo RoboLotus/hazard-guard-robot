@@ -20,9 +20,13 @@ runtime/debug/
 runtime/settings/
 runtime/bags/
 runtime/benchmarks/
+runtime/models/
 # Captured calibration frames - tens of megabytes each. The JSON results beside
 # them are kept on purpose so runs can be compared.
 runtime/calibration/*.npz
+
+# YOLO weights, downloaded on first run
+*.pt
 *.db3
 *.mcap
 
