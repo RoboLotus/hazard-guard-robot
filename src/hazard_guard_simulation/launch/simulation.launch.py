@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+import yaml
 from ament_index_python.packages import get_package_share_directory
 from hazard_guard_sensor_config import TMC160B
 from launch import LaunchDescription
@@ -20,6 +21,35 @@ from launch.substitutions import (
 )
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
+
+
+THERMAL_OPTICAL_ARGUMENTS = (
+    "thermal_optical_x", "thermal_optical_y", "thermal_optical_z",
+    "thermal_optical_roll", "thermal_optical_pitch", "thermal_optical_yaw",
+)
+
+
+def thermal_extrinsic_arguments(simulation_share: Path) -> list:
+    """Extra xacro arguments carrying the applied thermal calibration.
+
+    Empty when nothing has been applied, which leaves the mounting-drawing
+    defaults in the xacro untouched. tools/apply_calibration.py writes the
+    file; HAZARD_GUARD_THERMAL_EXTRINSIC points somewhere else for the
+    perturbation runs that check a calibration recovers a known offset.
+    """
+    path = Path(os.environ.get(
+        "HAZARD_GUARD_THERMAL_EXTRINSIC",
+        simulation_share / "config" / "thermal_extrinsic.yaml"))
+    if not path.is_file():
+        return []
+    values = yaml.safe_load(path.read_text()) or {}
+    missing = [name for name in THERMAL_OPTICAL_ARGUMENTS if name not in values]
+    # A half-written file would silently mix calibrated and drawing values,
+    # and the mixture is wrong in a way no picture makes obvious.
+    if missing:
+        raise RuntimeError(f"{path} 에 인자가 빠졌습니다: {', '.join(missing)}")
+    print(f"[simulation.launch] 열화상 외부파라미터 적용: {path}")
+    return [f" {name}:={values[name]}" for name in THERMAL_OPTICAL_ARGUMENTS]
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -43,6 +73,8 @@ def generate_launch_description() -> LaunchDescription:
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
     heat_source_profile = LaunchConfiguration("heat_source_profile")
+
+    thermal_extrinsic = thermal_extrinsic_arguments(simulation_share)
 
     robot_description = ParameterValue(
         Command(
@@ -69,6 +101,7 @@ def generate_launch_description() -> LaunchDescription:
                 str(TMC160B.clip_near_m),
                 " thermal_clip_far:=",
                 str(TMC160B.visualization_range_m),
+                *thermal_extrinsic,
             ]
         ),
         value_type=str,
@@ -215,6 +248,15 @@ def generate_launch_description() -> LaunchDescription:
                     }
                 ],
                 output="screen",
+            ),
+            Node(
+                # The intrinsics the bridge above deliberately does not carry.
+                # Anything geometric on the thermal stream needs these.
+                package="hazard_guard_simulation",
+                executable="thermal_camera_info.py",
+                name="thermal_camera_info",
+                output="screen",
+                parameters=[{"use_sim_time": use_sim_time}],
             ),
             Node(
                 package="hazard_guard_mock_robot",

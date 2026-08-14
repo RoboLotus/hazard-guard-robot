@@ -667,11 +667,12 @@ Resolution Asymmetry* (arXiv:2605.15860) 의 방식입니다. 기존 원형격�
 | 터미널 | 눈으로 확인 | 헤드리스 (빠름) |
 |---|---|---|
 | 1 | `simulation.launch.py gui:=true` | `simulation.launch.py gui:=false` |
-| 2 | `camera_view.launch.py` | `thermal_camera_info.py` |
+| 2 | `camera_view.launch.py` | (비워둠) |
 | 3 | 판 생성·수집·최적화 | 같음 |
 
-`camera_view.launch.py` 는 `thermal_camera_info.py` 를 직접 띄웁니다. 뷰어를 쓸
-때 2번을 따로 실행하면 같은 토픽에 발행자가 둘이 됩니다.
+`thermal_camera_info.py` 는 `simulation.launch.py` 가 직접 띄웁니다. 열화상 3D
+지도가 그 내부 파라미터를 쓰므로 뷰어와 무관하게 항상 떠 있고, 따로 실행하면 같은
+토픽에 발행자가 둘이 됩니다.
 
 **Gazebo 서버는 반드시 하나만.** 둘이면 카메라 영상은 한쪽에서 오고 판 이동
 명령은 다른 쪽에 꽂혀서, 같은 자세인데 검출이 됐다 안 됐다 합니다.
@@ -742,6 +743,25 @@ RMS 는 0.0005 px 밖에 안 움직여서 잔차로는 구별할 수 없습니�
 캘리브레이션을 별도로 수행해 `fx, fy, cx, cy` 와 왜곡을 직접 구해야 합니다.
 건너뛰면 그 오차가 전부 외부파라미터로 흘러갑니다 — fx 3 % 오차가 tz 로 약 50 mm,
 주점 0.32 px 이 회전 0.17° 로 새는 것을 측정했습니다.
+
+### 보정값 적용
+
+푸는 것과 꽂는 것은 다른 단계입니다. `tools/apply_calibration.py` 가 결과 JSON 을 읽어
+`config/thermal_extrinsic.yaml` 로 쓰고, `simulation.launch.py` 가 그 파일이 있으면
+xacro 인자로 넘깁니다. 파일을 지우면 도면 기본값으로 돌아갑니다.
+
+```bash
+python3 tools/apply_calibration.py            # 가장 최근 결과, --dry-run 으로 미리보기
+colcon build --packages-select hazard_guard_simulation
+```
+
+보정값은 마운트가 아니라 **광학 조인트** (`thermal_camera_optical_joint`) 에 씁니다.
+`<sensor>` 에 `<pose>` 가 없어 Fortress 가 링크 원점에서 렌더하므로, 마운트를 옮기면
+렌더되는 카메라도 따라 움직여 보정이 제 꼬리를 뭅니다. 광학 조인트는 렌더러의 하류이자
+TF 의 상류라 링크를 그대로 둔 채 TF 만 측정값을 따르게 합니다. 실기기에서도 브래킷은
+도면이고 캘리브레이션이 재는 것은 하우징 안 광학 중심이라 의미가 맞습니다.
+
+절차 전체와 눈검사 방법은 `docs/paper_calibration_runbook.md` 7장에 있습니다.
 
 ## 검증
 
