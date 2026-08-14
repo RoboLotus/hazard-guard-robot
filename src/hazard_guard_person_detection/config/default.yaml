@@ -1,0 +1,19 @@
+person_detection:
+  ros__parameters:
+    rgb_topic: /camera/color/image_raw
+    depth_topic: /camera/depth/image_raw
+    observations_topic: /hazard_guard/person/observations
+    annotated_image_topic: /hazard_guard/person/annotated_image
+    model_path: yolo11n.pt
+    confidence: 0.4
+    image_size: 640
+    device: ""
+    person_class_id: 0
+    inference_rate_hz: 10.0
+    central_roi_ratio: 0.5
+    minimum_distance_m: 0.15
+    maximum_distance_m: 8.0
+    minimum_valid_depth_samples: 9
+    maximum_depth_age_sec: 0.10
+    depth_registration_verified: false
+    simulated: false

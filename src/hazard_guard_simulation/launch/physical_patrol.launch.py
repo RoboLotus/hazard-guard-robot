@@ -10,20 +10,28 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    GroupAction,
     IncludeLaunchDescription,
     SetLaunchConfiguration,
     TimerAction,
 )
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch.substitutions import (
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
+from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 
 
 def include(
     package: str,
     filename: str,
     arguments: Mapping[str, Any] | None = None,
+    condition: Any | None = None,
 ) -> IncludeLaunchDescription:
     package_share = Path(get_package_share_directory(package))
     return IncludeLaunchDescription(
@@ -31,6 +39,7 @@ def include(
             str(package_share / "launch" / filename)
         ),
         launch_arguments=(arguments or {}).items(),
+        condition=condition,
     )
 
 
@@ -47,6 +56,27 @@ def generate_launch_description() -> LaunchDescription:
     initial_pose_x = LaunchConfiguration("initial_pose_x")
     initial_pose_y = LaunchConfiguration("initial_pose_y")
     initial_pose_yaw = LaunchConfiguration("initial_pose_yaw")
+    use_person_safety = LaunchConfiguration("use_person_safety")
+    start_person_camera = LaunchConfiguration("start_person_camera")
+    person_model_path = LaunchConfiguration("person_model_path")
+    person_device = LaunchConfiguration("person_device")
+    person_confidence = LaunchConfiguration("person_confidence")
+    person_image_size = LaunchConfiguration("person_image_size")
+    person_inference_rate_hz = LaunchConfiguration("person_inference_rate_hz")
+    person_depth_registration_verified = LaunchConfiguration(
+        "person_depth_registration_verified"
+    )
+    start_camera_for_safety = IfCondition(
+        PythonExpression(
+            [
+                "'",
+                use_person_safety,
+                "'.lower() == 'true' and '",
+                start_person_camera,
+                "'.lower() == 'true'",
+            ]
+        )
+    )
     return LaunchDescription(
         [
             DeclareLaunchArgument("map"),
@@ -59,8 +89,87 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("initial_pose_x", default_value="0.0"),
             DeclareLaunchArgument("initial_pose_y", default_value="0.0"),
             DeclareLaunchArgument("initial_pose_yaw", default_value="0.0"),
+            DeclareLaunchArgument(
+                "use_person_safety",
+                default_value="false",
+                description=(
+                    "Enable YOLO person detection, Nav2 speed limiting, and "
+                    "the final fail-safe cmd_vel gate."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "start_person_camera",
+                default_value="true",
+                description=(
+                    "Start the HP60C driver with person safety. Set false if "
+                    "the camera driver is already running."
+                ),
+            ),
+            DeclareLaunchArgument("person_model_path", default_value="yolo11n.pt"),
+            DeclareLaunchArgument("person_device", default_value=""),
+            DeclareLaunchArgument("person_confidence", default_value="0.4"),
+            DeclareLaunchArgument("person_image_size", default_value="640"),
+            DeclareLaunchArgument(
+                "person_inference_rate_hz",
+                default_value="10.0",
+            ),
+            DeclareLaunchArgument(
+                "person_depth_registration_verified",
+                default_value="false",
+                description=(
+                    "Set true only after verifying HP60C RGB-depth pixel "
+                    "registration. Safety remains fail-closed while false."
+                ),
+            ),
             SetLaunchConfiguration("use_sim_time", "false"),
-            include("yahboomcar_nav", "laser_bringup_launch.py"),
+            # Preserve the field-tested vendor bringup exactly when the new
+            # safety feature is disabled.
+            include(
+                "yahboomcar_nav",
+                "laser_bringup_launch.py",
+                condition=UnlessCondition(use_person_safety),
+            ),
+            include(
+                "hazard_guard_simulation",
+                "physical_m1_bringup.launch.py",
+                {"motor_cmd_vel_topic": "/cmd_vel_safe"},
+                condition=IfCondition(use_person_safety),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    PathJoinSubstitution(
+                        [FindPackageShare("ascamera"), "launch", "hp60c.launch.py"]
+                    )
+                ),
+                condition=start_camera_for_safety,
+            ),
+            include(
+                "hazard_guard_person_detection",
+                "person_detection.launch.py",
+                {
+                    "rgb_topic": "/ascamera_hp60c/camera_publisher/rgb0/image",
+                    "depth_topic": (
+                        "/ascamera_hp60c/camera_publisher/depth0/image_raw"
+                    ),
+                    "model_path": person_model_path,
+                    "device": person_device,
+                    "confidence": person_confidence,
+                    "image_size": person_image_size,
+                    "inference_rate_hz": person_inference_rate_hz,
+                    "simulated": "false",
+                    "depth_registration_verified": (
+                        person_depth_registration_verified
+                    ),
+                    "use_sim_time": "false",
+                },
+                condition=IfCondition(use_person_safety),
+            ),
+            include(
+                "hazard_guard_safety_supervisor",
+                "person_safety.launch.py",
+                {"use_sim_time": "false"},
+                condition=IfCondition(use_person_safety),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(nav2_share / "launch" / "bringup_launch.py")
@@ -76,12 +185,23 @@ def generate_launch_description() -> LaunchDescription:
                     "use_respawn": "false",
                 }.items(),
             ),
-            Node(
-                package="hazard_guard_mission_manager",
-                executable="mission_manager",
-                name="hazard_guard_mission_manager",
-                output="screen",
-                parameters=[nav2_params_file],
+            GroupAction(
+                actions=[
+                    SetParameter(
+                        name="safety_supervision_enabled",
+                        value=ParameterValue(
+                            use_person_safety,
+                            value_type=bool,
+                        ),
+                    ),
+                    Node(
+                        package="hazard_guard_mission_manager",
+                        executable="mission_manager",
+                        name="hazard_guard_mission_manager",
+                        output="screen",
+                        parameters=[nav2_params_file],
+                    ),
+                ],
             ),
             TimerAction(
                 period=5.0,

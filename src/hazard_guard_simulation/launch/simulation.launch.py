@@ -43,6 +43,7 @@ def generate_launch_description() -> LaunchDescription:
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
     heat_source_profile = LaunchConfiguration("heat_source_profile")
+    cmd_vel_ros_topic = LaunchConfiguration("cmd_vel_ros_topic")
 
     robot_description = ParameterValue(
         Command(
@@ -80,6 +81,14 @@ def generate_launch_description() -> LaunchDescription:
         [
             DeclareLaunchArgument("gui", default_value="false"),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
+            DeclareLaunchArgument(
+                "cmd_vel_ros_topic",
+                default_value="/cmd_vel",
+                description=(
+                    "ROS-side velocity topic bridged to Gazebo /cmd_vel. "
+                    "Use /cmd_vel_safe when the person-safety gate is enabled."
+                ),
+            ),
             DeclareLaunchArgument(
                 "world",
                 default_value=str(default_world),
@@ -199,6 +208,7 @@ def generate_launch_description() -> LaunchDescription:
                     # publishes the real intrinsics instead.
                 ],
                 remappings=[
+                    ("/cmd_vel", cmd_vel_ros_topic),
                     ("/camera/image", "/camera/image_raw"),
                     ("/depth_camera/image", "/depth_camera/image_raw"),
                     ("/depth_camera/image/points", "/depth_camera/points"),

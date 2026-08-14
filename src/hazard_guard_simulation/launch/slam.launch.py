@@ -27,6 +27,7 @@ def generate_launch_description() -> LaunchDescription:
     start_simulation = LaunchConfiguration("start_simulation")
     enable_rtabmap = LaunchConfiguration("enable_rtabmap")
     rtabmap_database_path = LaunchConfiguration("rtabmap_database_path")
+    cmd_vel_ros_topic = LaunchConfiguration("cmd_vel_ros_topic")
 
     return LaunchDescription(
         [
@@ -53,6 +54,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("include_dispenser", default_value="true"),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
             DeclareLaunchArgument("heat_source_profile", default_value=""),
+            DeclareLaunchArgument("cmd_vel_ros_topic", default_value="/cmd_vel"),
             DeclareLaunchArgument(
                 "start_simulation",
                 default_value="true",
@@ -88,6 +90,7 @@ def generate_launch_description() -> LaunchDescription:
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
                     "heat_source_profile": heat_source_profile,
+                    "cmd_vel_ros_topic": cmd_vel_ros_topic,
                 }.items(),
                 condition=IfCondition(start_simulation),
             ),
