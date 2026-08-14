@@ -186,8 +186,58 @@ def surface_layer_model(
       </link>
     </model>"""
 
+# The plant is drawn at 0.07474982 in demo_facility_scaled, so a 1.857 m mesh
+# has to shrink by the same factor to stand 0.139 m tall next to a 0.372 m
+# sorting line. At full size the worker was taller than the whole facility.
+WORKER_SCALE = 0.07474982
+WORKER_HEIGHT = 1.857 * WORKER_SCALE
+
+# Sorting line footprint in the scaled world, measured from its mesh:
+# x -0.810 .. +0.605, y +0.138 .. +1.113. The workers stand just off its north
+# edge, in the aisle, facing the line - at this scale they are 40 mm wide and
+# do not narrow the 0.61 m patrol ring.
+CONVEYOR_NORTH_Y = 1.113
+WORKER_STANDOFF = 0.055
+WORKERS = (
+    ("thermal_worker_left", -0.45),
+    ("thermal_worker_right", 0.25),
+)
+
+
+def conveyor_workers() -> str:
+    """Two workers standing at the sorting line, scaled to the facility."""
+    models = []
+    for name, x in WORKERS:
+        models.append(f"""
+    <model name="{name}">
+      <static>true</static>
+      <pose>{x:.3f} {CONVEYOR_NORTH_Y + WORKER_STANDOFF:.3f} 0 0 0 -1.570796</pose>
+      <link name="person_link">
+        <visual name="person_visual">
+          <!-- Source mesh faces local +Y; rotate it so its face follows +X,
+               which the model pose above then turns toward the line. -->
+          <pose>0 0 0 0 0 -1.570796</pose>
+          <geometry>
+            <mesh>
+              <uri>model://factory_worker_complete/meshes/worker_baked.obj</uri>
+              <scale>{WORKER_SCALE:.8f} {WORKER_SCALE:.8f} {WORKER_SCALE:.8f}</scale>
+            </mesh>
+          </geometry>
+          <cast_shadows>true</cast_shadows>{thermal_plugin(PERSON_TEMPERATURE_K)}
+        </visual>
+      </link>
+    </model>""")
+    return "".join(models)
+
+
 def person_model() -> str:
-    # Rounded centerline keeps the 0.53 m-wide mesh inside the 0.62 m aisle.
+    """Everyone in the world: two at the line, one walking the ring."""
+    return conveyor_workers() + walking_worker()
+
+
+def walking_worker() -> str:
+    # Rounded centreline along the patrol ring. At WORKER_SCALE the mesh is
+    # 40 mm wide, so the path only has to stay clear of the equipment.
     plant_x = 2.35
     plant_y = 1.115
     radius = 0.31
@@ -251,7 +301,7 @@ def person_model() -> str:
           <geometry>
             <mesh>
               <uri>model://factory_worker_complete/meshes/worker_baked.obj</uri>
-              <scale>1 1 1</scale>
+              <scale>{WORKER_SCALE:.8f} {WORKER_SCALE:.8f} {WORKER_SCALE:.8f}</scale>
             </mesh>
           </geometry>
           <cast_shadows>true</cast_shadows>{thermal_plugin(PERSON_TEMPERATURE_K)}
