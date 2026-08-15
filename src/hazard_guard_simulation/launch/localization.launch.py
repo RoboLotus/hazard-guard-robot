@@ -52,6 +52,9 @@ def generate_launch_description() -> LaunchDescription:
     )
     use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
     thermal_history_path = LaunchConfiguration("thermal_history_path")
+    enable_rgbd_mapping = LaunchConfiguration("enable_rgbd_mapping")
+    rtabmap_database_path = LaunchConfiguration("rtabmap_database_path")
+    rtabmap_reset_database = LaunchConfiguration("rtabmap_reset_database")
 
     return LaunchDescription(
         [
@@ -103,7 +106,18 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("person_model_path", default_value="yolo11n.pt"),
             DeclareLaunchArgument("person_device", default_value=""),
             DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
-            DeclareLaunchArgument("thermal_history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
+            DeclareLaunchArgument(
+                "thermal_history_path",
+                default_value=(
+                    "~/.local/share/hazard_guard/thermal_history.jsonl"
+                ),
+            ),
+            DeclareLaunchArgument("enable_rgbd_mapping", default_value="false"),
+            DeclareLaunchArgument(
+                "rtabmap_database_path",
+                default_value="/tmp/hazard_guard_rtabmap_capture.db",
+            ),
+            DeclareLaunchArgument("rtabmap_reset_database", default_value="false"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "simulation.launch.py")
@@ -223,6 +237,37 @@ def generate_launch_description() -> LaunchDescription:
                                 ),
                             }
                         ],
+                    )
+                ],
+            ),
+            TimerAction(
+                period=9.0,
+                actions=[
+                    IncludeLaunchDescription(
+                        PythonLaunchDescriptionSource(
+                            str(
+                                simulation_share
+                                / "launch"
+                                / "rtabmap_sim.launch.py"
+                            )
+                        ),
+                        launch_arguments={
+                            "start_simulation": "false",
+                            "use_sim_time": "true",
+                            "rviz": "false",
+                            "demo_route": "false",
+                            "database_path": rtabmap_database_path,
+                            "reset_database": rtabmap_reset_database,
+                            "publish_tf": "false",
+                            "map_frame_id": "rtabmap_map",
+                            "map_topic": "/rtabmap/grid_map",
+                            "parameters_file": str(
+                                simulation_share
+                                / "config"
+                                / "rtabmap_rgbd_capture.yaml"
+                            ),
+                        }.items(),
+                        condition=IfCondition(enable_rgbd_mapping),
                     )
                 ],
             ),

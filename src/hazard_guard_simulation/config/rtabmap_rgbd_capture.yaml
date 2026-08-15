@@ -1,0 +1,43 @@
+/rtabmap/rtabmap:
+  ros__parameters:
+    # Second-pass RGB-D capture profile. AMCL/Nav2 (or the field-tested
+    # localization stack) owns map -> odom; RTAB-Map never publishes that TF.
+    use_sim_time: true
+    frame_id: base_footprint
+    odom_frame_id: odom
+    map_frame_id: rtabmap_map
+    publish_tf: false
+
+    subscribe_rgbd: true
+    subscribe_depth: false
+    subscribe_rgb: false
+    subscribe_scan: false
+    subscribe_odom_info: false
+    approx_sync: true
+    sync_queue_size: 30
+    qos_image: 2
+    qos_camera_info: 2
+    qos_odom: 2
+
+    # External odometry determines node poses. Disable ICP neighbor refinement
+    # and loop-closure constraints so RTAB-Map cannot create a competing pose
+    # estimate. RGB features remain stored with each RGB-D node.
+    Reg/Strategy: "0"
+    Reg/Force3DoF: "true"
+    RGBD/NeighborLinkRefining: "false"
+    RGBD/ProximityBySpace: "false"
+    Rtabmap/LoopThr: "0.0"
+    Optimizer/GravitySigma: "0"
+
+    Grid/FromDepth: "true"
+    Grid/3D: "true"
+    Grid/RangeMin: "0.2"
+    Grid/RangeMax: "4.0"
+    Grid/CellSize: "0.05"
+    Grid/MaxObstacleHeight: "2.5"
+    Grid/MinGroundHeight: "-0.15"
+
+    Mem/IncrementalMemory: "true"
+    Mem/InitWMWithAllNodes: "false"
+    Mem/DepthCompressionFormat: ".png"
+    Rtabmap/DetectionRate: "2.0"

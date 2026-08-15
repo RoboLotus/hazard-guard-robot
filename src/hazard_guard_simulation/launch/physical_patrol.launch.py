@@ -66,14 +66,17 @@ def generate_launch_description() -> LaunchDescription:
     person_depth_registration_verified = LaunchConfiguration(
         "person_depth_registration_verified"
     )
-    start_camera_for_safety = IfCondition(
+    enable_rgbd_mapping = LaunchConfiguration("enable_rgbd_mapping")
+    start_hp60c_camera = IfCondition(
         PythonExpression(
             [
-                "'",
+                "'true' if '",
+                enable_rgbd_mapping,
+                "'.lower() == 'true' or ('",
                 use_person_safety,
                 "'.lower() == 'true' and '",
                 start_person_camera,
-                "'.lower() == 'true'",
+                "'.lower() == 'true') else 'false'",
             ]
         )
     )
@@ -121,6 +124,24 @@ def generate_launch_description() -> LaunchDescription:
                     "registration. Safety remains fail-closed while false."
                 ),
             ),
+            DeclareLaunchArgument("enable_rgbd_mapping", default_value="false"),
+            DeclareLaunchArgument(
+                "rtabmap_database_path",
+                default_value="/tmp/hazard_guard_physical_rgbd.db",
+            ),
+            DeclareLaunchArgument(
+                "rtabmap_storage_path",
+                default_value="/tmp",
+            ),
+            DeclareLaunchArgument(
+                "rgbd_cloud_stamp_mode",
+                default_value="offset",
+                choices=["preserve", "offset"],
+            ),
+            DeclareLaunchArgument(
+                "rgbd_cloud_stamp_offset_sec",
+                default_value="0.0",
+            ),
             DeclareLaunchArgument(
                 "enable_thermal_pipeline", default_value="false"
             ),
@@ -167,7 +188,34 @@ def generate_launch_description() -> LaunchDescription:
                         [FindPackageShare("ascamera"), "launch", "hp60c.launch.py"]
                     )
                 ),
-                condition=start_camera_for_safety,
+                condition=start_hp60c_camera,
+            ),
+            include(
+                "hazard_guard_simulation",
+                "rtabmap_real.launch.py",
+                {
+                    "database_path": LaunchConfiguration(
+                        "rtabmap_database_path"
+                    ),
+                    "storage_path": LaunchConfiguration(
+                        "rtabmap_storage_path"
+                    ),
+                    "cloud_stamp_mode": LaunchConfiguration(
+                        "rgbd_cloud_stamp_mode"
+                    ),
+                    "cloud_stamp_offset_sec": LaunchConfiguration(
+                        "rgbd_cloud_stamp_offset_sec"
+                    ),
+                    "cloud_fixed_frame": "map",
+                    "cloud_output_frame": "map",
+                    "optimized_cloud": "false",
+                    "rtabmap_registration_strategy": "0",
+                    "subscribe_scan": "false",
+                    "neighbor_link_refining": "false",
+                    "proximity_by_space": "false",
+                    "loop_closure_threshold": "0.0",
+                },
+                condition=IfCondition(enable_rgbd_mapping),
             ),
             include(
                 "hazard_guard_person_detection",
