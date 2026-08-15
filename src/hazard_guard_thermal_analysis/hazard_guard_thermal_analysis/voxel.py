@@ -11,6 +11,12 @@ from .projection import ThermalPoint
 
 
 @dataclass(frozen=True)
+class EquipmentTrendThresholds:
+    minimum_rise_c: float | None = None
+    minimum_slope_c_per_hour: float | None = None
+
+
+@dataclass(frozen=True)
 class AxisAlignedRoi:
     roi_id: str
     minimum: tuple[float, float, float]
@@ -18,6 +24,10 @@ class AxisAlignedRoi:
     warning_temperature_c: float | None = None
     critical_temperature_c: float | None = None
     warning_delta_c: float | None = None
+    watch_temperature_c: float | None = None
+    watch_delta_c: float | None = None
+    critical_delta_c: float | None = None
+    trend: EquipmentTrendThresholds | None = None
 
     def contains(self, x: float, y: float, z: float) -> bool:
         return all(
@@ -60,15 +70,90 @@ def _parse_roi(value: object) -> AxisAlignedRoi:
 
     def optional_float(name: str) -> float | None:
         raw = value.get(name)
-        return None if raw is None else float(raw)
+        if raw is None:
+            return None
+        result = float(raw)
+        if not math.isfinite(result) or result < 0.0:
+            raise ValueError(f"{name} must be a non-negative finite number")
+        return result
+
+    raw_trend = value.get("trend")
+    if raw_trend is not None and not isinstance(raw_trend, Mapping):
+        raise ValueError("ROI trend must be a JSON object")
+
+    def optional_trend_float(name: str) -> float | None:
+        if not isinstance(raw_trend, Mapping):
+            return None
+        raw = raw_trend.get(name)
+        if raw is None:
+            return None
+        result = float(raw)
+        if not math.isfinite(result) or result < 0.0:
+            raise ValueError(
+                f"ROI trend {name} must be a non-negative finite number"
+            )
+        return result
+
+    watch_temperature = optional_float("watch_temperature_c")
+    warning_temperature = optional_float("warning_temperature_c")
+    critical_temperature = optional_float("critical_temperature_c")
+    watch_delta = optional_float("watch_delta_c")
+    warning_delta = optional_float("warning_delta_c")
+    critical_delta = optional_float("critical_delta_c")
+
+    def validate_levels(
+        name: str, levels: Sequence[tuple[str, float | None]]
+    ) -> None:
+        configured = [
+            (label, level) for label, level in levels if level is not None
+        ]
+        for (lower_name, lower), (upper_name, upper) in zip(
+            configured, configured[1:]
+        ):
+            assert lower is not None and upper is not None
+            if lower >= upper:
+                raise ValueError(
+                    f"ROI {name} thresholds must increase from "
+                    f"{lower_name} to {upper_name}"
+                )
+
+    validate_levels(
+        "temperature",
+        (
+            ("watch", watch_temperature),
+            ("warning", warning_temperature),
+            ("critical", critical_temperature),
+        ),
+    )
+    validate_levels(
+        "delta",
+        (
+            ("watch", watch_delta),
+            ("warning", warning_delta),
+            ("critical", critical_delta),
+        ),
+    )
+
+    trend = EquipmentTrendThresholds(
+        minimum_rise_c=optional_trend_float("minimum_rise_c"),
+        minimum_slope_c_per_hour=optional_trend_float(
+            "minimum_slope_c_per_hour"
+        ),
+    )
+    if trend.minimum_rise_c is None and trend.minimum_slope_c_per_hour is None:
+        trend = None
 
     return AxisAlignedRoi(
         roi_id=str(value.get("id", "")).strip(),
         minimum=minimum,
         maximum=maximum,
-        warning_temperature_c=optional_float("warning_temperature_c"),
-        critical_temperature_c=optional_float("critical_temperature_c"),
-        warning_delta_c=optional_float("warning_delta_c"),
+        watch_temperature_c=watch_temperature,
+        warning_temperature_c=warning_temperature,
+        critical_temperature_c=critical_temperature,
+        watch_delta_c=watch_delta,
+        warning_delta_c=warning_delta,
+        critical_delta_c=critical_delta,
+        trend=trend,
     )
 
 
@@ -235,9 +320,22 @@ def analyze_points(
                 ),
                 "voxels": voxels,
                 "thresholds": {
+                    "watch_temperature_c": roi.watch_temperature_c,
                     "warning_temperature_c": roi.warning_temperature_c,
                     "critical_temperature_c": roi.critical_temperature_c,
+                    "watch_delta_c": roi.watch_delta_c,
                     "warning_delta_c": roi.warning_delta_c,
+                    "critical_delta_c": roi.critical_delta_c,
+                    "trend": (
+                        {
+                            "minimum_rise_c": roi.trend.minimum_rise_c,
+                            "minimum_slope_c_per_hour": (
+                                roi.trend.minimum_slope_c_per_hour
+                            ),
+                        }
+                        if roi.trend is not None
+                        else None
+                    ),
                 },
             }
         )

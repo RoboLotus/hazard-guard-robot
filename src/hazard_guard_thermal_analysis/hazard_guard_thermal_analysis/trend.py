@@ -47,13 +47,35 @@ def load_trend_config(path: str | Path) -> TrendConfig:
         raise ValueError("trend config must be a JSON object")
     defaults = TrendConfig()
     config = TrendConfig(
-        history_window_visits=int(raw.get("history_window_visits", defaults.history_window_visits)),
-        min_trend_visits=int(raw.get("min_trend_visits", defaults.min_trend_visits)),
-        minimum_rise_c=float(raw.get("minimum_rise_c", defaults.minimum_rise_c)),
-        minimum_slope_c_per_hour=float(raw.get("minimum_slope_c_per_hour", defaults.minimum_slope_c_per_hour)),
-        minimum_positive_fraction=float(raw.get("minimum_positive_fraction", defaults.minimum_positive_fraction)),
-        adaptive_residual_c=float(raw.get("adaptive_residual_c", defaults.adaptive_residual_c)),
-        noise_deadband_c=float(raw.get("noise_deadband_c", defaults.noise_deadband_c)),
+        history_window_visits=int(
+            raw.get(
+                "history_window_visits", defaults.history_window_visits
+            )
+        ),
+        min_trend_visits=int(
+            raw.get("min_trend_visits", defaults.min_trend_visits)
+        ),
+        minimum_rise_c=float(
+            raw.get("minimum_rise_c", defaults.minimum_rise_c)
+        ),
+        minimum_slope_c_per_hour=float(
+            raw.get(
+                "minimum_slope_c_per_hour",
+                defaults.minimum_slope_c_per_hour,
+            )
+        ),
+        minimum_positive_fraction=float(
+            raw.get(
+                "minimum_positive_fraction",
+                defaults.minimum_positive_fraction,
+            )
+        ),
+        adaptive_residual_c=float(
+            raw.get("adaptive_residual_c", defaults.adaptive_residual_c)
+        ),
+        noise_deadband_c=float(
+            raw.get("noise_deadband_c", defaults.noise_deadband_c)
+        ),
     )
     config.validate()
     return config
@@ -205,71 +227,119 @@ def _evaluate_voxel(
     slope_per_hour = (
         total_rise / time_span_hours if time_span_hours > 0.0 else 0.0
     )
+    raw_trend_thresholds = thresholds.get("trend", {})
+    trend_thresholds = (
+        raw_trend_thresholds
+        if isinstance(raw_trend_thresholds, Mapping)
+        else {}
+    )
+    minimum_rise = _number(trend_thresholds.get("minimum_rise_c"))
+    minimum_slope = _number(
+        trend_thresholds.get("minimum_slope_c_per_hour")
+    )
+    if minimum_rise is None:
+        minimum_rise = config.minimum_rise_c
+    if minimum_slope is None:
+        minimum_slope = config.minimum_slope_c_per_hour
     trend = (
         len(timed_series) >= config.min_trend_visits
         and timestamps_increase
-        and total_rise >= config.minimum_rise_c
-        and slope_per_hour >= config.minimum_slope_c_per_hour
+        and total_rise >= minimum_rise
+        and slope_per_hour >= minimum_slope
         and positive_fraction >= config.minimum_positive_fraction
     )
 
+    watch_temperature = _number(thresholds.get("watch_temperature_c"))
     warning_temperature = _number(thresholds.get("warning_temperature_c"))
     critical_temperature = _number(thresholds.get("critical_temperature_c"))
+    watch_delta = _number(thresholds.get("watch_delta_c"))
     warning_delta = _number(thresholds.get("warning_delta_c"))
+    critical_delta = _number(thresholds.get("critical_delta_c"))
     current_delta = _number(voxel.get("delta_p95_c"))
-    threshold_exceeded = bool(
-        (
-            warning_temperature is not None
-            and current_temperature is not None
-            and current_temperature >= warning_temperature
-        )
-        or (
-            warning_delta is not None
-            and current_delta is not None
-            and current_delta >= warning_delta
-        )
+    explicit_watch_levels = (
+        watch_temperature is not None or watch_delta is not None
     )
+
+    def exceeds(value: float | None, threshold: float | None) -> bool:
+        return bool(
+            value is not None
+            and threshold is not None
+            and value >= threshold
+        )
+
+    if explicit_watch_levels:
+        watch_threshold_exceeded = (
+            exceeds(current_temperature, watch_temperature)
+            or exceeds(current_delta, watch_delta)
+        )
+        warning_threshold_exceeded = (
+            exceeds(current_temperature, warning_temperature)
+            or exceeds(current_delta, warning_delta)
+        )
+    else:
+        # Backward compatibility: legacy warning fields represented the
+        # adaptive Watch level and required a trend before Warning.
+        watch_threshold_exceeded = (
+            exceeds(current_temperature, warning_temperature)
+            or exceeds(current_delta, warning_delta)
+        )
+        warning_threshold_exceeded = False
+
     baseline = median(prior_signals) if prior_signals else None
     residual = (
         current_signal - baseline
         if current_signal is not None and baseline is not None
         else None
     )
-    adaptive = threshold_exceeded and (
+    adaptive = watch_threshold_exceeded and (
         residual is None
         or residual >= config.adaptive_residual_c
         or (
-            warning_delta is not None
+            (watch_delta if explicit_watch_levels else warning_delta)
+            is not None
             and current_delta is not None
-            and current_delta >= warning_delta
+            and current_delta
+            >= (watch_delta if explicit_watch_levels else warning_delta)
         )
     )
-    critical_p95 = bool(
-        critical_temperature is not None
-        and current_temperature is not None
-        and current_temperature >= critical_temperature
+    watch_triggered = (
+        watch_threshold_exceeded if explicit_watch_levels else adaptive
     )
-    critical_max = bool(
-        critical_temperature is not None
-        and current_max_temperature is not None
-        and current_max_temperature >= critical_temperature
-    )
-    critical = critical_p95 or critical_max
+    critical_p95 = exceeds(current_temperature, critical_temperature)
+    critical_max = exceeds(current_max_temperature, critical_temperature)
+    critical_delta_exceeded = exceeds(current_delta, critical_delta)
+    critical = critical_p95 or critical_max or critical_delta_exceeded
 
     if critical:
         if critical_p95 and critical_max:
             reason = "critical_p95_and_max_temperature"
         elif critical_p95:
             reason = "critical_p95_temperature"
-        else:
+        elif critical_max:
             reason = "critical_max_temperature"
+        else:
+            reason = "critical_ambient_delta"
+        if critical_delta_exceeded and (critical_p95 or critical_max):
+            reason += "_and_ambient_delta"
         status = "critical"
-    elif trend and adaptive:
-        status, reason = "warning", "persistent_trend_and_environment_adjusted_anomaly"
+    elif warning_threshold_exceeded:
+        warning_temperature_exceeded = exceeds(
+            current_temperature, warning_temperature
+        )
+        warning_delta_exceeded = exceeds(current_delta, warning_delta)
+        if warning_temperature_exceeded and warning_delta_exceeded:
+            reason = "warning_p95_temperature_and_ambient_delta"
+        elif warning_temperature_exceeded:
+            reason = "warning_p95_temperature"
+        else:
+            reason = "warning_ambient_delta"
+        status = "warning"
+    elif trend and watch_triggered:
+        status, reason = "warning", "persistent_trend_and_watch_anomaly"
     elif trend:
         status, reason = "watch", "persistent_trend_only"
-    elif adaptive:
-        status, reason = "watch", "environment_adjusted_anomaly_only"
+    elif watch_triggered:
+        status, reason = "watch", "watch_threshold_exceeded"
     else:
         status, reason = "normal", "within_expected_range"
 
@@ -279,8 +349,11 @@ def _evaluate_voxel(
         "critical": critical,
         "critical_p95": critical_p95,
         "critical_max": critical_max,
+        "critical_delta": critical_delta_exceeded,
         "trend": trend,
         "adaptive": adaptive,
+        "watch_threshold_exceeded": watch_threshold_exceeded,
+        "warning_threshold_exceeded": warning_threshold_exceeded,
         "signal": signal_name,
         "visit_count": len(timed_series),
         "total_rise_c": round(total_rise, 4),
@@ -288,6 +361,8 @@ def _evaluate_voxel(
         "time_span_hours": round(time_span_hours, 6),
         "time_source": current_time_source,
         "positive_fraction": round(positive_fraction, 4),
+        "minimum_rise_threshold_c": round(minimum_rise, 4),
+        "minimum_slope_threshold_c_per_hour": round(minimum_slope, 4),
         "historical_baseline_c": round(baseline, 4) if baseline is not None else None,
         "adaptive_residual_c": round(residual, 4) if residual is not None else None,
     }
@@ -359,7 +434,10 @@ def evaluate_visit(
     result["trend_analysis"] = {
         "schema_version": 1,
         "visit_index": _next_visit_index(history),
-        "decision_rule": "critical OR (trend AND adaptive)",
+        "decision_rule": (
+            "critical OR warning_threshold OR "
+            "(trend AND watch_threshold)"
+        ),
         "config": asdict(config),
         "equipment": summaries,
     }

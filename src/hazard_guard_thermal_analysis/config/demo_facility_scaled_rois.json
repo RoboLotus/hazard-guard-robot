@@ -13,39 +13,65 @@
     "adaptive_residual_c": 1.5,
     "noise_deadband_c": 0.2
   },
-  "note": "The four equipment ROIs isolate the heated component surfaces in demo_facility_scaled. They are deliberately non-overlapping because several complete equipment mesh AABBs overlap. Physical equipment ROIs must be surveyed again in equipment-local frames.",
+  "note": "The four equipment ROIs isolate the heated component surfaces in demo_facility_scaled. Thresholds are conservative commissioning values derived from Korean fire data, KS/KC references, and Korean hydraulic equipment guidance. Physical ROIs and thresholds must be calibrated again with equipment manuals and the real thermal camera.",
   "equipment_rois": [
     {
       "id": "bunker_waste_pile",
       "min": [-1.95, -0.95, 0.02],
       "max": [-1.45, -0.45, 0.35],
-      "warning_temperature_c": 45.0,
-      "critical_temperature_c": 80.0,
-      "warning_delta_c": 15.0
+      "watch_temperature_c": 40.0,
+      "warning_temperature_c": 50.0,
+      "critical_temperature_c": 60.0,
+      "watch_delta_c": 10.0,
+      "warning_delta_c": 20.0,
+      "critical_delta_c": 30.0,
+      "trend": {
+        "minimum_rise_c": 3.0,
+        "minimum_slope_c_per_hour": 1.0
+      }
     },
     {
       "id": "primary_shredder_motor",
       "min": [-1.25, 0.00, 0.02],
       "max": [-0.78, 0.50, 0.42],
-      "warning_temperature_c": 45.0,
-      "critical_temperature_c": 80.0,
-      "warning_delta_c": 15.0
+      "watch_temperature_c": 60.0,
+      "warning_temperature_c": 70.0,
+      "critical_temperature_c": 85.0,
+      "watch_delta_c": 25.0,
+      "warning_delta_c": 35.0,
+      "critical_delta_c": 50.0,
+      "trend": {
+        "minimum_rise_c": 5.0,
+        "minimum_slope_c_per_hour": 3.0
+      }
     },
     {
       "id": "secondary_processor_pump",
       "min": [0.95, 0.53, 0.02],
       "max": [1.32, 0.86, 0.42],
-      "warning_temperature_c": 45.0,
-      "critical_temperature_c": 80.0,
-      "warning_delta_c": 15.0
+      "watch_temperature_c": 55.0,
+      "warning_temperature_c": 65.0,
+      "critical_temperature_c": 75.0,
+      "watch_delta_c": 20.0,
+      "warning_delta_c": 30.0,
+      "trend": {
+        "minimum_rise_c": 4.0,
+        "minimum_slope_c_per_hour": 2.0
+      }
     },
     {
       "id": "baler_hydraulic_tank",
       "min": [0.94, 0.20, 0.02],
       "max": [1.34, 0.50, 0.30],
-      "warning_temperature_c": 40.0,
-      "critical_temperature_c": 80.0,
-      "warning_delta_c": 12.0
+      "watch_temperature_c": 45.0,
+      "warning_temperature_c": 55.0,
+      "critical_temperature_c": 60.0,
+      "watch_delta_c": 15.0,
+      "warning_delta_c": 20.0,
+      "trend": {
+        "minimum_rise_c": 4.0,
+        "minimum_slope_c_per_hour": 2.0
+      }
     }
   ],
   "environment_rois": [
