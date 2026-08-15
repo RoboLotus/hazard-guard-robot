@@ -131,7 +131,9 @@ controller_server:
       debug_trajectory_details: true
       # Physical M1 patrol profile: raise the proven conservative limits by
       # about 20%, while retaining the existing acceleration limits.
-      min_vel_x: -0.10
+      # Keep Nav2 patrol motion forward-only. Manual controller reverse is not
+      # routed through this DWB limit and remains available to an operator.
+      min_vel_x: 0.0
       min_vel_y: -0.12
       max_vel_x: 0.14
       max_vel_y: 0.12
@@ -340,3 +342,4 @@ hazard_guard_mission_manager:
     pose_sample_count: 5
     pose_min_valid_samples: 3
     pose_sample_interval_sec: 0.15
+    forward_approach_min_distance_m: 0.15

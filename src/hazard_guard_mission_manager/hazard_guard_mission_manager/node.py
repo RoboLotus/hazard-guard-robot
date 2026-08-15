@@ -33,7 +33,11 @@ from .errors import (
     MissionSafetyPaused,
     MissionScheduleEnded,
 )
-from .geometry import pose_errors
+from .geometry import (
+    forward_approach_pose,
+    heading_change_required,
+    pose_errors,
+)
 from .navigation import Nav2Adapter
 from .schedule import (
     PatrolSchedule,
@@ -81,6 +85,7 @@ class HazardGuardMissionManager(Node):
         self.declare_parameter("pose_sample_interval_sec", 0.15)
         self.declare_parameter("navigation_timeout_sec", 180.0)
         self.declare_parameter("alignment_timeout_sec", 45.0)
+        self.declare_parameter("forward_approach_min_distance_m", 0.15)
         self.declare_parameter("server_wait_timeout_sec", 8.0)
         self.declare_parameter("safety_supervision_enabled", False)
         self.declare_parameter(
@@ -310,19 +315,23 @@ class HazardGuardMissionManager(Node):
                     current_index=index,
                     message=f"{waypoint.name}까지 이동 가능한 경로를 확인하고 있습니다.",
                 )
-                target = (
+                final_target = (
                     float(waypoint.x),
                     float(waypoint.y),
                     float(waypoint.yaw),
                 )
+                approach_target = self._forward_approach(
+                    segment_start,
+                    final_target,
+                )
                 distance = self._nav.compute_path_distance(
                     segment_start,
-                    target,
+                    approach_target,
                     request.frame_id,
                     goal_handle,
                 )
                 total_distance += distance
-                segment_start = target
+                segment_start = final_target
                 self._update_waypoint(
                     index,
                     "pending",
@@ -332,7 +341,7 @@ class HazardGuardMissionManager(Node):
             if request.return_to_start:
                 return_distance = self._nav.compute_path_distance(
                     segment_start,
-                    start_pose,
+                    self._forward_approach(segment_start, start_pose),
                     request.frame_id,
                     goal_handle,
                 )
@@ -346,7 +355,7 @@ class HazardGuardMissionManager(Node):
                 )
                 self._nav.compute_path_distance(
                     segment_start,
-                    first_target,
+                    self._forward_approach(segment_start, first_target),
                     request.frame_id,
                     goal_handle,
                 )
@@ -387,7 +396,7 @@ class HazardGuardMissionManager(Node):
                         current_index=None,
                         message=f"{current_cycle}회차 시작 위치로 복귀 중입니다.",
                     )
-                    self._navigate_with_safety_retry(
+                    self._navigate_forward_to_pose(
                         start_pose,
                         request.frame_id,
                         goal_handle,
@@ -597,13 +606,15 @@ class HazardGuardMissionManager(Node):
                 float(waypoint.y),
                 float(waypoint.yaw),
             )
-            self._navigate_with_safety_retry(
+            self._navigate_forward_to_pose(
                 target,
                 request.frame_id,
                 goal_handle,
                 timeout=float(
                     self.get_parameter("navigation_timeout_sec").value
                 ),
+                waypoint_index=index,
+                waypoint_name=str(waypoint.name),
             )
             position_error, yaw_error = self._align(
                 index,
@@ -658,6 +669,85 @@ class HazardGuardMissionManager(Node):
                 yaw_error=math.degrees(yaw_error),
             )
         return completed
+
+    def _forward_approach(
+        self,
+        current: tuple[float, float, float],
+        target: tuple[float, float, float],
+    ) -> tuple[float, float, float]:
+        return forward_approach_pose(
+            current,
+            target,
+            minimum_distance_m=float(
+                self.get_parameter("forward_approach_min_distance_m").value
+            ),
+        )
+
+    def _navigate_forward_to_pose(
+        self,
+        target: tuple[float, float, float],
+        frame_id: str,
+        goal_handle: Any,
+        *,
+        timeout: float,
+        waypoint_index: int | None = None,
+        waypoint_name: str = "시작 위치",
+    ) -> None:
+        """Drive toward the target first, then rotate to inspection heading."""
+
+        current = self._nav.current_pose(frame_id)
+        if current is None:
+            raise MissionFailure(
+                "전진 접근 방향을 계산할 현재 로봇 위치를 확인할 수 없습니다."
+            )
+        approach = self._forward_approach(current, target)
+        approach_yaw_deg = round(math.degrees(approach[2]), 2)
+        if waypoint_index is not None:
+            self._update_waypoint(
+                waypoint_index,
+                "active",
+                "다음 지점을 바라보며 전진 접근 중",
+                approach_yaw_deg=approach_yaw_deg,
+            )
+        self._update_state(
+            status="executing",
+            message=(
+                f"{waypoint_name}까지 전진 방향으로 이동하고 있습니다. "
+                f"(접근 방향 {approach_yaw_deg:.1f}°)"
+            ),
+        )
+        self._navigate_with_safety_retry(
+            approach,
+            frame_id,
+            goal_handle,
+            timeout=timeout,
+        )
+
+        if not heading_change_required(
+            approach,
+            target,
+            tolerance_rad=float(self.get_parameter("yaw_tolerance_rad").value),
+        ):
+            return
+
+        if waypoint_index is not None:
+            self._update_waypoint(
+                waypoint_index,
+                "aligning",
+                "도착 후 검사 방향 정렬 중",
+                approach_yaw_deg=approach_yaw_deg,
+                inspection_yaw_deg=round(math.degrees(target[2]), 2),
+            )
+        self._update_state(
+            status="aligning",
+            message=f"{waypoint_name}에 도착해 검사 방향으로 회전하고 있습니다.",
+        )
+        self._navigate_with_safety_retry(
+            target,
+            frame_id,
+            goal_handle,
+            timeout=float(self.get_parameter("alignment_timeout_sec").value),
+        )
 
     def _navigate_with_safety_retry(
         self,
