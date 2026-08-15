@@ -96,7 +96,7 @@ class ThermalDepthFusion(Node):
         )
         self.get_logger().info(
             "Thermal-depth fusion ready; output contract fields are "
-            "x, y, z, temperature_c, confidence"
+            "x, y, z, temperature_c, confidence, pixel_u, pixel_v"
         )
 
     def _on_depth(self, message: Image) -> None:

@@ -8,18 +8,14 @@ import rclpy
 from hazard_guard_interfaces.msg import HazardDetection
 from rclpy.duration import Duration
 from rclpy.node import Node
-from rclpy.qos import (
-    DurabilityPolicy,
-    QoSProfile,
-    ReliabilityPolicy,
-    qos_profile_sensor_data,
-)
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.time import Time
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2, Temperature
 from std_msgs.msg import Header, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 
+from .baseline import EquipmentBaseline, load_baselines
 from .cloud import iter_thermal_cloud
 from .projection import RigidTransform, ThermalPoint
 from .trend import SEVERITY, evaluate_visit, load_trend_config, read_history
@@ -33,11 +29,19 @@ class ThermalVoxelAnalyzer(Node):
     def __init__(self) -> None:
         super().__init__("hazard_guard_thermal_voxel_analyzer")
         self.declare_parameter("roi_config", "")
+        self.declare_parameter("baseline_path", "")
         self.declare_parameter("history_path", "")
+        self.declare_parameter("air_temperature_topic", "")
+        self.declare_parameter("oil_temperature_topic", "")
         self.declare_parameter("publish_detections", True)
         self.declare_parameter("simulated", True)
         self._config: AnalysisConfig | None = None
         self._trend_config = None
+        self._baselines: dict[str, EquipmentBaseline] = {}
+        self._sensor_values: dict[str, float | None] = {
+            "air_temperature_c": None,
+            "oil_temperature_c": None,
+        }
         self._history: list[dict] = []
         self._latest_result: dict[str, object] | None = None
         self._latest_header = None
@@ -51,74 +55,52 @@ class ThermalVoxelAnalyzer(Node):
                 self._config = load_config(config_path)
                 self._trend_config = load_trend_config(config_path)
             except Exception as exc:
-                self.get_logger().error(
-                    f"Could not load thermal ROI config {config_path!r}: {exc}"
-                )
+                self.get_logger().error(f"Could not load thermal ROI config {config_path!r}: {exc}")
         else:
-            self.get_logger().warning(
-                "No ROI config supplied; point clouds will be ignored"
-            )
+            self.get_logger().warning("No ROI config supplied; point clouds will be ignored")
+
+        baseline_path = str(self.get_parameter("baseline_path").value).strip()
+        if baseline_path:
+            try:
+                self._baselines = load_baselines(baseline_path)
+                self.get_logger().info(f"Loaded approved baselines for {len(self._baselines)} equipment items")
+            except Exception as exc:
+                self.get_logger().error(f"Could not load thermal baselines {baseline_path!r}: {exc}")
 
         history_path = str(self.get_parameter("history_path").value)
         if history_path and self._trend_config is not None:
             try:
-                self._history = read_history(
-                    history_path,
-                    self._trend_config.history_window_visits,
-                )
-                self.get_logger().info(
-                    f"Loaded {len(self._history)} completed thermal patrol visits"
-                )
+                self._history = read_history(history_path, self._trend_config.history_window_visits)
+                self.get_logger().info(f"Loaded {len(self._history)} completed thermal patrol visits")
             except OSError as exc:
                 self.get_logger().warning(f"Could not load thermal history: {exc}")
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
-        self._analysis_publisher = self.create_publisher(
-            String, "/hazard_guard/thermal/analysis", 10
-        )
-        self._trend_publisher = self.create_publisher(
-            String, "/hazard_guard/thermal/trend", 10
-        )
-        detection_qos = QoSProfile(
-            depth=10,
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
-        )
-        self._detection_publisher = self.create_publisher(
-            HazardDetection,
-            "/hazard_guard/thermal_detections",
-            detection_qos,
-        )
-        self.create_subscription(
-            PointCloud2,
-            "/hazard_guard/thermal/points",
-            self._on_cloud,
-            qos_profile_sensor_data,
-        )
-        self.create_subscription(
-            String,
-            "/hazard_guard/thermal/inspection_control",
-            self._on_inspection_control,
-            10,
-        )
-        self.create_service(
-            Trigger,
-            "/hazard_guard/thermal/start_visit",
-            self._start_visit,
-        )
-        self.create_service(
-            Trigger,
-            "/hazard_guard/thermal/record_visit",
-            self._record_visit,
-        )
-        self._history_timer = self.create_timer(
-            1.0, self._publish_history_snapshot
-        )
+        self._analysis_publisher = self.create_publisher(String, "/hazard_guard/thermal/analysis", 10)
+        self._trend_publisher = self.create_publisher(String, "/hazard_guard/thermal/trend", 10)
+        detection_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self._detection_publisher = self.create_publisher(HazardDetection, "/hazard_guard/thermal_detections", detection_qos)
+        self.create_subscription(PointCloud2, "/hazard_guard/thermal/points", self._on_cloud, qos_profile_sensor_data)
+        self.create_subscription(String, "/hazard_guard/thermal/inspection_control", self._on_inspection_control, 10)
+        self.create_service(Trigger, "/hazard_guard/thermal/start_visit", self._start_visit)
+        self.create_service(Trigger, "/hazard_guard/thermal/record_visit", self._record_visit)
+        air_topic = str(self.get_parameter("air_temperature_topic").value).strip()
+        oil_topic = str(self.get_parameter("oil_temperature_topic").value).strip()
+        if air_topic:
+            self.create_subscription(Temperature, air_topic, self._on_air_temperature, qos_profile_sensor_data)
+        if oil_topic:
+            self.create_subscription(Temperature, oil_topic, self._on_oil_temperature, qos_profile_sensor_data)
+        self._history_timer = self.create_timer(1.0, self._publish_history_snapshot)
+
+    def _on_air_temperature(self, message: Temperature) -> None:
+        self._sensor_values["air_temperature_c"] = float(message.temperature)
+
+    def _on_oil_temperature(self, message: Temperature) -> None:
+        self._sensor_values["oil_temperature_c"] = float(message.temperature)
 
     def _publish_history_snapshot(self) -> None:
         """Restore the last patrol decisions in the Web UI after a restart."""
-
         self._history_timer.cancel()
         if not self._history or self._config is None:
             return
@@ -135,13 +117,19 @@ class ThermalVoxelAnalyzer(Node):
         translation = message.transform.translation
         rotation = message.transform.rotation
         return RigidTransform(
-            tx=translation.x,
-            ty=translation.y,
-            tz=translation.z,
-            qx=rotation.x,
-            qy=rotation.y,
-            qz=rotation.z,
-            qw=rotation.w,
+            tx=translation.x, ty=translation.y, tz=translation.z,
+            qx=rotation.x, qy=rotation.y, qz=rotation.z, qw=rotation.w,
+        )
+
+    def _evaluate(self, current: dict[str, object]) -> dict[str, object]:
+        assert self._trend_config is not None
+        return evaluate_visit(
+            current,
+            self._history,
+            self._trend_config,
+            baselines=self._baselines,
+            sensor_values=self._sensor_values,
+            simulated=bool(self.get_parameter("simulated").value),
         )
 
     def _on_cloud(self, cloud: PointCloud2) -> None:
@@ -149,9 +137,7 @@ class ThermalVoxelAnalyzer(Node):
             return
         source_frame = cloud.header.frame_id
         if not source_frame:
-            self.get_logger().warning(
-                "Thermal cloud frame is missing", throttle_duration_sec=5.0
-            )
+            self.get_logger().warning("Thermal cloud frame is missing", throttle_duration_sec=5.0)
             return
         try:
             if source_frame == self._config.frame_id:
@@ -167,36 +153,29 @@ class ThermalVoxelAnalyzer(Node):
             transformed = []
             for point in iter_thermal_cloud(cloud):
                 x, y, z = target_from_source.apply(point.x, point.y, point.z)
-                transformed.append(
-                    ThermalPoint(
-                        x=x,
-                        y=y,
-                        z=z,
-                        temperature_c=point.temperature_c,
-                        confidence=point.confidence,
-                    )
-                )
-            current = analyze_points(transformed, self._config)
-            current["stamp"] = {
-                "sec": int(cloud.header.stamp.sec),
-                "nanosec": int(cloud.header.stamp.nanosec),
-            }
+                transformed.append(ThermalPoint(
+                    x=x, y=y, z=z,
+                    temperature_c=point.temperature_c,
+                    confidence=point.confidence,
+                    pixel_u=point.pixel_u,
+                    pixel_v=point.pixel_v,
+                ))
+            current = analyze_points(
+                transformed,
+                self._config,
+                simulated=bool(self.get_parameter("simulated").value),
+            )
+            current["stamp"] = {"sec": int(cloud.header.stamp.sec), "nanosec": int(cloud.header.stamp.nanosec)}
             current["recorded_at_unix_sec"] = time.time()
             self._visit.add(current)
-            result = evaluate_visit(current, self._history, self._trend_config)
+            result = self._evaluate(current)
         except Exception as exc:
-            self.get_logger().warning(
-                f"Thermal voxel analysis skipped: {exc}",
-                throttle_duration_sec=5.0,
-            )
+            self.get_logger().warning(f"Thermal voxel analysis skipped: {exc}", throttle_duration_sec=5.0)
             return
 
         self._latest_result = result
         self._latest_header = cloud.header
-        self._latest_key = (
-            int(cloud.header.stamp.sec),
-            int(cloud.header.stamp.nanosec),
-        )
+        self._latest_key = (int(cloud.header.stamp.sec), int(cloud.header.stamp.nanosec))
         self._publish_json(self._analysis_publisher, result)
         if bool(self.get_parameter("publish_detections").value):
             self._publish_detections(cloud.header, result)
@@ -217,9 +196,7 @@ class ThermalVoxelAnalyzer(Node):
         elif action == "clear_focus":
             self._visit.focus(None)
 
-    def _start_visit(
-        self, request: Trigger.Request, response: Trigger.Response
-    ) -> Trigger.Response:
+    def _start_visit(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         del request
         self._visit.start()
         response.success = True
@@ -228,21 +205,14 @@ class ThermalVoxelAnalyzer(Node):
 
     @staticmethod
     def _payload(result: dict[str, object]) -> str:
-        return json.dumps(
-            result,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-        )
+        return json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
 
     def _publish_json(self, publisher, result: dict[str, object]) -> None:
         message = String()
         message.data = self._payload(result)
         publisher.publish(message)
 
-    def _record_visit(
-        self, request: Trigger.Request, response: Trigger.Response
-    ) -> Trigger.Response:
+    def _record_visit(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         del request
         if self._latest_header is None or not self._visit.active:
             response.success = False
@@ -252,11 +222,7 @@ class ThermalVoxelAnalyzer(Node):
             response.success = False
             response.message = "The patrol visit contains no focused equipment frames"
             return response
-
-        stamp = {
-            "sec": int(self._latest_header.stamp.sec),
-            "nanosec": int(self._latest_header.stamp.nanosec),
-        }
+        stamp = {"sec": int(self._latest_header.stamp.sec), "nanosec": int(self._latest_header.stamp.nanosec)}
         current = self._visit.finalize(stamp)
         current["recorded_at_unix_sec"] = time.time()
         if self._config is not None:
@@ -266,22 +232,19 @@ class ThermalVoxelAnalyzer(Node):
             response.success = False
             response.message = "Thermal trend configuration is not available"
             return response
-        result = evaluate_visit(current, self._history, self._trend_config)
-
+        result = self._evaluate(current)
         payload = self._payload(result)
         response.success, response.message = self._append_history(payload)
         if not response.success:
             return response
-
         self._history.append(result)
-        self._history = self._history[-self._trend_config.history_window_visits :]
+        self._history = self._history[-self._trend_config.history_window_visits:]
         self._last_recorded_key = self._latest_key
         self._visit.active = False
         self._visit.focus_equipment_id = None
         self._publish_json(self._trend_publisher, result)
         if bool(self.get_parameter("publish_detections").value):
             self._publish_detections(self._latest_header, result)
-
         summaries = result.get("trend_analysis", {})
         states = []
         if isinstance(summaries, dict):
@@ -291,6 +254,7 @@ class ThermalVoxelAnalyzer(Node):
         if states:
             response.message += "; " + ", ".join(states)
         return response
+
     def _append_history(self, payload: str) -> tuple[bool, str]:
         history_value = str(self.get_parameter("history_path").value)
         if not history_value:
@@ -303,10 +267,7 @@ class ThermalVoxelAnalyzer(Node):
                 stream.write("\n")
             return True, f"Recorded thermal patrol visit in {path}"
         except OSError as exc:
-            self.get_logger().warning(
-                f"Could not append thermal history: {exc}",
-                throttle_duration_sec=10.0,
-            )
+            self.get_logger().warning(f"Could not append thermal history: {exc}", throttle_duration_sec=10.0)
             return False, f"Could not append thermal history: {exc}"
 
     def _publish_detections(self, header, result: dict[str, object]) -> None:
@@ -325,19 +286,11 @@ class ThermalVoxelAnalyzer(Node):
                 status = str(decision.get("status", "normal"))
                 p95 = float(voxel["p95_temperature_c"])
                 peak = float(voxel.get("max_temperature_c", p95))
-                reported_temperature = (
-                    peak if bool(decision.get("critical_max")) else p95
-                )
-                candidates.append(
-                    (SEVERITY.get(status, 0), reported_temperature, voxel, status)
-                )
+                reported_temperature = peak if bool(decision.get("critical_max")) else p95
+                candidates.append((SEVERITY.get(status, 0), reported_temperature, voxel, status))
             if not candidates:
                 continue
-
-            _, temperature, hottest, status = max(
-                candidates,
-                key=lambda item: (item[0], item[1]),
-            )
+            _, temperature, hottest, status = max(candidates, key=lambda item: (item[0], item[1]))
             center = hottest["center"]
             decision = hottest["trend_analysis"]
             equipment_id = str(equipment["equipment_id"])
@@ -350,17 +303,13 @@ class ThermalVoxelAnalyzer(Node):
             detection.z = float(center[2])
             detection.temperature_c = temperature
             minimum_points = max(1, self._config.min_points_per_voxel)
-            evidence = min(
-                1.0,
-                float(hottest["point_count"]) / (minimum_points * 2.0),
-            )
+            evidence = min(1.0, float(hottest["point_count"]) / (minimum_points * 2.0))
             visits = max(1, int(decision.get("visit_count", 1)))
             detection.confidence = min(1.0, evidence * (0.7 + 0.1 * visits))
             detection.radius_m = self._config.voxel_size_m * 0.5
             reason = str(decision.get("reason", "within_expected_range"))
-            detection.source = (
-                f"thermal_trend:{equipment_id}:{status}:{reason}"
-            )
+            # Keep this four-part protocol stable for the existing Web backend/UI.
+            detection.source = f"thermal_trend:{equipment_id}:{status}:{reason}"
             detection.simulated = bool(self.get_parameter("simulated").value)
             self._detection_publisher.publish(detection)
 

@@ -28,6 +28,22 @@ class AxisAlignedRoi:
     watch_delta_c: float | None = None
     critical_delta_c: float | None = None
     trend: EquipmentTrendThresholds | None = None
+    threshold_mode: str = "absolute"
+    reference_roi_id: str | None = None
+    simulation_watch_temperature_c: float | None = None
+    simulation_warning_temperature_c: float | None = None
+    simulation_critical_temperature_c: float | None = None
+    baseline_watch_delta_c: float | None = None
+    baseline_warning_delta_c: float | None = None
+    baseline_critical_delta_c: float | None = None
+    air_watch_delta_c: float | None = None
+    air_warning_delta_c: float | None = None
+    air_critical_delta_c: float | None = None
+    oil_watch_temperature_c: float | None = None
+    oil_warning_temperature_c: float | None = None
+    oil_critical_temperature_c: float | None = None
+    critical_rise_between_visits_c: float | None = None
+    surface_alone_can_trip: bool = True
 
     def contains(self, x: float, y: float, z: float) -> bool:
         return all(
@@ -47,6 +63,11 @@ class AnalysisConfig:
     environment_rois: tuple[AxisAlignedRoi, ...]
     min_confidence: float = 0.25
     schema_version: int = 1
+    reference_rois: tuple[AxisAlignedRoi, ...] = ()
+    min_points_per_roi_for_p95: int = 1
+    recommended_points_per_roi_for_p95: int = 1
+    min_hot_cluster_pixels: int = 1
+    min_adjacent_hot_voxels: int = 1
 
 
 def _vector3(value: object, name: str) -> tuple[float, float, float]:
@@ -60,6 +81,31 @@ def _vector3(value: object, name: str) -> tuple[float, float, float]:
     return result  # type: ignore[return-value]
 
 
+def _optional_float(value: Mapping[str, object], name: str) -> float | None:
+    raw = value.get(name)
+    if raw is None:
+        return None
+    result = float(raw)
+    if not math.isfinite(result) or result < 0.0:
+        raise ValueError(f"{name} must be a non-negative finite number")
+    return result
+
+
+def _levels(
+    value: Mapping[str, object], name: str
+) -> tuple[float | None, float | None, float | None]:
+    raw = value.get(name)
+    if raw is None:
+        return None, None, None
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{name} must be a JSON object")
+    levels = tuple(_optional_float(raw, key) for key in ("watch", "warning", "critical"))
+    configured = [item for item in levels if item is not None]
+    if any(lower >= upper for lower, upper in zip(configured, configured[1:])):
+        raise ValueError(f"{name} thresholds must increase")
+    return levels  # type: ignore[return-value]
+
+
 def _parse_roi(value: object) -> AxisAlignedRoi:
     if not isinstance(value, Mapping):
         raise ValueError("ROI entries must be objects")
@@ -68,15 +114,6 @@ def _parse_roi(value: object) -> AxisAlignedRoi:
     if any(low >= high for low, high in zip(minimum, maximum)):
         raise ValueError("each ROI min value must be smaller than max")
 
-    def optional_float(name: str) -> float | None:
-        raw = value.get(name)
-        if raw is None:
-            return None
-        result = float(raw)
-        if not math.isfinite(result) or result < 0.0:
-            raise ValueError(f"{name} must be a non-negative finite number")
-        return result
-
     raw_trend = value.get("trend")
     if raw_trend is not None and not isinstance(raw_trend, Mapping):
         raise ValueError("ROI trend must be a JSON object")
@@ -84,56 +121,29 @@ def _parse_roi(value: object) -> AxisAlignedRoi:
     def optional_trend_float(name: str) -> float | None:
         if not isinstance(raw_trend, Mapping):
             return None
-        raw = raw_trend.get(name)
-        if raw is None:
-            return None
-        result = float(raw)
-        if not math.isfinite(result) or result < 0.0:
-            raise ValueError(
-                f"ROI trend {name} must be a non-negative finite number"
-            )
-        return result
+        return _optional_float(raw_trend, name)
 
-    watch_temperature = optional_float("watch_temperature_c")
-    warning_temperature = optional_float("warning_temperature_c")
-    critical_temperature = optional_float("critical_temperature_c")
-    watch_delta = optional_float("watch_delta_c")
-    warning_delta = optional_float("warning_delta_c")
-    critical_delta = optional_float("critical_delta_c")
+    watch_temperature = _optional_float(value, "watch_temperature_c")
+    warning_temperature = _optional_float(value, "warning_temperature_c")
+    critical_temperature = _optional_float(value, "critical_temperature_c")
+    watch_delta = _optional_float(value, "watch_delta_c")
+    warning_delta = _optional_float(value, "warning_delta_c")
+    critical_delta = _optional_float(value, "critical_delta_c")
 
-    def validate_levels(
-        name: str, levels: Sequence[tuple[str, float | None]]
-    ) -> None:
-        configured = [
-            (label, level) for label, level in levels if level is not None
-        ]
-        for (lower_name, lower), (upper_name, upper) in zip(
-            configured, configured[1:]
-        ):
-            assert lower is not None and upper is not None
-            if lower >= upper:
-                raise ValueError(
-                    f"ROI {name} thresholds must increase from "
-                    f"{lower_name} to {upper_name}"
-                )
+    def validate_levels(name: str, levels: Sequence[float | None]) -> None:
+        configured = [level for level in levels if level is not None]
+        if any(lower >= upper for lower, upper in zip(configured, configured[1:])):
+            raise ValueError(f"ROI {name} thresholds must increase")
 
     validate_levels(
-        "temperature",
-        (
-            ("watch", watch_temperature),
-            ("warning", warning_temperature),
-            ("critical", critical_temperature),
-        ),
+        "temperature", (watch_temperature, warning_temperature, critical_temperature)
     )
-    validate_levels(
-        "delta",
-        (
-            ("watch", watch_delta),
-            ("warning", warning_delta),
-            ("critical", critical_delta),
-        ),
-    )
+    validate_levels("delta", (watch_delta, warning_delta, critical_delta))
 
+    simulation = _levels(value, "simulation_fallback_temperature_c")
+    baseline = _levels(value, "baseline_delta_c")
+    air = _levels(value, "air_delta_c")
+    oil = _levels(value, "oil_temperature_c")
     trend = EquipmentTrendThresholds(
         minimum_rise_c=optional_trend_float("minimum_rise_c"),
         minimum_slope_c_per_hour=optional_trend_float(
@@ -142,6 +152,11 @@ def _parse_roi(value: object) -> AxisAlignedRoi:
     )
     if trend.minimum_rise_c is None and trend.minimum_slope_c_per_hour is None:
         trend = None
+
+    reference_roi_id = str(value.get("reference_roi_id", "")).strip() or None
+    threshold_mode = str(value.get("threshold_mode", "absolute")).strip()
+    if threshold_mode not in {"absolute", "baseline_primary", "screening"}:
+        raise ValueError("unsupported threshold_mode")
 
     return AxisAlignedRoi(
         roi_id=str(value.get("id", "")).strip(),
@@ -154,6 +169,24 @@ def _parse_roi(value: object) -> AxisAlignedRoi:
         warning_delta_c=warning_delta,
         critical_delta_c=critical_delta,
         trend=trend,
+        threshold_mode=threshold_mode,
+        reference_roi_id=reference_roi_id,
+        simulation_watch_temperature_c=simulation[0],
+        simulation_warning_temperature_c=simulation[1],
+        simulation_critical_temperature_c=simulation[2],
+        baseline_watch_delta_c=baseline[0],
+        baseline_warning_delta_c=baseline[1],
+        baseline_critical_delta_c=baseline[2],
+        air_watch_delta_c=air[0],
+        air_warning_delta_c=air[1],
+        air_critical_delta_c=air[2],
+        oil_watch_temperature_c=oil[0],
+        oil_warning_temperature_c=oil[1],
+        oil_critical_temperature_c=oil[2],
+        critical_rise_between_visits_c=_optional_float(
+            value, "critical_rise_between_visits_c"
+        ),
+        surface_alone_can_trip=bool(value.get("surface_alone_can_trip", True)),
     )
 
 
@@ -161,28 +194,68 @@ def load_config(path: str | Path) -> AnalysisConfig:
     document = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(document, Mapping):
         raise ValueError("thermal analysis config must be a JSON object")
-    equipment = tuple(
-        _parse_roi(item) for item in document.get("equipment_rois", [])
-    )
+    equipment = tuple(_parse_roi(item) for item in document.get("equipment_rois", []))
     environment = tuple(
         _parse_roi(item) for item in document.get("environment_rois", [])
     )
+    references = tuple(_parse_roi(item) for item in document.get("reference_rois", []))
     if not equipment:
         raise ValueError("at least one equipment ROI is required")
-    if any(not roi.roi_id for roi in (*equipment, *environment)):
+    if any(not roi.roi_id for roi in (*equipment, *environment, *references)):
         raise ValueError("every ROI needs a non-empty id")
-    voxel_size = float(document.get("voxel_size_m", 0.1))
-    min_points = int(document.get("min_points_per_voxel", 4))
-    if voxel_size <= 0.0 or min_points <= 0:
-        raise ValueError("voxel size and minimum point count must be positive")
+
+    schema_version = int(document.get("schema_version", 1))
+    statistics = document.get("thermal_statistics", {})
+    quality = document.get("quality", {})
+    spatial = document.get("spatial", {})
+    if not isinstance(statistics, Mapping) or not isinstance(quality, Mapping):
+        raise ValueError("thermal_statistics and quality must be objects")
+    if not isinstance(spatial, Mapping):
+        raise ValueError("spatial must be an object")
+
+    voxel_size = float(
+        spatial.get("voxel_size_simulation_m", document.get("voxel_size_m", 0.1))
+    )
+    min_points = int(
+        statistics.get("min_points_per_voxel", document.get("min_points_per_voxel", 4))
+    )
+    min_p95 = int(statistics.get("min_points_per_roi_for_p95", min_points))
+    recommended_p95 = int(
+        statistics.get("recommended_points_per_roi_for_p95", min_p95)
+    )
+    min_cluster = int(statistics.get("min_hot_cluster_pixels", 1))
+    min_adjacent = int(statistics.get("min_adjacent_hot_voxels", 1))
+    min_confidence = float(
+        quality.get("min_confidence_simulation_fallback", document.get("min_confidence", 0.25))
+    )
+    if (
+        voxel_size <= 0.0
+        or min_points <= 0
+        or min_p95 <= 0
+        or recommended_p95 < min_p95
+        or min_cluster <= 0
+        or min_adjacent <= 0
+        or not 0.0 <= min_confidence <= 1.0
+    ):
+        raise ValueError("thermal analysis quality values are invalid")
+    known_references = {roi.roi_id for roi in references}
+    for roi in equipment:
+        if roi.reference_roi_id and roi.reference_roi_id not in known_references:
+            raise ValueError(f"unknown reference ROI {roi.reference_roi_id!r}")
+
     return AnalysisConfig(
         frame_id=str(document.get("frame_id", "map")),
         voxel_size_m=voxel_size,
         min_points_per_voxel=min_points,
         equipment_rois=equipment,
         environment_rois=environment,
-        min_confidence=float(document.get("min_confidence", 0.25)),
-        schema_version=int(document.get("schema_version", 1)),
+        min_confidence=min_confidence,
+        schema_version=schema_version,
+        reference_rois=references,
+        min_points_per_roi_for_p95=min_p95,
+        recommended_points_per_roi_for_p95=recommended_p95,
+        min_hot_cluster_pixels=min_cluster,
+        min_adjacent_hot_voxels=min_adjacent,
     )
 
 
@@ -217,42 +290,108 @@ def _cell_count(roi: AxisAlignedRoi, size: float) -> int:
     )
 
 
+def _largest_pixel_cluster(points: Sequence[ThermalPoint], threshold: float | None) -> int:
+    if threshold is None:
+        return 0
+    remaining = {
+        (int(point.pixel_u), int(point.pixel_v))
+        for point in points
+        if point.temperature_c >= threshold and point.pixel_u >= 0 and point.pixel_v >= 0
+    }
+    largest = 0
+    while remaining:
+        stack = [remaining.pop()]
+        size = 0
+        while stack:
+            u, v = stack.pop()
+            size += 1
+            for du in (-1, 0, 1):
+                for dv in (-1, 0, 1):
+                    if du == 0 and dv == 0:
+                        continue
+                    neighbor = (u + du, v + dv)
+                    if neighbor in remaining:
+                        remaining.remove(neighbor)
+                        stack.append(neighbor)
+        largest = max(largest, size)
+    return largest
+
+
+def _thresholds(roi: AxisAlignedRoi) -> dict[str, object]:
+    return {
+        "threshold_mode": roi.threshold_mode,
+        "watch_temperature_c": roi.watch_temperature_c,
+        "warning_temperature_c": roi.warning_temperature_c,
+        "critical_temperature_c": roi.critical_temperature_c,
+        "watch_delta_c": roi.watch_delta_c,
+        "warning_delta_c": roi.warning_delta_c,
+        "critical_delta_c": roi.critical_delta_c,
+        "reference_roi_id": roi.reference_roi_id,
+        "simulation_fallback_temperature_c": {
+            "watch": roi.simulation_watch_temperature_c,
+            "warning": roi.simulation_warning_temperature_c,
+            "critical": roi.simulation_critical_temperature_c,
+        },
+        "baseline_delta_c": {
+            "watch": roi.baseline_watch_delta_c,
+            "warning": roi.baseline_warning_delta_c,
+            "critical": roi.baseline_critical_delta_c,
+        },
+        "air_delta_c": {
+            "watch": roi.air_watch_delta_c,
+            "warning": roi.air_warning_delta_c,
+            "critical": roi.air_critical_delta_c,
+        },
+        "oil_temperature_c": {
+            "watch": roi.oil_watch_temperature_c,
+            "warning": roi.oil_warning_temperature_c,
+            "critical": roi.oil_critical_temperature_c,
+        },
+        "critical_rise_between_visits_c": roi.critical_rise_between_visits_c,
+        "surface_alone_can_trip": roi.surface_alone_can_trip,
+        "trend": (
+            {
+                "minimum_rise_c": roi.trend.minimum_rise_c,
+                "minimum_slope_c_per_hour": roi.trend.minimum_slope_c_per_hour,
+            }
+            if roi.trend is not None
+            else None
+        ),
+    }
+
+
 def analyze_points(
-    points: Iterable[ThermalPoint], config: AnalysisConfig
+    points: Iterable[ThermalPoint], config: AnalysisConfig, *, simulated: bool = True
 ) -> dict[str, object]:
     """Aggregate one observation without turning unobserved cells into zero."""
 
-    equipment_cells: dict[
-        str, dict[tuple[int, int, int], list[float]]
-    ] = {roi.roi_id: {} for roi in config.equipment_rois}
+    equipment_cells: dict[str, dict[tuple[int, int, int], list[ThermalPoint]]] = {
+        roi.roi_id: {} for roi in config.equipment_rois
+    }
+    reference_values: dict[str, list[float]] = {
+        roi.roi_id: [] for roi in config.reference_rois
+    }
     ambient_values: list[float] = []
 
     for point in points:
-        if (
-            point.confidence < config.min_confidence
-            or not math.isfinite(point.temperature_c)
-        ):
+        if point.confidence < config.min_confidence or not math.isfinite(point.temperature_c):
             continue
+        for roi in config.reference_rois:
+            if roi.contains(point.x, point.y, point.z):
+                reference_values[roi.roi_id].append(point.temperature_c)
         matched_equipment = False
         for roi in config.equipment_rois:
             if not roi.contains(point.x, point.y, point.z):
                 continue
             index = tuple(
                 int(math.floor((value - low) / config.voxel_size_m))
-                for value, low in zip(
-                    (point.x, point.y, point.z), roi.minimum
-                )
+                for value, low in zip((point.x, point.y, point.z), roi.minimum)
             )
-            equipment_cells[roi.roi_id].setdefault(index, []).append(
-                point.temperature_c
-            )
+            equipment_cells[roi.roi_id].setdefault(index, []).append(point)
             matched_equipment = True
             break
-        if matched_equipment:
-            continue
-        if any(
-            roi.contains(point.x, point.y, point.z)
-            for roi in config.environment_rois
+        if not matched_equipment and any(
+            roi.contains(point.x, point.y, point.z) for roi in config.environment_rois
         ):
             ambient_values.append(point.temperature_c)
 
@@ -266,35 +405,72 @@ def analyze_points(
         else None
     )
     ambient_temperature = (
-        float(ambient["median_temperature_c"])
-        if ambient is not None
-        else None
+        float(ambient["median_temperature_c"]) if ambient is not None else None
     )
+    references = {
+        roi_id: {
+            "median_temperature_c": median(values),
+            "mean_temperature_c": fmean(values),
+            "point_count": len(values),
+        }
+        for roi_id, values in reference_values.items()
+        if values
+    }
 
     equipment_results: list[dict[str, object]] = []
     for roi in config.equipment_rois:
         voxels: list[dict[str, object]] = []
         all_temperatures: list[float] = []
-        for index, temperatures in sorted(equipment_cells[roi.roi_id].items()):
-            if len(temperatures) < config.min_points_per_voxel:
+        reference = references.get(roi.reference_roi_id or "")
+        reference_temperature = (
+            float(reference["median_temperature_c"]) if reference is not None else None
+        )
+        pixel_critical = (
+            roi.simulation_critical_temperature_c
+            if simulated and roi.simulation_critical_temperature_c is not None
+            else roi.critical_temperature_c
+        )
+        for index, samples in sorted(equipment_cells[roi.roi_id].items()):
+            if len(samples) < config.min_points_per_voxel:
                 continue
+            temperatures = [sample.temperature_c for sample in samples]
             stats = _statistics(temperatures)
             center = [
-                roi.minimum[axis]
-                + (index[axis] + 0.5) * config.voxel_size_m
+                roi.minimum[axis] + (index[axis] + 0.5) * config.voxel_size_m
                 for axis in range(3)
             ]
             p95 = float(stats["p95_temperature_c"])
+            pixel_count = len(
+                {
+                    (int(sample.pixel_u), int(sample.pixel_v))
+                    for sample in samples
+                    if sample.pixel_u >= 0 and sample.pixel_v >= 0
+                }
+            )
             voxels.append(
                 {
                     "voxel_id": f"{roi.roi_id}:{index[0]}:{index[1]}:{index[2]}",
                     "index": list(index),
                     "center": center,
                     **stats,
+                    "ambient_delta_p95_c": (
+                        p95 - ambient_temperature if ambient_temperature is not None else None
+                    ),
+                    "reference_delta_p95_c": (
+                        p95 - reference_temperature if reference_temperature is not None else None
+                    ),
                     "delta_p95_c": (
-                        p95 - ambient_temperature
-                        if ambient_temperature is not None
-                        else None
+                        p95 - reference_temperature
+                        if reference_temperature is not None
+                        else (
+                            p95 - ambient_temperature
+                            if config.schema_version == 1 and ambient_temperature is not None
+                            else None
+                        )
+                    ),
+                    "radiometric_pixel_count": pixel_count,
+                    "max_hot_cluster_pixels": _largest_pixel_cluster(
+                        samples, pixel_critical
                     ),
                     "valid": True,
                 }
@@ -303,6 +479,14 @@ def analyze_points(
 
         total_cells = _cell_count(roi, config.voxel_size_m)
         equipment_stats = _statistics(all_temperatures) if all_temperatures else None
+        p95_valid = len(all_temperatures) >= config.min_points_per_roi_for_p95
+        quality_flags = []
+        if all_temperatures and not p95_valid:
+            quality_flags.append("insufficient_samples_for_p95")
+        if len(all_temperatures) < config.recommended_points_per_roi_for_p95:
+            quality_flags.append("below_recommended_p95_samples")
+        if roi.reference_roi_id and reference_temperature is None:
+            quality_flags.append("reference_roi_unavailable")
         hottest = (
             max(voxels, key=lambda item: float(item["p95_temperature_c"]))
             if voxels
@@ -315,28 +499,12 @@ def analyze_points(
                 "configured_voxel_count": total_cells,
                 "coverage_ratio": len(voxels) / total_cells,
                 "statistics": equipment_stats,
-                "hottest_voxel_id": (
-                    hottest["voxel_id"] if hottest is not None else None
-                ),
+                "p95_valid": p95_valid,
+                "quality_flags": quality_flags,
+                "reference_temperature_c": reference_temperature,
+                "hottest_voxel_id": hottest["voxel_id"] if hottest is not None else None,
                 "voxels": voxels,
-                "thresholds": {
-                    "watch_temperature_c": roi.watch_temperature_c,
-                    "warning_temperature_c": roi.warning_temperature_c,
-                    "critical_temperature_c": roi.critical_temperature_c,
-                    "watch_delta_c": roi.watch_delta_c,
-                    "warning_delta_c": roi.warning_delta_c,
-                    "critical_delta_c": roi.critical_delta_c,
-                    "trend": (
-                        {
-                            "minimum_rise_c": roi.trend.minimum_rise_c,
-                            "minimum_slope_c_per_hour": (
-                                roi.trend.minimum_slope_c_per_hour
-                            ),
-                        }
-                        if roi.trend is not None
-                        else None
-                    ),
-                },
+                "thresholds": _thresholds(roi),
             }
         )
 
@@ -344,5 +512,13 @@ def analyze_points(
         "schema_version": config.schema_version,
         "frame_id": config.frame_id,
         "ambient": ambient,
+        "references": references,
+        "quality": {
+            "min_points_per_voxel": config.min_points_per_voxel,
+            "min_points_per_roi_for_p95": config.min_points_per_roi_for_p95,
+            "recommended_points_per_roi_for_p95": config.recommended_points_per_roi_for_p95,
+            "min_hot_cluster_pixels": config.min_hot_cluster_pixels,
+            "min_adjacent_hot_voxels": config.min_adjacent_hot_voxels,
+        },
         "equipment": equipment_results,
     }
