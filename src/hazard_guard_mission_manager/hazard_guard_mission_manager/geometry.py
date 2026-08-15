@@ -20,6 +20,41 @@ def pose_errors(
     return position_error, yaw_error
 
 
+def forward_approach_pose(
+    current: tuple[float, float, float],
+    target: tuple[float, float, float],
+    *,
+    minimum_distance_m: float,
+) -> tuple[float, float, float]:
+    """Point the transit goal toward its position, not its inspection yaw.
+
+    Nav2 otherwise receives the inspection heading while it is still driving
+    between waypoints and may decide that reversing is the shortest solution.
+    Very short legs retain the final heading because there is no meaningful
+    travel direction to align with.
+    """
+
+    delta_x = float(target[0]) - float(current[0])
+    delta_y = float(target[1]) - float(current[1])
+    if math.hypot(delta_x, delta_y) <= max(0.0, minimum_distance_m):
+        return target
+    return target[0], target[1], math.atan2(delta_y, delta_x)
+
+
+def heading_change_required(
+    approach: tuple[float, float, float],
+    target: tuple[float, float, float],
+    *,
+    tolerance_rad: float,
+) -> bool:
+    """Return whether arrival needs a separate inspection-heading goal."""
+
+    return abs(normalize_angle(target[2] - approach[2])) > max(
+        0.0,
+        tolerance_rad,
+    )
+
+
 def path_length(poses: list[object]) -> float:
     """Calculate the planar length of a nav_msgs/Path pose sequence."""
 

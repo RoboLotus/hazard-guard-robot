@@ -44,6 +44,7 @@ def test_physical_speed_profile_is_consistent_and_keeps_safe_acceleration():
     smoother = params["velocity_smoother"]["ros__parameters"]
 
     assert follow_path["max_vel_x"] == 0.14
+    assert follow_path["min_vel_x"] == 0.0
     assert follow_path["max_vel_y"] == 0.12
     assert follow_path["max_vel_theta"] == 0.42
     assert follow_path["max_speed_xy"] == 0.14
@@ -90,6 +91,7 @@ def test_physical_mission_alignment_uses_relaxed_sampled_policy():
     assert mission["pose_sample_count"] == 5
     assert mission["pose_min_valid_samples"] == 3
     assert mission["pose_sample_interval_sec"] == 0.15
+    assert mission["forward_approach_min_distance_m"] == 0.15
     assert "parameters=[nav2_params_file]" in source
 
 
