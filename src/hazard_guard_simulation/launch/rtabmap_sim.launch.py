@@ -77,6 +77,74 @@ def _color_cloud_assembler_node() -> Node:
                 "/hazard_guard/rtabmap/cloud_surface",
             ),
         ],
+        condition=UnlessCondition(LaunchConfiguration("optimized_cloud")),
+    )
+
+
+def _optimized_map_assembler_node() -> Node:
+    """Rebuild the public cloud whenever RTAB-Map optimizes node poses."""
+
+    return Node(
+        package="rtabmap_util",
+        executable="map_assembler",
+        namespace="rtabmap",
+        name="optimized_map_assembler",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "map_always_update": True,
+                "map_cleanup": True,
+                "cloud_output_voxelized": True,
+                "Grid/3D": "true",
+                "Grid/RangeMin": "0.2",
+                "Grid/RangeMax": "4.0",
+                # Match the field-tested physical visualization policy.
+                # RTAB-Map parameters are expressed in metres.
+                "Grid/CellSize": "0.03",
+            }
+        ],
+        remappings=[
+            (
+                "cloud_map",
+                "/hazard_guard/rtabmap/cloud_surface_optimized",
+            )
+        ],
+        condition=IfCondition(LaunchConfiguration("optimized_cloud")),
+    )
+
+
+def _optimized_cloud_guard_node() -> Node:
+    """Bound the large optimized snapshot before WebUI DDS transport."""
+
+    return Node(
+        package="hazard_guard_simulation",
+        executable="adaptive_cloud_guard.py",
+        name="adaptive_cloud_guard",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "normal_points": 9000,
+                "high_load_points": 4500,
+                "normal_surface_hz": 1.0,
+                "high_load_surface_hz": 0.5,
+            }
+        ],
+        remappings=[
+            ("input", "/hazard_guard/rtabmap/cloud_frame_guard_unused"),
+            (
+                "surface_input",
+                "/hazard_guard/rtabmap/cloud_surface_optimized",
+            ),
+            ("surface_output", "/hazard_guard/rtabmap/cloud_surface"),
+            (
+                "surface_compat_output",
+                "/hazard_guard/rtabmap/cloud_frame_raw",
+            ),
+            ("status", "/hazard_guard/rtabmap/cloud_guard/status"),
+        ],
+        condition=IfCondition(LaunchConfiguration("optimized_cloud")),
     )
 
 
@@ -145,6 +213,14 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument("map_frame_id", default_value="map"),
             DeclareLaunchArgument("map_topic", default_value="/map"),
+            DeclareLaunchArgument(
+                "optimized_cloud",
+                default_value="false",
+                description=(
+                    "Publish the graph-optimized RTAB-Map cloud instead of "
+                    "the irreversible raw point-cloud assembly"
+                ),
+            ),
             DeclareLaunchArgument(
                 "demo_route",
                 default_value="false",
@@ -242,6 +318,9 @@ def generate_launch_description() -> LaunchDescription:
                                 "/hazard_guard/rtabmap/cloud_frame",
                             ),
                         ],
+                        condition=UnlessCondition(
+                            LaunchConfiguration("optimized_cloud")
+                        ),
                     ),
                     _rtabmap_node(parameters_file, reset_database=True),
                     _rtabmap_node(parameters_file, reset_database=False),
@@ -249,7 +328,11 @@ def generate_launch_description() -> LaunchDescription:
             ),
             TimerAction(
                 period=7.0,
-                actions=[_color_cloud_assembler_node()],
+                actions=[
+                    _color_cloud_assembler_node(),
+                    _optimized_map_assembler_node(),
+                    _optimized_cloud_guard_node(),
+                ],
             ),
             TimerAction(
                 period=8.0,

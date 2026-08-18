@@ -85,8 +85,9 @@ def generate_launch_description() -> LaunchDescription:
             "database_path": database_path,
             "reset_database": reset_database,
             "publish_tf": "false",
-            "map_frame_id": "rtabmap_map",
+            "map_frame_id": "map",
             "map_topic": "/rtabmap/grid_map",
+            "optimized_cloud": "true",
             "parameters_file": str(
                 simulation_share / "config" / "rtabmap_rgbd_capture.yaml"
             ),
@@ -105,13 +106,15 @@ def generate_launch_description() -> LaunchDescription:
             ),
             "cloud_fixed_frame": "map",
             "cloud_output_frame": "map",
-            "optimized_cloud": "false",
+            "optimized_cloud": "true",
             "odom_frame_id": "map",
+            "map_frame_id": "map",
             "rtabmap_registration_strategy": "0",
             "subscribe_scan": "false",
             "neighbor_link_refining": "false",
             "proximity_by_space": "false",
-            "loop_closure_threshold": "0.0",
+            "loop_closure_threshold": "1.0",
+            "optimize_max_error": "3.0",
         }.items(),
     )
 
