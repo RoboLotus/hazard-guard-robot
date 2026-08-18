@@ -39,6 +39,7 @@ install(PROGRAMS scripts/rtabmap_scan_demo.py scripts/camera_info_relay.py
   scripts/thermal_colorize.py scripts/thermal_overlay.py
   scripts/thermal_camera_info.py
   scripts/timestamp_diagnostics.py
+  scripts/localization_ready_gate.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -64,6 +65,9 @@ if(BUILD_TESTING)
   )
   ament_add_pytest_test(test_rgbd_mapping_launch
     test/test_rgbd_mapping_launch.py
+  )
+  ament_add_pytest_test(test_localization_ready_gate
+    test/test_localization_ready_gate.py
   )
 endif()
 

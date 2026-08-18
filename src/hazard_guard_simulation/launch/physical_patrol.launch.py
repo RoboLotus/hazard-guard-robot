@@ -192,8 +192,11 @@ def generate_launch_description() -> LaunchDescription:
             ),
             include(
                 "hazard_guard_simulation",
-                "rtabmap_real.launch.py",
+                "rgbd_capture_after_localization.launch.py",
                 {
+                    "backend": "real",
+                    "use_sim_time": "false",
+                    "map": map_path,
                     "database_path": LaunchConfiguration(
                         "rtabmap_database_path"
                     ),
@@ -206,14 +209,7 @@ def generate_launch_description() -> LaunchDescription:
                     "cloud_stamp_offset_sec": LaunchConfiguration(
                         "rgbd_cloud_stamp_offset_sec"
                     ),
-                    "cloud_fixed_frame": "map",
-                    "cloud_output_frame": "map",
-                    "optimized_cloud": "false",
-                    "rtabmap_registration_strategy": "0",
-                    "subscribe_scan": "false",
-                    "neighbor_link_refining": "false",
-                    "proximity_by_space": "false",
-                    "loop_closure_threshold": "0.0",
+                    "readiness_timeout_sec": "60.0",
                 },
                 condition=IfCondition(enable_rgbd_mapping),
             ),

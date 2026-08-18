@@ -4,7 +4,10 @@
     # localization stack) owns map -> odom; RTAB-Map never publishes that TF.
     use_sim_time: true
     frame_id: base_footprint
-    odom_frame_id: odom
+    # The saved 2D map and AMCL own the capture pose. This makes every RGB-D
+    # node inherit map -> odom corrections instead of freezing odom drift into
+    # the RTAB-Map database.
+    odom_frame_id: map
     map_frame_id: rtabmap_map
     publish_tf: false
 

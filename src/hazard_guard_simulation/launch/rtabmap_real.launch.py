@@ -44,6 +44,7 @@ def validate_launch_configuration(context):
 
 def generate_launch_description() -> LaunchDescription:
     database_path = LaunchConfiguration("database_path")
+    odom_frame_id = LaunchConfiguration("odom_frame_id")
     storage_path = LaunchConfiguration("storage_path")
     cloud_decimation = LaunchConfiguration("cloud_decimation")
     cloud_voxel_size = LaunchConfiguration("cloud_voxel_size")
@@ -69,6 +70,15 @@ def generate_launch_description() -> LaunchDescription:
                 "storage_path",
                 default_value=str(
                     Path.home() / "RoboLotus/hazard-guard-robot/runtime/maps"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "odom_frame_id",
+                default_value="odom",
+                choices=["odom", "map"],
+                description=(
+                    "External pose frame stored in RTAB-Map. Use map only "
+                    "after AMCL localization is active."
                 ),
             ),
             DeclareLaunchArgument(
@@ -220,7 +230,7 @@ def generate_launch_description() -> LaunchDescription:
                     {
                         "use_sim_time": False,
                         "frame_id": "base_link",
-                        "odom_frame_id": "odom",
+                        "odom_frame_id": odom_frame_id,
                         "map_frame_id": "rtabmap_map",
                         "database_path": database_path,
                         # SLAM Toolbox exclusively owns map -> odom for Nav2.

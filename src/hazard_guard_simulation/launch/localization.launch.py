@@ -240,36 +240,23 @@ def generate_launch_description() -> LaunchDescription:
                     )
                 ],
             ),
-            TimerAction(
-                period=9.0,
-                actions=[
-                    IncludeLaunchDescription(
-                        PythonLaunchDescriptionSource(
-                            str(
-                                simulation_share
-                                / "launch"
-                                / "rtabmap_sim.launch.py"
-                            )
-                        ),
-                        launch_arguments={
-                            "start_simulation": "false",
-                            "use_sim_time": "true",
-                            "rviz": "false",
-                            "demo_route": "false",
-                            "database_path": rtabmap_database_path,
-                            "reset_database": rtabmap_reset_database,
-                            "publish_tf": "false",
-                            "map_frame_id": "rtabmap_map",
-                            "map_topic": "/rtabmap/grid_map",
-                            "parameters_file": str(
-                                simulation_share
-                                / "config"
-                                / "rtabmap_rgbd_capture.yaml"
-                            ),
-                        }.items(),
-                        condition=IfCondition(enable_rgbd_mapping),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(
+                        simulation_share
+                        / "launch"
+                        / "rgbd_capture_after_localization.launch.py"
                     )
-                ],
+                ),
+                launch_arguments={
+                    "backend": "sim",
+                    "use_sim_time": "true",
+                    "map": map_file,
+                    "database_path": rtabmap_database_path,
+                    "reset_database": rtabmap_reset_database,
+                    "readiness_timeout_sec": "45.0",
+                }.items(),
+                condition=IfCondition(enable_rgbd_mapping),
             ),
         ]
     )
