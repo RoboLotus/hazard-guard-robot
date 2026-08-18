@@ -46,7 +46,7 @@ def test_cloud_frames_are_selectable_but_keep_odom_defaults():
     assert '"frame_id": LaunchConfiguration("cloud_output_frame")' in source
 
 
-def test_optimized_map_is_internal_opt_in_comparison_backend():
+def test_optimized_map_is_opt_in_and_selected_on_the_public_cloud_path():
     source = LAUNCH.read_text(encoding="utf-8")
 
     optimized_default = (
@@ -63,13 +63,16 @@ def test_optimized_map_is_internal_opt_in_comparison_backend():
     assert '"/hazard_guard/rtabmap/cloud_surface"' in source
     assert '"/hazard_guard/rtabmap/cloud_frame_raw"' in source
     assert '"Grid/3D": "true"' in source
+    assert 'surface_input_topic = PythonExpression(' in source
+    assert source.count('"Grid/CellSize": ParameterValue(') == 2
+    assert 'condition=UnlessCondition(optimized_cloud)' in source
 
 
 def test_rtabmap_does_not_publish_a_second_parent_for_odom():
     source = LAUNCH.read_text(encoding="utf-8")
 
     assert '"publish_tf": False' in source
-    assert '"map_frame_id": "rtabmap_map"' in source
+    assert '"map_frame_id": map_frame_id' in source
 
 
 def test_external_pose_frame_is_configurable_with_legacy_default():
@@ -78,6 +81,14 @@ def test_external_pose_frame_is_configurable_with_legacy_default():
     assert '"odom_frame_id"' in source
     assert 'default_value="odom"' in source
     assert '"odom_frame_id": odom_frame_id' in source
+
+
+def test_map_frame_preserves_legacy_default_but_allows_saved_map_alignment():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert '"map_frame_id"' in source
+    assert 'default_value="rtabmap_map"' in source
+    assert 'choices=["rtabmap_map", "map"]' in source
 
 
 @pytest.mark.parametrize(

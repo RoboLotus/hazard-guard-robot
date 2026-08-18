@@ -438,11 +438,15 @@ ros2 launch hazard_guard_simulation rtabmap_sim.launch.py \
 실행하지 않습니다.
 
 RTAB-Map 자체의 `/rtabmap/cloud_map`은 이 구성에서 Z=0인 장애물 점유 셀을
-나타냅니다. 컬러 표면 지도는 RGB·Depth로 프레임별 포인트클라우드를 만든 뒤
-RTAB-Map의 `map` 좌표계에 누적하여
-`/hazard_guard/rtabmap/cloud_surface`로 발행합니다. 각 점은 X/Y/Z와 RGB를
-포함하며 WebUI 백엔드가 이를 다운샘플링해 브라우저로 전송합니다. RViz는 이
-데이터를 보는 도구일 뿐 WebUI의 데이터 원본은 아닙니다.
+나타냅니다. 저장 2D 지도 기반의 두 번째 주행에서는 RGB·Depth를 RTAB-Map
+노드별로 기록하고, `map_assembler`가 AMCL에서 받은 노드 pose로 컬러 표면
+지도를 다시 만듭니다. 기본 프로필은 RTAB visual/ICP odometry와 loop closure를
+사용하지 않으므로 이미 누적한 점군을 RTAB-Map이 독자적으로 재배치하지 않습니다.
+결과는 `map` 좌표계의
+`/hazard_guard/rtabmap/cloud_surface`로 발행합니다. RTAB-Map의 TF 발행은
+끄므로 `map -> odom`은 계속 AMCL만 담당하며 Nav2 좌표계와 경쟁하지 않습니다.
+각 점은 X/Y/Z와 RGB를 포함하며 WebUI 백엔드가 이를 다운샘플링해 브라우저로
+전송합니다. RViz는 이 데이터를 보는 도구일 뿐 WebUI의 데이터 원본은 아닙니다.
 
 실제 로봇 전환 시 RTAB-Map 알고리즘 코드를 다시 만들 필요는 없지만,
 Gazebo 카메라 토픽 대신 실제 RGB·Depth·CameraInfo·Odometry·TF를 연결해야
@@ -466,6 +470,12 @@ guard가 포함됩니다. 실기 비교에서 9,000 points/frame, decimation 2,
 4,500점과 4 Hz로 낮추며, 임계 부하에서는 3D 표면 누적만 일시 중지합니다. 이때
 SLAM Toolbox, Nav2, RTAB-Map 위치 추정 및 RTAB-Map DB 기록 경로는 계속
 동작합니다.
+
+여기서 `9,000`은 **누적 프레임 수가 아니라 입력 한 프레임의 최대 포인트
+수**입니다. `cloud_voxel_size:=0.03`의 단위는 미터이므로 **0.03 m = 3 cm**이며
+0.03 cm가 아닙니다. 최적화 후의 전체 누적 지도는 9,000점을 넘을 수 있습니다.
+WebUI 백엔드는 그 전체 지도에 복셀화를 다시 적용하지 않고, 기본 최대 20,000점을
+균일 간격으로 골라 전송하므로 Robot의 3 cm 공간 해상도를 중복 변경하지 않습니다.
 
 누적 지도는 WebUI 호환 토픽인
 `/hazard_guard/rtabmap/cloud_surface`를 유지하며 최대 1 Hz로 전달됩니다.

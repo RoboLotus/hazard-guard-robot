@@ -67,7 +67,6 @@ class RigidTransform:
         qz = self.qz / norm
         qw = self.qw / norm
 
-        # Quaternion rotation matrix, followed by translation.
         rx = (
             (1.0 - 2.0 * (qy * qy + qz * qz)) * x
             + 2.0 * (qx * qy - qz * qw) * y
@@ -93,6 +92,8 @@ class ThermalPoint:
     z: float
     temperature_c: float
     confidence: float
+    pixel_u: float = -1.0
+    pixel_v: float = -1.0
 
 
 def fuse_depth_and_thermal(
@@ -108,12 +109,7 @@ def fuse_depth_and_thermal(
     min_temperature_c: float = -100.0,
     max_temperature_c: float = 1000.0,
 ) -> list[ThermalPoint]:
-    """Project depth pixels into the thermal camera and attach temperature.
-
-    The returned XYZ coordinates are expressed in the thermal optical frame.
-    This makes the output independent of whether the input topics came from
-    Gazebo or a physical camera driver.
-    """
+    """Project depth pixels into the thermal camera and attach temperature."""
 
     depth_camera.validate()
     thermal_camera.validate()
@@ -134,9 +130,7 @@ def fuse_depth_and_thermal(
             x_depth = (u - depth_camera.cx) * depth / depth_camera.fx
             y_depth = (v - depth_camera.cy) * depth / depth_camera.fy
             x_thermal, y_thermal, z_thermal = thermal_from_depth.apply(
-                x_depth,
-                y_depth,
-                depth,
+                x_depth, y_depth, depth
             )
             if z_thermal <= 0.0:
                 continue
@@ -152,9 +146,7 @@ def fuse_depth_and_thermal(
             ):
                 continue
             temperature = float(
-                temperature_c[
-                    thermal_v * thermal_camera.width + thermal_u
-                ]
+                temperature_c[thermal_v * thermal_camera.width + thermal_u]
             )
             if (
                 not math.isfinite(temperature)
@@ -163,15 +155,15 @@ def fuse_depth_and_thermal(
             ):
                 continue
 
-            # Confidence is deliberately sensor-agnostic. It falls towards
-            # the edge of the thermal image and with distance; a physical
-            # adapter may publish a stricter confidence later.
             nx = abs((thermal_u - thermal_camera.cx) / max(thermal_camera.cx, 1.0))
             ny = abs((thermal_v - thermal_camera.cy) / max(thermal_camera.cy, 1.0))
             edge_factor = max(0.25, 1.0 - 0.35 * max(nx, ny))
             range_factor = max(
                 0.25,
-                1.0 - 0.35 * (depth - min_depth_m) / max(max_depth_m - min_depth_m, 1.0e-6),
+                1.0
+                - 0.35
+                * (depth - min_depth_m)
+                / max(max_depth_m - min_depth_m, 1.0e-6),
             )
             points.append(
                 ThermalPoint(
@@ -180,6 +172,8 @@ def fuse_depth_and_thermal(
                     z=z_thermal,
                     temperature_c=temperature,
                     confidence=min(1.0, edge_factor * range_factor),
+                    pixel_u=float(thermal_u),
+                    pixel_v=float(thermal_v),
                 )
             )
     return points

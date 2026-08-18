@@ -8,7 +8,10 @@
     # node inherit map -> odom corrections instead of freezing odom drift into
     # the RTAB-Map database.
     odom_frame_id: map
-    map_frame_id: rtabmap_map
+    # The optimized 3D cloud must share the saved 2D map frame so the WebUI
+    # robot marker and the rebuilt cloud use the same coordinates. RTAB-Map
+    # still publishes no TF, so AMCL remains the only map -> odom authority.
+    map_frame_id: map
     publish_tf: false
 
     subscribe_rgbd: true
@@ -22,21 +25,28 @@
     qos_camera_info: 2
     qos_odom: 2
 
-    # External odometry determines node poses. Disable ICP neighbor refinement
-    # and loop-closure constraints so RTAB-Map cannot create a competing pose
-    # estimate. RGB features remain stored with each RGB-D node.
+    # External localization determines every input pose. Keep all RTAB-Map
+    # loop/proximity closures disabled so the 3D cloud follows the validated
+    # SLAM Toolbox map and AMCL pose without retrospective graph jumps.
     Reg/Strategy: "0"
     Reg/Force3DoF: "true"
     RGBD/NeighborLinkRefining: "false"
+    RGBD/ProximityByTime: "false"
     RGBD/ProximityBySpace: "false"
-    Rtabmap/LoopThr: "0.0"
+    RGBD/ProximityPathMaxNeighbors: "0"
+    RGBD/AggressiveLoopThr: "1.0"
+    RGBD/OptimizeMaxError: "3.0"
+    Rtabmap/LoopThr: "1.0"
+    Vis/MinInliers: "20"
     Optimizer/GravitySigma: "0"
 
     Grid/FromDepth: "true"
     Grid/3D: "true"
     Grid/RangeMin: "0.2"
     Grid/RangeMax: "4.0"
-    Grid/CellSize: "0.05"
+    # Keep the RTAB-Map node cache and map_assembler on the same 3 cm grid.
+    # A different cache size would make the assembler's voxel setting inert.
+    Grid/CellSize: "0.03"
     Grid/MaxObstacleHeight: "2.5"
     Grid/MinGroundHeight: "-0.15"
 

@@ -8,9 +8,10 @@ from typing import Any
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
-from nav2_msgs.action import ComputePathToPose, NavigateToPose
+from nav2_msgs.action import ComputePathToPose, NavigateToPose, Spin
 from rclpy.action import ActionClient
 from rclpy.callback_groups import CallbackGroup
+from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.time import Time
 from tf2_ros import Buffer, TransformListener
@@ -29,6 +30,7 @@ class Nav2Adapter:
         *,
         navigate_action_name: str,
         compute_path_action_name: str,
+        spin_action_name: str,
         base_frame: str,
         server_wait_timeout_sec: float,
         check_canceled: Callable[[Any], None],
@@ -57,6 +59,12 @@ class Nav2Adapter:
             compute_path_action_name,
             callback_group=callback_group,
         )
+        self._spin_client = ActionClient(
+            node,
+            Spin,
+            spin_action_name,
+            callback_group=callback_group,
+        )
         self._active_goal_lock = threading.RLock()
         self._active_nav_goal: Any | None = None
         self._safety_cancel_requested = False
@@ -70,6 +78,10 @@ class Nav2Adapter:
             timeout_sec=self._server_wait_timeout_sec
         ):
             raise MissionFailure("Nav2 이동 서버에 연결할 수 없습니다.")
+        if not self._spin_client.wait_for_server(
+            timeout_sec=self._server_wait_timeout_sec
+        ):
+            raise MissionFailure("Nav2 제자리 선회 서버에 연결할 수 없습니다.")
 
     def current_pose(self, frame_id: str) -> tuple[float, float, float] | None:
         try:
@@ -151,6 +163,47 @@ class Nav2Adapter:
             raise MissionCanceled()
         if wrapped.status != GoalStatus.STATUS_SUCCEEDED:
             raise MissionFailure("Nav2 이동에 실패했습니다.")
+
+    def spin(
+        self,
+        relative_yaw: float,
+        mission_goal: Any,
+        *,
+        timeout: float,
+    ) -> None:
+        """Run Nav2's collision-checked Spin behavior by a relative angle."""
+
+        goal = Spin.Goal()
+        goal.target_yaw = float(relative_yaw)
+        goal.time_allowance = Duration(seconds=max(0.0, timeout)).to_msg()
+        nav_goal = self._send_goal(
+            self._spin_client,
+            goal,
+            mission_goal,
+            10.0,
+        )
+        with self._active_goal_lock:
+            self._active_nav_goal = nav_goal
+        if self._safety_is_paused():
+            self.cancel_active_for_safety()
+        safety_canceled = False
+        try:
+            wrapped = self._wait_result(nav_goal, mission_goal, timeout)
+        finally:
+            with self._active_goal_lock:
+                if self._active_nav_goal is nav_goal:
+                    self._active_nav_goal = None
+                safety_canceled = self._safety_cancel_requested
+                self._safety_cancel_requested = False
+        if wrapped.status == GoalStatus.STATUS_CANCELED and safety_canceled:
+            raise MissionSafetyPaused()
+        if wrapped.status == GoalStatus.STATUS_CANCELED:
+            raise MissionCanceled()
+        if wrapped.status != GoalStatus.STATUS_SUCCEEDED:
+            raise MissionFailure(
+                "Nav2가 다음 웨이포인트 방향으로 제자리 선회하지 못했습니다. "
+                "로봇 주변 장애물과 회전 공간을 확인하세요."
+            )
 
     def cancel_active(self) -> None:
         with self._active_goal_lock:

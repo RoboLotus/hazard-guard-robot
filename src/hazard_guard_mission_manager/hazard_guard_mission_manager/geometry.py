@@ -55,6 +55,31 @@ def heading_change_required(
     )
 
 
+def departure_rotation(
+    current: tuple[float, float, float],
+    target: tuple[float, float, float],
+    *,
+    minimum_distance_m: float,
+    tolerance_rad: float,
+) -> float | None:
+    """Return the relative turn needed to face the next waypoint.
+
+    The travel bearing is defined by the line from the robot base centre to
+    the waypoint centre. Short legs have no stable travel direction, while a
+    heading already inside the tolerance needs no explicit Spin action.
+    """
+
+    delta_x = float(target[0]) - float(current[0])
+    delta_y = float(target[1]) - float(current[1])
+    if math.hypot(delta_x, delta_y) <= max(0.0, minimum_distance_m):
+        return None
+    travel_yaw = math.atan2(delta_y, delta_x)
+    relative_yaw = normalize_angle(travel_yaw - float(current[2]))
+    if abs(relative_yaw) <= max(0.0, tolerance_rad):
+        return None
+    return relative_yaw
+
+
 def path_length(poses: list[object]) -> float:
     """Calculate the planar length of a nav_msgs/Path pose sequence."""
 

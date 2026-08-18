@@ -14,27 +14,16 @@ THERMAL_POINT_FIELDS = (
     PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
     PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
     PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
-    PointField(
-        name="temperature_c",
-        offset=12,
-        datatype=PointField.FLOAT32,
-        count=1,
-    ),
-    PointField(
-        name="confidence",
-        offset=16,
-        datatype=PointField.FLOAT32,
-        count=1,
-    ),
+    PointField(name="temperature_c", offset=12, datatype=PointField.FLOAT32, count=1),
+    PointField(name="confidence", offset=16, datatype=PointField.FLOAT32, count=1),
+    PointField(name="pixel_u", offset=20, datatype=PointField.FLOAT32, count=1),
+    PointField(name="pixel_v", offset=24, datatype=PointField.FLOAT32, count=1),
 )
-THERMAL_POINT_STEP = 20
+THERMAL_POINT_STEP = 28
 
 
 def decode_scalar_image(
-    message: Image,
-    *,
-    scale: float = 1.0,
-    offset: float = 0.0,
+    message: Image, *, scale: float = 1.0, offset: float = 0.0
 ) -> list[float]:
     """Decode common one-channel ROS image encodings into floats."""
 
@@ -46,9 +35,7 @@ def decode_scalar_image(
         "64FC1": ("d", 8),
     }
     if message.encoding not in encodings:
-        raise ValueError(
-            f"unsupported scalar image encoding: {message.encoding!r}"
-        )
+        raise ValueError(f"unsupported scalar image encoding: {message.encoding!r}")
     code, item_size = encodings[message.encoding]
     width = int(message.width)
     height = int(message.height)
@@ -69,14 +56,12 @@ def decode_scalar_image(
     return values
 
 
-def create_thermal_cloud(
-    header: Header, points: Iterable[ThermalPoint]
-) -> PointCloud2:
+def create_thermal_cloud(header: Header, points: Iterable[ThermalPoint]) -> PointCloud2:
     point_list = list(points)
     data = bytearray(len(point_list) * THERMAL_POINT_STEP)
     for index, point in enumerate(point_list):
         struct.pack_into(
-            "<fffff",
+            "<fffffff",
             data,
             index * THERMAL_POINT_STEP,
             point.x,
@@ -84,6 +69,8 @@ def create_thermal_cloud(
             point.z,
             point.temperature_c,
             point.confidence,
+            point.pixel_u,
+            point.pixel_v,
         )
     message = PointCloud2()
     message.header = header
@@ -119,11 +106,19 @@ def iter_thermal_cloud(message: PointCloud2) -> Iterator[ThermalPoint]:
             base = row_offset + column * message.point_step
             values = [
                 struct.unpack_from(
-                    f"{byte_order}f",
-                    message.data,
-                    base + fields[name].offset,
+                    f"{byte_order}f", message.data, base + fields[name].offset
                 )[0]
                 for name in required
             ]
+            pixel_values = []
+            for name in ("pixel_u", "pixel_v"):
+                field = fields.get(name)
+                pixel_values.append(
+                    struct.unpack_from(
+                        f"{byte_order}f", message.data, base + field.offset
+                    )[0]
+                    if field is not None and field.datatype == PointField.FLOAT32
+                    else -1.0
+                )
             if all(math.isfinite(value) for value in values):
-                yield ThermalPoint(*values)
+                yield ThermalPoint(*values, *pixel_values)
