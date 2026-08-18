@@ -7,51 +7,23 @@ import argparse
 from collections import Counter
 import json
 import os
-from pathlib import Path
 import signal
-import statistics
 import subprocess
 import time
 from typing import Any
 
+from hazard_guard_performance_monitor.procfs import (
+    cpu_percentages,
+    read_cpu_ticks,
+    read_memory,
+)
+from hazard_guard_performance_monitor.statistics import summarize_values
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
 
 STATUS_TOPIC = "/hazard_guard/rtabmap/cloud_guard/status"
-
-
-def read_cpu_ticks() -> tuple[int, int]:
-    fields = (
-        Path("/proc/stat")
-        .read_text(encoding="ascii")
-        .splitlines()[0]
-        .split()
-    )
-    values = [int(value) for value in fields[1:]]
-    idle = values[3] + (values[4] if len(values) > 4 else 0)
-    return idle, sum(values)
-
-
-def cpu_percent(previous: tuple[int, int], current: tuple[int, int]) -> float:
-    idle_delta = current[0] - previous[0]
-    total_delta = current[1] - previous[1]
-    if total_delta <= 0:
-        return 0.0
-    return 100.0 * (1.0 - idle_delta / total_delta)
-
-
-def memory_percent() -> float:
-    values: dict[str, int] = {}
-    for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
-        name, value = line.split(":", 1)
-        values[name] = int(value.strip().split()[0])
-    total = values.get("MemTotal", 0)
-    available = values.get("MemAvailable", 0)
-    if total <= 0:
-        return 0.0
-    return 100.0 * (total - available) / total
 
 
 def format_duration(seconds: float) -> str:
@@ -225,9 +197,8 @@ def print_summary(
     active_duration = 0.0
     if active_started_at is not None and active_finished_at is not None:
         active_duration = active_finished_at - active_started_at
-    observed_points = (
-        round(statistics.fmean(output_points)) if output_points else 0
-    )
+    observed_summary = summarize_values(output_points)
+    observed_points = round(float(observed_summary["mean"] or 0.0))
     peak_surface = max(surface_points, default=0)
     mode_text = ", ".join(
         f"{name} {count}초" for name, count in sorted(modes.items())
@@ -235,8 +206,20 @@ def print_summary(
     print("-" * width)
     print(f"  측정 시간           : {format_duration(active_duration)}")
     print(f"  유효 샘플           : {len(cpu_samples):,}개")
-    print(f"  CPU 평균            : {statistics.fmean(cpu_samples):.1f}%")
-    print(f"  RAM 평균            : {statistics.fmean(ram_samples):.1f}%")
+    cpu_summary = summarize_values(cpu_samples)
+    ram_summary = summarize_values(ram_samples)
+    print(
+        "  CPU                 : "
+        f"평균 {cpu_summary['mean']:.1f}% / "
+        f"중앙값 {cpu_summary['median']:.1f}% / "
+        f"P95 {cpu_summary['p95']:.1f}% / 최대 {cpu_summary['max']:.1f}%"
+    )
+    print(
+        "  RAM                 : "
+        f"평균 {ram_summary['mean']:.1f}% / "
+        f"중앙값 {ram_summary['median']:.1f}% / "
+        f"P95 {ram_summary['p95']:.1f}% / 최대 {ram_summary['max']:.1f}%"
+    )
     print(f"  실제 출력 포인트    : 평균 {observed_points:,} points/frame")
     print(f"  최대 누적 포인트    : {peak_surface:,}")
     print(f"  Guard 모드          : {mode_text or '확인 불가'}")
@@ -293,7 +276,10 @@ def main() -> int:
             if now < next_sample:
                 continue
             current_cpu = read_cpu_ticks()
-            current_cpu_percent = cpu_percent(previous_cpu, current_cpu)
+            current_cpu_percent = cpu_percentages(
+                previous_cpu,
+                current_cpu,
+            ).get("cpu", 0.0)
             previous_cpu = current_cpu
             if monitor.mapping_active(now):
                 status = monitor.latest or {}
@@ -305,7 +291,7 @@ def main() -> int:
                     )
                 active_finished_at = now
                 cpu_samples.append(current_cpu_percent)
-                ram_samples.append(memory_percent())
+                ram_samples.append(read_memory()["used_percent"])
                 modes[str(status.get("mode") or "unknown")] += 1
                 try:
                     output_points.append(int(status.get("output_points") or 0))
