@@ -512,7 +512,7 @@ ros2 launch hazard_guard_simulation physical_mapping.launch.py \
 ```bash
 source /opt/ros/humble/setup.bash
 cd ~/RoboLotus/hazard-guard-robot
-colcon build --symlink-install --packages-select hazard_guard_simulation
+colcon build --symlink-install --packages-up-to hazard_guard_simulation
 source install/setup.bash
 ```
 
