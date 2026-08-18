@@ -2,6 +2,7 @@ import math
 from types import SimpleNamespace
 
 from hazard_guard_mission_manager.geometry import (
+    departure_rotation,
     forward_approach_pose,
     heading_change_required,
     normalize_angle,
@@ -70,3 +71,30 @@ def test_heading_change_wraps_across_pi_boundary():
         (1.0, 1.0, math.radians(-179.0)),
         tolerance_rad=math.radians(3.0),
     )
+
+
+def test_departure_rotation_faces_waypoint_from_robot_centre():
+    rotation = departure_rotation(
+        (0.0, 0.0, math.pi),
+        (2.0, 2.0, -math.pi / 2.0),
+        minimum_distance_m=0.15,
+        tolerance_rad=0.10,
+    )
+
+    assert rotation is not None
+    assert math.isclose(rotation, -3.0 * math.pi / 4.0)
+
+
+def test_departure_rotation_skips_aligned_and_short_legs():
+    assert departure_rotation(
+        (0.0, 0.0, 0.02),
+        (2.0, 0.0, math.pi),
+        minimum_distance_m=0.15,
+        tolerance_rad=0.10,
+    ) is None
+    assert departure_rotation(
+        (0.0, 0.0, math.pi),
+        (0.05, 0.0, 0.0),
+        minimum_distance_m=0.15,
+        tolerance_rad=0.10,
+    ) is None

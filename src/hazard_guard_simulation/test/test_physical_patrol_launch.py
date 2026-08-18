@@ -92,6 +92,9 @@ def test_physical_mission_alignment_uses_relaxed_sampled_policy():
     assert mission["pose_min_valid_samples"] == 3
     assert mission["pose_sample_interval_sec"] == 0.15
     assert mission["forward_approach_min_distance_m"] == 0.15
+    assert mission["pre_rotation_yaw_tolerance_rad"] == 0.10
+    assert mission["pre_rotation_timeout_sec"] == 30.0
+    assert mission["pre_rotation_retries"] == 1
     assert mission["thermal_service_timeout_sec"] == 5.0
     assert "parameters=[nav2_params_file]" in source
 

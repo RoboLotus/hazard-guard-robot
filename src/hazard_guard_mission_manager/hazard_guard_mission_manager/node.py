@@ -34,6 +34,7 @@ from .errors import (
     MissionScheduleEnded,
 )
 from .geometry import (
+    departure_rotation,
     forward_approach_pose,
     heading_change_required,
     pose_errors,
@@ -68,6 +69,7 @@ class HazardGuardMissionManager(Node):
         super().__init__("hazard_guard_mission_manager")
         self.declare_parameter("action_name", "/hazard_guard/run_patrol")
         self.declare_parameter("navigate_action_name", "/navigate_to_pose")
+        self.declare_parameter("spin_action_name", "/spin")
         self.declare_parameter(
             "compute_path_action_name",
             "/compute_path_to_pose",
@@ -86,6 +88,9 @@ class HazardGuardMissionManager(Node):
         self.declare_parameter("navigation_timeout_sec", 180.0)
         self.declare_parameter("alignment_timeout_sec", 45.0)
         self.declare_parameter("forward_approach_min_distance_m", 0.15)
+        self.declare_parameter("pre_rotation_yaw_tolerance_rad", 0.10)
+        self.declare_parameter("pre_rotation_timeout_sec", 30.0)
+        self.declare_parameter("pre_rotation_retries", 1)
         self.declare_parameter("server_wait_timeout_sec", 8.0)
         self.declare_parameter("safety_supervision_enabled", False)
         self.declare_parameter(
@@ -169,6 +174,7 @@ class HazardGuardMissionManager(Node):
             compute_path_action_name=str(
                 self.get_parameter("compute_path_action_name").value
             ),
+            spin_action_name=str(self.get_parameter("spin_action_name").value),
             base_frame=str(self.get_parameter("base_frame").value),
             server_wait_timeout_sec=float(
                 self.get_parameter("server_wait_timeout_sec").value
@@ -709,6 +715,37 @@ class HazardGuardMissionManager(Node):
             )
         approach = self._forward_approach(current, target)
         approach_yaw_deg = round(math.degrees(approach[2]), 2)
+        relative_yaw = departure_rotation(
+            current,
+            target,
+            minimum_distance_m=float(
+                self.get_parameter("forward_approach_min_distance_m").value
+            ),
+            tolerance_rad=float(
+                self.get_parameter("pre_rotation_yaw_tolerance_rad").value
+            ),
+        )
+        if relative_yaw is not None:
+            if waypoint_index is not None:
+                self._update_waypoint(
+                    waypoint_index,
+                    "aligning",
+                    "출발 전 다음 웨이포인트 방향으로 제자리 선회 중",
+                    approach_yaw_deg=approach_yaw_deg,
+                    pre_rotation_deg=round(math.degrees(relative_yaw), 2),
+                )
+            self._update_state(
+                status="aligning",
+                message=(
+                    f"{waypoint_name} 방향으로 먼저 제자리 선회하고 있습니다. "
+                    f"(진행 방향 {approach_yaw_deg:.1f}°)"
+                ),
+            )
+            self._spin_to_heading_with_safety_retry(
+                approach[2],
+                frame_id,
+                goal_handle,
+            )
         if waypoint_index is not None:
             self._update_waypoint(
                 waypoint_index,
@@ -754,6 +791,66 @@ class HazardGuardMissionManager(Node):
             frame_id,
             goal_handle,
             timeout=float(self.get_parameter("alignment_timeout_sec").value),
+        )
+
+    def _spin_to_heading_with_safety_retry(
+        self,
+        target_yaw: float,
+        frame_id: str,
+        goal_handle: Any,
+    ) -> None:
+        """Face an absolute map heading before translation.
+
+        Nav2 Spin accepts a relative angle. Recompute that angle from the
+        latest TF for every safety resume and correction attempt so a partial
+        turn is never applied twice.
+        """
+
+        tolerance = max(
+            0.0,
+            float(self.get_parameter("pre_rotation_yaw_tolerance_rad").value),
+        )
+        timeout = max(
+            0.1,
+            float(self.get_parameter("pre_rotation_timeout_sec").value),
+        )
+        retries = max(0, int(self.get_parameter("pre_rotation_retries").value))
+        attempt = 0
+        while attempt <= retries:
+            self._raise_if_canceled(goal_handle)
+            self._wait_for_safety_clear(goal_handle)
+            current = self._nav.current_pose(frame_id)
+            if current is None:
+                raise MissionFailure(
+                    "제자리 선회에 사용할 현재 로봇 방향을 확인할 수 없습니다."
+                )
+            remaining = math.atan2(
+                math.sin(target_yaw - current[2]),
+                math.cos(target_yaw - current[2]),
+            )
+            if abs(remaining) <= tolerance:
+                return
+            try:
+                self._nav.spin(
+                    remaining,
+                    goal_handle,
+                    timeout=timeout,
+                )
+            except MissionSafetyPaused:
+                continue
+            time.sleep(0.1)
+            actual = self._nav.current_pose(frame_id)
+            if actual is not None:
+                residual = math.atan2(
+                    math.sin(target_yaw - actual[2]),
+                    math.cos(target_yaw - actual[2]),
+                )
+                if abs(residual) <= tolerance:
+                    return
+            attempt += 1
+        raise MissionFailure(
+            "다음 웨이포인트 진행 방향으로 제자리 선회한 뒤에도 "
+            "방향 오차가 허용 범위를 벗어났습니다."
         )
 
     def _navigate_with_safety_retry(
