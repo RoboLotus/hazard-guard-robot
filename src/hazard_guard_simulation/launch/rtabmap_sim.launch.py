@@ -7,10 +7,14 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 
 
-def _rtabmap_node(parameters: Path, *, reset_database: bool) -> Node:
+def _rtabmap_node(
+    parameters: Path | LaunchConfiguration,
+    *,
+    reset_database: bool,
+) -> Node:
     return Node(
         package="rtabmap_slam",
         executable="rtabmap",
@@ -18,7 +22,7 @@ def _rtabmap_node(parameters: Path, *, reset_database: bool) -> Node:
         name="rtabmap",
         output="screen",
         parameters=[
-            str(parameters),
+            ParameterFile(parameters, allow_substs=True),
             {
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
                 "database_path": LaunchConfiguration("database_path"),
@@ -98,6 +102,7 @@ def generate_launch_description() -> LaunchDescription:
     start_simulation = LaunchConfiguration("start_simulation")
     start_rviz = LaunchConfiguration("rviz")
     start_demo_route = LaunchConfiguration("demo_route")
+    parameters_file = LaunchConfiguration("parameters_file")
 
     return LaunchDescription(
         [
@@ -121,6 +126,15 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("heat_source_profile", default_value=""),
             DeclareLaunchArgument("start_simulation", default_value="true"),
             DeclareLaunchArgument("rviz", default_value="true"),
+            DeclareLaunchArgument(
+                "parameters_file",
+                default_value=str(parameters),
+                description=(
+                    "RTAB-Map parameter profile. The two-pass workflow uses "
+                    "rtabmap_rgbd_capture.yaml so external odometry remains "
+                    "authoritative and RTAB-Map only records RGB-D data."
+                ),
+            ),
             DeclareLaunchArgument(
                 "publish_tf",
                 default_value="true",
@@ -229,8 +243,8 @@ def generate_launch_description() -> LaunchDescription:
                             ),
                         ],
                     ),
-                    _rtabmap_node(parameters, reset_database=True),
-                    _rtabmap_node(parameters, reset_database=False),
+                    _rtabmap_node(parameters_file, reset_database=True),
+                    _rtabmap_node(parameters_file, reset_database=False),
                 ],
             ),
             TimerAction(

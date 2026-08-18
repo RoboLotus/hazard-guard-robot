@@ -39,7 +39,9 @@ def test_cloud_frames_are_selectable_but_keep_odom_defaults():
 
     assert '"cloud_fixed_frame"' in source
     assert '"cloud_output_frame"' in source
-    assert source.count('choices=["odom", "map"]') == 2
+    # Cloud input/output and the external RTAB-Map pose frame each accept
+    # odom/map. The latter preserves odom as its legacy default.
+    assert source.count('choices=["odom", "map"]') == 3
     assert '"fixed_frame_id": LaunchConfiguration(' in source
     assert '"frame_id": LaunchConfiguration("cloud_output_frame")' in source
 
@@ -68,6 +70,14 @@ def test_rtabmap_does_not_publish_a_second_parent_for_odom():
 
     assert '"publish_tf": False' in source
     assert '"map_frame_id": "rtabmap_map"' in source
+
+
+def test_external_pose_frame_is_configurable_with_legacy_default():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert '"odom_frame_id"' in source
+    assert 'default_value="odom"' in source
+    assert '"odom_frame_id": odom_frame_id' in source
 
 
 @pytest.mark.parametrize(

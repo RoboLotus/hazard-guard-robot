@@ -44,6 +44,7 @@ def validate_launch_configuration(context):
 
 def generate_launch_description() -> LaunchDescription:
     database_path = LaunchConfiguration("database_path")
+    odom_frame_id = LaunchConfiguration("odom_frame_id")
     storage_path = LaunchConfiguration("storage_path")
     cloud_decimation = LaunchConfiguration("cloud_decimation")
     cloud_voxel_size = LaunchConfiguration("cloud_voxel_size")
@@ -69,6 +70,15 @@ def generate_launch_description() -> LaunchDescription:
                 "storage_path",
                 default_value=str(
                     Path.home() / "RoboLotus/hazard-guard-robot/runtime/maps"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "odom_frame_id",
+                default_value="odom",
+                choices=["odom", "map"],
+                description=(
+                    "External pose frame stored in RTAB-Map. Use map only "
+                    "after AMCL localization is active."
                 ),
             ),
             DeclareLaunchArgument(
@@ -124,6 +134,32 @@ def generate_launch_description() -> LaunchDescription:
                 description="RTAB-Map registration: 0=Visual, 1=ICP, 2=Visual+ICP",
             ),
             DeclareLaunchArgument(
+                "subscribe_scan",
+                default_value="true",
+                description=(
+                    "Use LiDAR constraints inside RTAB-Map. The second-pass "
+                    "RGB-D workflow disables this because localization owns pose."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "neighbor_link_refining",
+                default_value="true",
+                description="Refine neighboring graph links with registration.",
+            ),
+            DeclareLaunchArgument(
+                "proximity_by_space",
+                default_value="true",
+                description="Search nearby graph nodes for loop constraints.",
+            ),
+            DeclareLaunchArgument(
+                "loop_closure_threshold",
+                default_value="0.11",
+                description=(
+                    "RTAB-Map loop closure threshold. Use 0.0 when an external "
+                    "localization stack is the only pose authority."
+                ),
+            ),
+            DeclareLaunchArgument(
                 "cloud_fixed_frame",
                 default_value="odom",
                 choices=["odom", "map"],
@@ -156,7 +192,16 @@ def generate_launch_description() -> LaunchDescription:
                 package="tf2_ros",
                 executable="static_transform_publisher",
                 name="camera_mount_to_hp60c",
-                arguments=["0", "0", "0", "1.570796", "3.141592", "1.570796", "camera_Link", "ascamera_hp60c_camera_link_0"],
+                arguments=[
+                    "0",
+                    "0",
+                    "0",
+                    "1.570796",
+                    "3.141592",
+                    "1.570796",
+                    "camera_Link",
+                    "ascamera_hp60c_camera_link_0",
+                ],
             ),
             Node(
                 package="rtabmap_sync",
@@ -185,7 +230,7 @@ def generate_launch_description() -> LaunchDescription:
                     {
                         "use_sim_time": False,
                         "frame_id": "base_link",
-                        "odom_frame_id": "odom",
+                        "odom_frame_id": odom_frame_id,
                         "map_frame_id": "rtabmap_map",
                         "database_path": database_path,
                         # SLAM Toolbox exclusively owns map -> odom for Nav2.
@@ -193,7 +238,10 @@ def generate_launch_description() -> LaunchDescription:
                         # parents and corrupt the physical robot TF tree.
                         "publish_tf": False,
                         "subscribe_rgbd": True,
-                        "subscribe_scan": True,
+                        "subscribe_scan": ParameterValue(
+                            LaunchConfiguration("subscribe_scan"),
+                            value_type=bool,
+                        ),
                         "approx_sync": True,
                         "qos_image": 2,
                         "qos_camera_info": 2,
@@ -206,7 +254,18 @@ def generate_launch_description() -> LaunchDescription:
                             value_type=str,
                         ),
                         "Reg/Force3DoF": "true",
-                        "RGBD/NeighborLinkRefining": "true",
+                        "RGBD/NeighborLinkRefining": ParameterValue(
+                            LaunchConfiguration("neighbor_link_refining"),
+                            value_type=str,
+                        ),
+                        "RGBD/ProximityBySpace": ParameterValue(
+                            LaunchConfiguration("proximity_by_space"),
+                            value_type=str,
+                        ),
+                        "Rtabmap/LoopThr": ParameterValue(
+                            LaunchConfiguration("loop_closure_threshold"),
+                            value_type=str,
+                        ),
                         "RGBD/OptimizeMaxError": "10.0",
                         "Vis/MinInliers": "20",
                         "Grid/FromDepth": "true",
