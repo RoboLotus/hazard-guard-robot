@@ -20,6 +20,7 @@
   <exec_depend>hazard_guard_thermal_analysis</exec_depend>
   <exec_depend>hazard_guard_mission_manager</exec_depend>
   <exec_depend>hazard_guard_mock_robot</exec_depend>
+  <exec_depend>hazard_guard_performance_monitor</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>lifecycle_msgs</exec_depend>

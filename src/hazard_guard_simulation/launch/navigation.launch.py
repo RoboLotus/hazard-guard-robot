@@ -44,6 +44,8 @@ def generate_launch_description() -> LaunchDescription:
     heat_source_profile = LaunchConfiguration("heat_source_profile")
     use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
     thermal_history_path = LaunchConfiguration("thermal_history_path")
+    use_performance_monitor = LaunchConfiguration("use_performance_monitor")
+    performance_storage_path = LaunchConfiguration("performance_storage_path")
 
     return LaunchDescription(
         [
@@ -75,6 +77,8 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("heat_source_profile", default_value=""),
             DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
             DeclareLaunchArgument("thermal_history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
+            DeclareLaunchArgument("use_performance_monitor", default_value="true"),
+            DeclareLaunchArgument("performance_storage_path", default_value=""),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "slam.launch.py")
@@ -165,7 +169,20 @@ def generate_launch_description() -> LaunchDescription:
                                 ),
                             }
                         ],
-                    )
+                    ),
+                    Node(
+                        package="hazard_guard_performance_monitor",
+                        executable="performance_monitor",
+                        name="hazard_guard_performance_monitor",
+                        output="screen",
+                        condition=IfCondition(use_performance_monitor),
+                        parameters=[
+                            {
+                                "storage_path": performance_storage_path,
+                                "sample_interval_sec": 1.0,
+                            }
+                        ],
+                    ),
                 ],
             ),
         ]

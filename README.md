@@ -566,6 +566,47 @@ FastAPI 터미널에서 `Ctrl+C`를 누르면 백엔드와 WebUI 관리 ROS stac
 모드별 시간을 터미널에 요약합니다. WebUI에서 3D mapping을 시작하지 않았다면
 측정 결과 없음으로 표시됩니다.
 
+### 순찰 임무 자동 성능 리포트
+
+순찰 launch는 `hazard_guard_performance_monitor`를 함께 시작합니다. 모니터는
+`/hazard_guard/mission/status`에서 실제 임무가 시작된 구간만 1초 간격으로
+수집하고 `completed`, `failed`, `canceled` 상태에서 보고서를 마감합니다.
+
+- Linux `/proc`: 전체·코어별 CPU, RAM, Swap, 대상 프로세스 CPU·RSS·I/O
+- Jetson `tegrastats`: GPU 사용률, CPU/GPU 온도, 입력 전력
+- 임무 문맥: 단계, 회차, 현재 웨이포인트
+
+기본 저장 경로는 다음과 같습니다.
+
+```text
+~/.local/share/hazard-guard/performance/YYYY-MM-DD/<report-id>/
+```
+
+각 세션에는 `samples.jsonl`, `summary.json`, `process-summary.csv`, `report.md`가
+생성됩니다. 실행 중에는 `active.json`이 1초마다 갱신되어 WebUI 리포트 탭에
+현재 CPU·GPU·RAM을 표시합니다. Robot과 WebUI가 다른 사용자나 컨테이너에서
+실행되면 양쪽에 같은 공유 경로를 명시합니다.
+
+```bash
+export HAZARD_GUARD_PERFORMANCE_DIR=/data/hazard-guard/performance
+```
+
+자동 수집을 끄거나 별도 경로를 지정할 수도 있습니다.
+
+```bash
+ros2 launch hazard_guard_simulation physical_patrol.launch.py \
+  map:=/absolute/path/to/map.yaml \
+  use_performance_monitor:=false
+
+ros2 launch hazard_guard_performance_monitor performance_monitor.launch.py \
+  storage_path:=/data/hazard-guard/performance
+```
+
+Jetson이 아닌 개발 PC에서는 `tegrastats` 항목만 측정 없음으로 기록되고 CPU·RAM
+및 프로세스 통계는 계속 생성됩니다. GPU는 Jetson 전체 사용률이며 프로세스별
+GPU 점유율을 의미하지 않습니다. YOLO 성능은 GPU 사용률과 함께 추론 FPS·지연을
+별도 비교해야 합니다.
+
 ## WebUI 운용 모드 연동
 
 `hazard-guard-console` 백엔드의 모드 제어를 활성화하면 WebUI `지도` 탭에서

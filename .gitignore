@@ -20,6 +20,7 @@ runtime/debug/
 runtime/settings/
 runtime/bags/
 runtime/benchmarks/
+runtime/performance/
 runtime/models/*
 !runtime/models/.gitkeep
 # Captured calibration frames - tens of megabytes each. The JSON results beside
