@@ -70,6 +70,8 @@ def test_physical_capture_reuses_field_tested_patrol_stack():
     assert '"use_person_safety": "false"' in wrapper
     assert '"person_device": ""' in wrapper
     assert '"enable_thermal_pipeline": "false"' in wrapper
+    assert '"thermal_baseline_path": ""' in wrapper
+    assert '"thermal_sensor_timeout_sec": "5.0"' in wrapper
     assert "*feature_defaults" in wrapper
     assert "**forwarded" in wrapper
     assert '"rgbd_capture_after_localization.launch.py"' in patrol

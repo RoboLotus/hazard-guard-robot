@@ -343,3 +343,4 @@ hazard_guard_mission_manager:
     pose_min_valid_samples: 3
     pose_sample_interval_sec: 0.15
     forward_approach_min_distance_m: 0.15
+    thermal_service_timeout_sec: 5.0

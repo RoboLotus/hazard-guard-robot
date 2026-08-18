@@ -24,9 +24,13 @@ def generate_launch_description() -> LaunchDescription:
         "person_depth_registration_verified": "false",
         "enable_thermal_pipeline": "false",
         "thermal_roi_config": "",
+        "thermal_baseline_path": "",
         "thermal_history_path": (
             "~/.local/share/hazard_guard/thermal_history.jsonl"
         ),
+        "thermal_air_temperature_topic": "",
+        "thermal_oil_temperature_topic": "",
+        "thermal_sensor_timeout_sec": "5.0",
         "thermal_image_topic": "/thermal_camera/image_raw",
         "thermal_info_topic": "/thermal_camera/camera_info",
         "thermal_depth_image_topic": "/depth_camera/image_raw",

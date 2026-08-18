@@ -346,6 +346,16 @@ def _immediate_decision(
     thresholds = equipment.get("thresholds")
     values = thresholds if isinstance(thresholds, Mapping) else {}
     candidates: list[tuple[str, str]] = []
+    threshold_mode = str(values.get("threshold_mode", "absolute"))
+    baseline_required = threshold_mode == "baseline_primary" and not simulated
+    baseline_ready = baseline is not None
+
+    # A production-only baseline policy cannot truthfully report NORMAL when
+    # commissioning data is missing.  Keep the patrol operational for other
+    # equipment, but surface this equipment as an explicit configuration
+    # watch instead of silently accepting any observed temperature.
+    if baseline_required and not baseline_ready:
+        candidates.append(("watch", "baseline_required_not_configured"))
 
     absolute = (
         _levels(values.get("simulation_fallback_temperature_c"))
@@ -365,7 +375,7 @@ def _immediate_decision(
     baseline_levels = _levels(values.get("baseline_delta_c"))
     baseline_status = _status_from_levels(baseline_delta, baseline_levels)
     baseline_reason = f"{baseline_status}_approved_baseline_delta"
-    if values.get("threshold_mode") == "baseline_primary" and baseline_status in {"warning", "critical"}:
+    if threshold_mode == "baseline_primary" and baseline_status in {"warning", "critical"}:
         prior_baseline_delta = None
         if history and equipment_baseline is not None:
             prior_equipment = _equipment_by_id(history[-1]).get(equipment_id)
@@ -476,6 +486,10 @@ def _immediate_decision(
         "reference_delta_c": round(reference_delta, 4) if reference_delta is not None else None,
         "air_delta_c": round(air_delta, 4) if air_delta is not None else None,
         "oil_temperature_c": oil_temperature,
+        "decision_ready": not baseline_required or baseline_ready,
+        "baseline_state": (
+            baseline.equipment.state if baseline is not None else "missing"
+        ),
     }
     return decision, hottest
 

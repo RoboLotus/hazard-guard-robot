@@ -158,6 +158,37 @@ def test_motor_uses_approved_baseline_in_production_and_simulation_fallback_in_s
     assert decision(simulation)["reason"] == "warning_p95_temperature"
 
 
+def test_production_baseline_primary_never_reports_normal_without_baseline():
+    motor_thresholds = thresholds(
+        threshold_mode="baseline_primary",
+        watch_temperature_c=None,
+        warning_temperature_c=None,
+        critical_temperature_c=None,
+        simulation_fallback_temperature_c={
+            "watch": 70.0,
+            "warning": 80.0,
+            "critical": 90.0,
+        },
+        baseline_delta_c={"watch": 10.0, "warning": 15.0, "critical": 20.0},
+    )
+    result = evaluate_visit(
+        make_visit(
+            200.0,
+            equipment_id="motor",
+            threshold_values=motor_thresholds,
+        ),
+        [],
+        TrendConfig(),
+        simulated=False,
+    )
+
+    current = decision(result)
+    assert current["status"] == "watch"
+    assert current["reason"] == "baseline_required_not_configured"
+    assert current["decision_ready"] is False
+    assert current["baseline_state"] == "missing"
+
+
 def test_tank_surface_critical_is_screening_until_oil_sensor_confirms():
     tank_thresholds = thresholds(
         oil_temperature_c={"watch": 50.0, "warning": 60.0, "critical": 70.0},

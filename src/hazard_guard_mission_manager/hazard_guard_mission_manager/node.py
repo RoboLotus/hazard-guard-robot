@@ -100,6 +100,7 @@ class HazardGuardMissionManager(Node):
             "thermal_record_service",
             "/hazard_guard/thermal/record_visit",
         )
+        self.declare_parameter("thermal_service_timeout_sec", 5.0)
 
         self._callback_group = ReentrantCallbackGroup()
         status_qos = QoSProfile(
@@ -145,6 +146,7 @@ class HazardGuardMissionManager(Node):
         self._mission_active = False
         self._cancel_requested = threading.Event()
         self._active_schedule: PatrolSchedule | None = None
+        self._thermal_sequence_faulted = False
         self._safety = SafetyPauseLatch(
             enabled=bool(
                 self.get_parameter("safety_supervision_enabled").value
@@ -297,6 +299,7 @@ class HazardGuardMissionManager(Node):
         completed = 0
         completed_cycles = 0
         total_distance = 0.0
+        self._thermal_sequence_faulted = False
         try:
             self._wait_for_scheduled_start(goal_handle, schedule)
             self._nav.assert_ready()
@@ -531,53 +534,57 @@ class HazardGuardMissionManager(Node):
         message.data = json.dumps(payload, separators=(",", ":"))
         self._thermal_inspection_publisher.publish(message)
 
-    def _start_thermal_visit(self, cycle_name: str) -> None:
+    def _call_thermal_service(self, client: Any, label: str) -> bool:
+        """Complete one thermal visit transition before the next can start."""
+
+        if self._thermal_sequence_faulted:
+            return False
+        if not client.service_is_ready():
+            self.get_logger().info(f"{label}: thermal service is not active")
+            return False
+
+        future = client.call_async(Trigger.Request())
+        completed = threading.Event()
+        future.add_done_callback(lambda _future: completed.set())
+        timeout = max(
+            0.1,
+            float(self.get_parameter("thermal_service_timeout_sec").value),
+        )
+        if not completed.wait(timeout):
+            self._thermal_sequence_faulted = True
+            future.cancel()
+            self.get_logger().error(
+                f"{label}: thermal service timed out after {timeout:g}s; "
+                "thermal visit sequencing is disabled for this mission"
+            )
+            return False
+        try:
+            response = future.result()
+        except Exception as exc:
+            self._thermal_sequence_faulted = True
+            self.get_logger().warning(f"{label}: thermal service failed: {exc}")
+            return False
+        if not response.success:
+            self.get_logger().warning(f"{label}: {response.message}")
+            return False
+        self.get_logger().info(f"{label}: {response.message}")
+        return True
+
+    def _start_thermal_visit(self, cycle_name: str) -> bool:
         """Reset the thermal accumulator once before a patrol cycle."""
 
-        if not self._thermal_start_client.service_is_ready():
-            self.get_logger().info(
-                f"{cycle_name}: thermal visit start service is not active"
-            )
-            return
-        future = self._thermal_start_client.call_async(Trigger.Request())
+        return self._call_thermal_service(
+            self._thermal_start_client,
+            f"{cycle_name}: thermal visit start",
+        )
 
-        def completed(done_future: Any) -> None:
-            try:
-                response = done_future.result()
-            except Exception as exc:
-                self.get_logger().warning(
-                    f"{cycle_name}: thermal visit start failed: {exc}"
-                )
-                return
-            if not response.success:
-                self.get_logger().warning(f"{cycle_name}: {response.message}")
+    def _record_thermal_visit(self, cycle_name: str) -> bool:
+        """Persist a completed visit before another patrol cycle can start."""
 
-        future.add_done_callback(completed)
-
-    def _record_thermal_visit(self, waypoint_name: str) -> None:
-        """Record one completed inspection without blocking the patrol."""
-
-        if not self._thermal_record_client.service_is_ready():
-            self.get_logger().info(
-                f"{waypoint_name}: thermal history service is not active"
-            )
-            return
-        future = self._thermal_record_client.call_async(Trigger.Request())
-
-        def completed(done_future: Any) -> None:
-            try:
-                response = done_future.result()
-            except Exception as exc:
-                self.get_logger().warning(
-                    f"{waypoint_name}: thermal history request failed: {exc}"
-                )
-                return
-            if response.success:
-                self.get_logger().info(f"{waypoint_name}: {response.message}")
-            else:
-                self.get_logger().warning(f"{waypoint_name}: {response.message}")
-
-        future.add_done_callback(completed)
+        return self._call_thermal_service(
+            self._thermal_record_client,
+            f"{cycle_name}: thermal visit record",
+        )
 
     def _run_cycle(
         self,
