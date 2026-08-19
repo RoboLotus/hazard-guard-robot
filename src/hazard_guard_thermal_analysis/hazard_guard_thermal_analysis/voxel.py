@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import math
 from pathlib import Path
@@ -21,11 +21,14 @@ class AxisAlignedRoi:
     roi_id: str
     minimum: tuple[float, float, float]
     maximum: tuple[float, float, float]
+    display_name: str = ""
     warning_temperature_c: float | None = None
     critical_temperature_c: float | None = None
     warning_delta_c: float | None = None
     watch_temperature_c: float | None = None
     watch_delta_c: float | None = None
+    adaptive_delta_c: float | None = None
+    adaptive_threshold_enabled: bool = True
     critical_delta_c: float | None = None
     trend: EquipmentTrendThresholds | None = None
     threshold_mode: str = "absolute"
@@ -89,6 +92,15 @@ def _optional_float(value: Mapping[str, object], name: str) -> float | None:
     if not math.isfinite(result) or result < 0.0:
         raise ValueError(f"{name} must be a non-negative finite number")
     return result
+
+
+def _optional_bool(
+    value: Mapping[str, object], name: str, *, default: bool
+) -> bool:
+    raw = value.get(name, default)
+    if not isinstance(raw, bool):
+        raise ValueError(f"{name} must be a boolean")
+    return raw
 
 
 def _levels(
@@ -162,9 +174,17 @@ def _parse_roi(value: object) -> AxisAlignedRoi:
         roi_id=str(value.get("id", "")).strip(),
         minimum=minimum,
         maximum=maximum,
+        display_name=(
+            str(value.get("name", value.get("display_name", ""))).strip()
+            or str(value.get("id", "")).strip()
+        ),
         watch_temperature_c=watch_temperature,
         warning_temperature_c=warning_temperature,
         critical_temperature_c=critical_temperature,
+        adaptive_delta_c=_optional_float(value, "adaptive_delta_c"),
+        adaptive_threshold_enabled=_optional_bool(
+            value, "adaptive_threshold_enabled", default=True
+        ),
         watch_delta_c=watch_delta,
         warning_delta_c=warning_delta,
         critical_delta_c=critical_delta,
@@ -259,6 +279,70 @@ def load_config(path: str | Path) -> AnalysisConfig:
     )
 
 
+def apply_equipment_settings(
+    config: AnalysisConfig, document: Mapping[str, object]
+) -> AnalysisConfig:
+    """Apply Web UI equipment changes while preserving advanced policy fields."""
+
+    raw_equipment = document.get("equipment")
+    if not isinstance(raw_equipment, Sequence) or isinstance(raw_equipment, (str, bytes)):
+        raise ValueError("equipment settings must contain an equipment list")
+    existing = {roi.roi_id: roi for roi in config.equipment_rois}
+    configured: list[AxisAlignedRoi] = []
+    seen: set[str] = set()
+    for raw in raw_equipment:
+        if not isinstance(raw, Mapping):
+            raise ValueError("equipment settings entries must be objects")
+        if not bool(raw.get("enabled", True)):
+            continue
+        equipment_id = str(raw.get("id", "")).strip()
+        display_name = str(raw.get("display_name", "")).strip()
+        if not equipment_id or not display_name:
+            raise ValueError("enabled equipment needs an id and display name")
+        if equipment_id in seen:
+            raise ValueError(f"duplicate equipment id {equipment_id!r}")
+        seen.add(equipment_id)
+        raw_roi = raw.get("roi")
+        if not isinstance(raw_roi, Mapping):
+            raise ValueError(f"equipment {equipment_id!r} needs an ROI")
+        minimum = _vector3(raw_roi.get("min"), "equipment ROI min")
+        maximum = _vector3(raw_roi.get("max"), "equipment ROI max")
+        if any(low >= high for low, high in zip(minimum, maximum)):
+            raise ValueError("each equipment ROI min value must be smaller than max")
+        critical = _optional_float(raw, "critical_temperature_c")
+        adaptive = _optional_float(raw, "adaptive_delta_c")
+        adaptive_enabled = _optional_bool(
+            raw, "adaptive_threshold_enabled", default=True
+        )
+        if critical is None or adaptive is None:
+            raise ValueError(f"equipment {equipment_id!r} needs both thresholds")
+        base = existing.get(equipment_id)
+        if base is None:
+            base = AxisAlignedRoi(
+                roi_id=equipment_id,
+                minimum=minimum,
+                maximum=maximum,
+                display_name=display_name,
+                critical_temperature_c=critical,
+                adaptive_delta_c=adaptive,
+                adaptive_threshold_enabled=adaptive_enabled,
+            )
+        else:
+            base = replace(
+                base,
+                minimum=minimum,
+                maximum=maximum,
+                display_name=display_name,
+                critical_temperature_c=critical,
+                adaptive_delta_c=adaptive,
+                adaptive_threshold_enabled=adaptive_enabled,
+            )
+        configured.append(base)
+    if not configured:
+        raise ValueError("at least one enabled equipment item is required")
+    return replace(config, equipment_rois=tuple(configured))
+
+
 def percentile(values: Sequence[float], percentage: float) -> float:
     if not values:
         raise ValueError("cannot calculate a percentile of no values")
@@ -323,6 +407,8 @@ def _thresholds(roi: AxisAlignedRoi) -> dict[str, object]:
         "watch_temperature_c": roi.watch_temperature_c,
         "warning_temperature_c": roi.warning_temperature_c,
         "critical_temperature_c": roi.critical_temperature_c,
+        "adaptive_delta_c": roi.adaptive_delta_c,
+        "adaptive_threshold_enabled": roi.adaptive_threshold_enabled,
         "watch_delta_c": roi.watch_delta_c,
         "warning_delta_c": roi.warning_delta_c,
         "critical_delta_c": roi.critical_delta_c,
@@ -495,6 +581,7 @@ def analyze_points(
         equipment_results.append(
             {
                 "equipment_id": roi.roi_id,
+                "display_name": roi.display_name or roi.roi_id,
                 "observed_voxel_count": len(voxels),
                 "configured_voxel_count": total_cells,
                 "coverage_ratio": len(voxels) / total_cells,

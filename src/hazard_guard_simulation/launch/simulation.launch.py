@@ -49,6 +49,13 @@ def generate_launch_description() -> LaunchDescription:
     cmd_vel_ros_topic = LaunchConfiguration("cmd_vel_ros_topic")
     use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
     thermal_history_path = LaunchConfiguration("thermal_history_path")
+    thermal_baseline_path = LaunchConfiguration("thermal_baseline_path")
+    thermal_baseline_collection_path = LaunchConfiguration(
+        "thermal_baseline_collection_path"
+    )
+    thermal_baseline_minimum_valid_visits = LaunchConfiguration(
+        "thermal_baseline_minimum_valid_visits"
+    )
 
     robot_description = ParameterValue(
         Command(
@@ -145,8 +152,23 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "thermal_history_path",
-                default_value="~/.local/share/hazard_guard/thermal_history.jsonl",
-                description="Persistent JSONL path written when record_visit is called",
+                default_value="~/.local/share/hazard_guard/simulation_thermal_history.jsonl",
+                description="Persistent simulation patrol history JSONL path",
+            ),
+            DeclareLaunchArgument(
+                "thermal_baseline_path",
+                default_value="~/.local/share/hazard_guard/simulation_thermal_baselines.json",
+            ),
+            DeclareLaunchArgument(
+                "thermal_baseline_collection_path",
+                default_value=(
+                    "~/.local/share/hazard_guard/"
+                    "simulation_thermal_baseline_collection.json"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_baseline_minimum_valid_visits",
+                default_value="10",
             ),
             SetEnvironmentVariable(
                 "IGN_GAZEBO_RESOURCE_PATH",
@@ -297,6 +319,13 @@ def generate_launch_description() -> LaunchDescription:
                     "thermal_scale": "0.01",
                     "thermal_offset_c": "-273.15",
                     "history_path": thermal_history_path,
+                    "baseline_path": thermal_baseline_path,
+                    "baseline_collection_path": (
+                        thermal_baseline_collection_path
+                    ),
+                    "baseline_minimum_valid_visits": (
+                        thermal_baseline_minimum_valid_visits
+                    ),
                 }.items(),
                 condition=IfCondition(use_thermal_pipeline),
             ),

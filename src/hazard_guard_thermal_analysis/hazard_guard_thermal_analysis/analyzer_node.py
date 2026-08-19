@@ -17,11 +17,16 @@ from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 
 from .baseline import EquipmentBaseline, load_baselines
+from .baseline_builder import (
+    BaselineCollector,
+    prepare_collector_after_topology_change,
+)
 from .cloud import iter_thermal_cloud
+from .decision_metadata import effective_threshold_range
 from .projection import RigidTransform, ThermalPoint
 from .trend import SEVERITY, evaluate_visit, load_trend_config, read_history
 from .visit import PatrolVisitAccumulator
-from .voxel import AnalysisConfig, analyze_points, load_config
+from .voxel import AnalysisConfig, analyze_points, apply_equipment_settings, load_config
 
 
 class ThermalVoxelAnalyzer(Node):
@@ -31,6 +36,8 @@ class ThermalVoxelAnalyzer(Node):
         super().__init__("hazard_guard_thermal_voxel_analyzer")
         self.declare_parameter("roi_config", "")
         self.declare_parameter("baseline_path", "")
+        self.declare_parameter("baseline_collection_path", "")
+        self.declare_parameter("baseline_minimum_valid_visits", 10)
         self.declare_parameter("history_path", "")
         self.declare_parameter("air_temperature_topic", "")
         self.declare_parameter("oil_temperature_topic", "")
@@ -41,6 +48,7 @@ class ThermalVoxelAnalyzer(Node):
         self._config: AnalysisConfig | None = None
         self._trend_config = None
         self._baselines: dict[str, EquipmentBaseline] = {}
+        self._baseline_collector: BaselineCollector | None = None
         self._sensor_values: dict[str, float | None] = {
             "air_temperature_c": None,
             "oil_temperature_c": None,
@@ -55,6 +63,9 @@ class ThermalVoxelAnalyzer(Node):
         self._latest_key: tuple[int, int] | None = None
         self._last_recorded_key: tuple[int, int] | None = None
         self._visit = PatrolVisitAccumulator()
+        self._baseline_path: Path | None = None
+        self._baseline_collection_path: Path | None = None
+        self._pending_equipment_config: tuple[dict[str, object], AnalysisConfig] | None = None
 
         config_path = str(self.get_parameter("roi_config").value)
         if config_path:
@@ -76,29 +87,80 @@ class ThermalVoxelAnalyzer(Node):
         else:
             self.get_logger().warning("No ROI config supplied; point clouds will be ignored")
 
-        baseline_path = str(self.get_parameter("baseline_path").value).strip()
-        if baseline_path:
+        baseline_value = str(
+            self.get_parameter("baseline_path").value
+        ).strip()
+        self._baseline_path = baseline_path = (
+            Path(baseline_value).expanduser() if baseline_value else None
+        )
+        required_equipment = (
+            tuple(roi.roi_id for roi in self._config.equipment_rois)
+            if self._config is not None
+            else ()
+        )
+        if baseline_path is not None and baseline_path.exists():
             try:
-                self._baselines = load_baselines(baseline_path)
-                self.get_logger().info(f"Loaded approved baselines for {len(self._baselines)} equipment items")
+                loaded = load_baselines(baseline_path)
+                approved = {
+                    equipment_id: loaded[equipment_id]
+                    for equipment_id in required_equipment
+                    if equipment_id in loaded
+                    and loaded[equipment_id].equipment.state == "validated"
+                }
+                if approved:
+                    self._baselines = approved
+                    self.get_logger().info(
+                        "Loaded approved baselines for "
+                        f"{len(self._baselines)} equipment items"
+                    )
+                if len(approved) < len(required_equipment):
+                    self.get_logger().warning(
+                        "Thermal baseline is incomplete or not validated; "
+                        "collection remains active for missing equipment"
+                    )
             except Exception as exc:
                 self.get_logger().error(f"Could not load thermal baselines {baseline_path!r}: {exc}")
 
+        collection_value = str(
+            self.get_parameter("baseline_collection_path").value
+        ).strip()
         if (
-            self._config is not None
-            and not bool(self.get_parameter("simulated").value)
+            baseline_path is not None
+            and required_equipment
+            and len(self._baselines) < len(required_equipment)
+            and self._trend_config is not None
         ):
-            required = {
-                roi.roi_id
-                for roi in self._config.equipment_rois
-                if roi.threshold_mode == "baseline_primary"
-            }
-            missing = sorted(required.difference(self._baselines))
-            if missing:
-                self.get_logger().warning(
-                    "Production baseline is missing for: "
-                    + ", ".join(missing)
-                    + "; those equipment decisions will remain WATCH"
+            self._baseline_collection_path = collection_path = (
+                Path(collection_value).expanduser()
+                if collection_value
+                else baseline_path.with_name(
+                    baseline_path.name + ".collection"
+                )
+            )
+            try:
+                self._baseline_collector = BaselineCollector(
+                    collection_path,
+                    baseline_path,
+                    required_equipment,
+                    minimum_valid_visits=int(
+                        self.get_parameter(
+                            "baseline_minimum_valid_visits"
+                        ).value
+                    ),
+                    minimum_environment_points=(
+                        self._trend_config.minimum_environment_points
+                    ),
+                )
+                activation = self._activate_collected_baseline()
+                self.get_logger().info(
+                    activation
+                    if activation is not None
+                    else self._baseline_collector.progress_message()
+                )
+            except Exception as exc:
+                self.get_logger().error(
+                    "Could not initialize thermal baseline collection: "
+                    f"{exc}"
                 )
 
         history_path = str(self.get_parameter("history_path").value)
@@ -115,10 +177,37 @@ class ThermalVoxelAnalyzer(Node):
         self._trend_publisher = self.create_publisher(String, "/hazard_guard/thermal/trend", 10)
         detection_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._detection_publisher = self.create_publisher(HazardDetection, "/hazard_guard/thermal_detections", detection_qos)
+        config_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self._equipment_config_status_publisher = self.create_publisher(
+            String, "/hazard_guard/thermal/equipment_config/status", config_qos
+        )
+        self.create_subscription(
+            String, "/hazard_guard/thermal/equipment_config",
+            self._on_equipment_config, config_qos,
+        )
         self.create_subscription(PointCloud2, "/hazard_guard/thermal/points", self._on_cloud, qos_profile_sensor_data)
         self.create_subscription(String, "/hazard_guard/thermal/inspection_control", self._on_inspection_control, 10)
         self.create_service(Trigger, "/hazard_guard/thermal/start_visit", self._start_visit)
         self.create_service(Trigger, "/hazard_guard/thermal/record_visit", self._record_visit)
+        self.create_service(
+            Trigger,
+            "/hazard_guard/thermal/baseline_status",
+            self._baseline_status,
+        )
+        self.create_service(
+            Trigger,
+            "/hazard_guard/thermal/approve_baseline",
+            self._approve_baseline,
+        )
+        self.create_service(
+            Trigger,
+            "/hazard_guard/thermal/reset_baseline_collection",
+            self._reset_baseline_collection,
+        )
         air_topic = str(self.get_parameter("air_temperature_topic").value).strip()
         oil_topic = str(self.get_parameter("oil_temperature_topic").value).strip()
         if air_topic:
@@ -126,6 +215,184 @@ class ThermalVoxelAnalyzer(Node):
         if oil_topic:
             self.create_subscription(Temperature, oil_topic, self._on_oil_temperature, qos_profile_sensor_data)
         self._history_timer = self.create_timer(1.0, self._publish_history_snapshot)
+        self._publish_equipment_config_status("ready")
+
+    def _publish_equipment_config_status(
+        self, state: str, error: str | None = None
+    ) -> None:
+        if self._config is None:
+            return
+        counts = (
+            self._baseline_collector.counts()
+            if self._baseline_collector is not None
+            else {}
+        )
+        latest_sample_times = (
+            self._baseline_collector.latest_sample_times()
+            if self._baseline_collector is not None
+            else {}
+        )
+        target = (
+            self._baseline_collector.minimum_valid_visits
+            if self._baseline_collector is not None
+            else int(self.get_parameter("baseline_minimum_valid_visits").value)
+        )
+        equipment = []
+        for roi in self._config.equipment_rois:
+            baseline = self._baselines.get(roi.roi_id)
+            threshold_min, threshold_max = (
+                self._latest_effective_threshold_range(roi.roi_id)
+            )
+            if roi.roi_id in self._baselines:
+                baseline_state = "active"
+                sample_count = target
+            elif self._baseline_collector is not None:
+                baseline_state = "collecting"
+                sample_count = int(counts.get(roi.roi_id, 0))
+            else:
+                baseline_state = "unavailable"
+                sample_count = 0
+            equipment.append(
+                {
+                    "id": roi.roi_id,
+                    "display_name": roi.display_name or roi.roi_id,
+                    "baseline_state": baseline_state,
+                    "baseline_sample_count": sample_count,
+                    "baseline_sample_target": target,
+                    "baseline_last_sample_unix_sec": latest_sample_times.get(
+                        roi.roi_id
+                    ),
+                    "baseline_temperature_c": (
+                        baseline.equipment.temperature_c
+                        if baseline is not None
+                        else None
+                    ),
+                    "baseline_environment_delta_c": (
+                        baseline.equipment.environment_delta_c
+                        if baseline is not None
+                        else None
+                    ),
+                    # Keep the legacy scalar for older consoles.  It is the
+                    # upper end of the voxel-specific range, as before.
+                    "effective_adaptive_threshold_c": threshold_max,
+                    "effective_adaptive_threshold_min_c": threshold_min,
+                    "effective_adaptive_threshold_max_c": threshold_max,
+                }
+            )
+        payload: dict[str, object] = {"state": state, "equipment": equipment}
+        if error:
+            payload["error"] = error
+        self._publish_json(self._equipment_config_status_publisher, payload)
+
+    def _latest_effective_threshold_range(
+        self, equipment_id: str
+    ) -> tuple[float | None, float | None]:
+        return effective_threshold_range(self._latest_result, equipment_id)
+
+    def _on_equipment_config(self, message: String) -> None:
+        try:
+            document = json.loads(message.data)
+            if not isinstance(document, dict) or self._config is None:
+                raise ValueError("equipment configuration must be a JSON object")
+            candidate = apply_equipment_settings(self._config, document)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            self.get_logger().error(f"Rejected equipment configuration: {exc}")
+            self._publish_equipment_config_status("rejected", str(exc))
+            return
+        if self._visit.active:
+            self._pending_equipment_config = (document, candidate)
+            self._publish_equipment_config_status("pending")
+            return
+        self._apply_equipment_config(document, candidate)
+
+    def _apply_equipment_config(
+        self, document: dict[str, object], candidate: AnalysisConfig
+    ) -> None:
+        del document
+        old_rois = {
+            roi.roi_id: (roi.minimum, roi.maximum)
+            for roi in self._config.equipment_rois
+        } if self._config is not None else {}
+        old_signature = tuple(sorted(old_rois.items()))
+        new_rois = {
+            roi.roi_id: (roi.minimum, roi.maximum)
+            for roi in candidate.equipment_rois
+        }
+        new_signature = tuple(
+            sorted(new_rois.items())
+        )
+        topology_changed = old_signature != new_signature
+        prepared_collector = self._baseline_collector
+        prepared_baselines = self._baselines
+        if topology_changed:
+            prepared_collector = None
+            prepared_baselines = {}
+            if self._baseline_path is not None and self._trend_config is not None:
+                collection_path = self._baseline_collection_path
+                if collection_path is None:
+                    collection_path = self._baseline_path.with_name(
+                        self._baseline_path.name + ".collection"
+                    )
+                    self._baseline_collection_path = collection_path
+                try:
+                    unchanged_ids = tuple(
+                        equipment_id
+                        for equipment_id, bounds in new_rois.items()
+                        if old_rois.get(equipment_id) == bounds
+                    )
+                    prepared_collector = (
+                        prepare_collector_after_topology_change(
+                            collection_path,
+                            self._baseline_path,
+                            tuple(
+                                roi.roi_id
+                                for roi in candidate.equipment_rois
+                            ),
+                            unchanged_ids,
+                            minimum_valid_visits=int(
+                                self.get_parameter(
+                                    "baseline_minimum_valid_visits"
+                                ).value
+                            ),
+                            minimum_environment_points=(
+                                self._trend_config.minimum_environment_points
+                            ),
+                        )
+                    )
+                    prepared_baselines = (
+                        load_baselines(self._baseline_path)
+                        if self._baseline_path.exists()
+                        else {}
+                    )
+                except (OSError, ValueError) as exc:
+                    self._pending_equipment_config = None
+                    self.get_logger().error(
+                        "Rejected ROI change because its baseline state could "
+                        f"not be invalidated safely: {exc}"
+                    )
+                    self._publish_equipment_config_status(
+                        "rejected", str(exc)
+                    )
+                    return
+        self._config = candidate
+        # A configuration revision invalidates threshold metadata calculated
+        # with the previous policy until the next cloud is evaluated.
+        self._latest_result = None
+        if topology_changed:
+            self._history = []
+            self._baseline_collector = prepared_collector
+            self._baselines = prepared_baselines
+        self._pending_equipment_config = None
+        self.get_logger().info(
+            f"Applied settings for {len(candidate.equipment_rois)} equipment items"
+        )
+        self._publish_equipment_config_status("applied")
+
+    def _apply_pending_equipment_config(self) -> None:
+        if self._pending_equipment_config is None:
+            return
+        document, candidate = self._pending_equipment_config
+        self._apply_equipment_config(document, candidate)
 
     def _on_air_temperature(self, message: Temperature) -> None:
         self._store_sensor_value("air_temperature_c", message.temperature)
@@ -137,7 +404,8 @@ class ThermalVoxelAnalyzer(Node):
         numeric = float(value)
         if not math.isfinite(numeric):
             self.get_logger().warning(
-                f"Ignored non-finite {name}", throttle_duration_sec=5.0
+                f"Ignored non-finite {name}: {value!r}",
+                throttle_duration_sec=5.0,
             )
             return
         self._sensor_values[name] = numeric
@@ -254,21 +522,14 @@ class ThermalVoxelAnalyzer(Node):
         action = str(command.get("action", ""))
         if action == "focus_equipment":
             equipment_id = str(command.get("equipment_id", "")).strip()
-            configured = {
-                roi.roi_id for roi in self._config.equipment_rois
-            } if self._config is not None else set()
-            if equipment_id and equipment_id in configured:
+            if equipment_id:
                 self._visit.focus(equipment_id)
-            elif equipment_id:
-                self._visit.focus(None)
-                self.get_logger().error(
-                    f"Ignored unknown thermal equipment_id {equipment_id!r}"
-                )
         elif action == "clear_focus":
             self._visit.focus(None)
 
     def _start_visit(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         del request
+        self._apply_pending_equipment_config()
         self._visit.start()
         response.success = True
         response.message = "Started a new thermal patrol visit"
@@ -313,6 +574,26 @@ class ThermalVoxelAnalyzer(Node):
         self._last_recorded_key = self._latest_key
         self._visit.active = False
         self._visit.focus_equipment_id = None
+        if self._baseline_collector is not None:
+            try:
+                update = self._baseline_collector.observe(result)
+                activation = self._activate_collected_baseline()
+                if activation is not None:
+                    response.message += "; " + activation
+                    self.get_logger().info(activation)
+                elif (
+                    update.get("accepted")
+                    or update.get("paused")
+                    or update.get("resumed")
+                ):
+                    progress = self._baseline_collector.progress_message()
+                    response.message += "; " + progress
+                    self.get_logger().info(progress)
+            except (OSError, ValueError, KeyError) as exc:
+                self.get_logger().error(
+                    "Could not update thermal baseline collection: "
+                    f"{exc}"
+                )
         self._publish_json(self._trend_publisher, result)
         if bool(self.get_parameter("publish_detections").value):
             self._publish_detections(self._latest_header, result)
@@ -324,6 +605,8 @@ class ThermalVoxelAnalyzer(Node):
                     states.append(f"{item['equipment_id']}={item['status']}")
         if states:
             response.message += "; " + ", ".join(states)
+        self._publish_equipment_config_status("applied")
+        self._apply_pending_equipment_config()
         return response
 
     def _append_history(self, payload: str) -> tuple[bool, str]:
@@ -341,9 +624,133 @@ class ThermalVoxelAnalyzer(Node):
             self.get_logger().warning(f"Could not append thermal history: {exc}", throttle_duration_sec=10.0)
             return False, f"Could not append thermal history: {exc}"
 
+    def _activate_collected_baseline(self) -> str | None:
+        if self._baseline_collector is None:
+            return None
+        previous = set(self._baselines)
+        ready = set(self._baseline_collector.ready_equipment_ids)
+        if ready.issubset(previous):
+            return None
+        activated = self._baseline_collector.activate_ready_equipment()
+        new_equipment = sorted(set(activated) - previous)
+        if not new_equipment:
+            return None
+        self._baselines = load_baselines(
+            self._baseline_collector.baseline_path
+        )
+        return (
+            "Automatically activated thermal baseline for "
+            + ", ".join(new_equipment)
+        )
+
+    def _baseline_status(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ) -> Trigger.Response:
+        del request
+        response.success = True
+        if self._baselines:
+            active = len(self._baselines)
+            total = (
+                len(self._config.equipment_rois)
+                if self._config is not None
+                else active
+            )
+            response.message = (
+                "Validated thermal baseline is active for "
+                f"{active}/{total} equipment items"
+            )
+            if active < total and self._baseline_collector is not None:
+                response.message += (
+                    "; " + self._baseline_collector.progress_message()
+                )
+        elif self._baseline_collector is not None:
+            response.message = self._baseline_collector.progress_message()
+        else:
+            response.success = False
+            response.message = (
+                "Thermal baseline collection is not configured"
+            )
+        return response
+
+    def _approve_baseline(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ) -> Trigger.Response:
+        del request
+        required = (
+            {roi.roi_id for roi in self._config.equipment_rois}
+            if self._config is not None
+            else set()
+        )
+        if required and required.issubset(self._baselines):
+            response.success = False
+            response.message = (
+                "A validated thermal baseline is already active"
+            )
+            return response
+        if self._baseline_collector is None:
+            response.success = False
+            response.message = (
+                "Thermal baseline collection is not configured"
+            )
+            return response
+        if not self._baseline_collector.ready:
+            response.success = False
+            response.message = self._baseline_collector.progress_message()
+            return response
+        try:
+            self._baseline_collector.approve()
+            self._baselines = load_baselines(
+                self._baseline_collector.baseline_path
+            )
+            response.success = True
+            response.message = (
+                "Approved and activated thermal baselines for "
+                f"{len(self._baselines)} equipment items"
+            )
+        except (OSError, ValueError, KeyError) as exc:
+            response.success = False
+            response.message = f"Could not approve thermal baseline: {exc}"
+        return response
+
+    def _reset_baseline_collection(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ) -> Trigger.Response:
+        del request
+        if self._visit.active:
+            response.success = False
+            response.message = (
+                "Cannot reset baseline collection during an active patrol visit"
+            )
+        elif self._baseline_collector is None:
+            response.success = False
+            response.message = (
+                "Thermal baseline collection is not configured"
+            )
+        else:
+            try:
+                backup = self._baseline_collector.archive_approved()
+                self._baselines = {}
+                self._baseline_collector.reset()
+                response.success = True
+                response.message = self._baseline_collector.progress_message()
+                if backup is not None:
+                    response.message += f"; archived approved baseline to {backup}"
+                self._publish_equipment_config_status("applied")
+            except OSError as exc:
+                response.success = False
+                response.message = f"Could not reset thermal baseline: {exc}"
+        return response
+
     def _publish_detections(self, header, result: dict[str, object]) -> None:
         if self._config is None:
             return
+
         for equipment in result.get("equipment", []):
             if not isinstance(equipment, dict):
                 continue

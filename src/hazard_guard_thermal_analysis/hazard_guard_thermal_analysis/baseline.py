@@ -12,10 +12,11 @@ from typing import Mapping
 @dataclass(frozen=True)
 class BaselineStats:
     temperature_c: float
-    sigma_normal_c: float
-    sigma_repeat_c: float
-    sigma_residual_c: float
     sample_count: int
+    environment_delta_c: float | None = None
+    sigma_normal_c: float = 0.0
+    sigma_repeat_c: float = 0.0
+    sigma_residual_c: float = 0.0
     sensor_quantization_c: float = 0.0
     state: str = "provisional"
     operating_state: str = "normal_load"
@@ -35,6 +36,12 @@ class BaselineStats:
                 raise ValueError(
                     f"baseline {name} must be finite and non-negative"
                 )
+        if (
+            self.environment_delta_c is not None
+            and not math.isfinite(self.environment_delta_c)
+        ):
+            raise ValueError("baseline environment_delta_c must be finite")
+
         if self.sample_count < 10:
             raise ValueError("baseline sample_count must be at least 10")
         if self.state not in {"provisional", "validated"}:
@@ -58,14 +65,20 @@ def _stats(value: object, context: str) -> BaselineStats:
         raise ValueError(f"{context} baseline must be an object")
     result = BaselineStats(
         temperature_c=float(value["temperature_c"]),
-        sigma_normal_c=float(value["sigma_normal_c"]),
-        sigma_repeat_c=float(value["sigma_repeat_c"]),
-        sigma_residual_c=float(
-            value.get("sigma_residual_c", value["sigma_normal_c"])
-        ),
         sample_count=int(value["sample_count"]),
-        # A production baseline file must explicitly record camera resolution.
-        sensor_quantization_c=float(value["sensor_quantization_c"]),
+        environment_delta_c=(
+            float(value["environment_delta_c"])
+            if value.get("environment_delta_c") is not None
+            else None
+        ),
+        # Schema 2 deliberately removes sigma from the decision rule. Keep
+        # these optional fields so schema-1 files remain readable.
+        sigma_normal_c=float(value.get("sigma_normal_c", 0.0)),
+        sigma_repeat_c=float(value.get("sigma_repeat_c", 0.0)),
+        sigma_residual_c=float(
+            value.get("sigma_residual_c", value.get("sigma_normal_c", 0.0))
+        ),
+        sensor_quantization_c=float(value.get("sensor_quantization_c", 0.0)),
         state=str(value.get("state", "provisional")),
         operating_state=str(
             value.get("operating_state", "normal_load")
@@ -76,10 +89,12 @@ def _stats(value: object, context: str) -> BaselineStats:
 
 
 def load_baselines(path: str | Path) -> dict[str, EquipmentBaseline]:
-    document = json.loads(Path(path).read_text(encoding="utf-8"))
+    baseline_path = Path(path).expanduser()
+    document = json.loads(baseline_path.read_text(encoding="utf-8"))
     if not isinstance(document, Mapping):
         raise ValueError("thermal baseline file must be a JSON object")
-    if int(document.get("schema_version", 1)) != 1:
+    schema_version = int(document.get("schema_version", 1))
+    if schema_version not in {1, 2}:
         raise ValueError("unsupported thermal baseline schema_version")
     raw_equipment = document.get("equipment", {})
     if not isinstance(raw_equipment, Mapping):
