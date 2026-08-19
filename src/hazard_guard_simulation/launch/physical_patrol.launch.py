@@ -66,6 +66,8 @@ def generate_launch_description() -> LaunchDescription:
     person_depth_registration_verified = LaunchConfiguration(
         "person_depth_registration_verified"
     )
+    use_performance_monitor = LaunchConfiguration("use_performance_monitor")
+    performance_storage_path = LaunchConfiguration("performance_storage_path")
     enable_rgbd_mapping = LaunchConfiguration("enable_rgbd_mapping")
     start_hp60c_camera = IfCondition(
         PythonExpression(
@@ -125,6 +127,8 @@ def generate_launch_description() -> LaunchDescription:
                 ),
             ),
             DeclareLaunchArgument("enable_rgbd_mapping", default_value="false"),
+            DeclareLaunchArgument("use_performance_monitor", default_value="true"),
+            DeclareLaunchArgument("performance_storage_path", default_value=""),
             DeclareLaunchArgument(
                 "rtabmap_database_path",
                 default_value="/tmp/hazard_guard_physical_rgbd.db",
@@ -280,6 +284,19 @@ def generate_launch_description() -> LaunchDescription:
                         name="hazard_guard_mission_manager",
                         output="screen",
                         parameters=[nav2_params_file],
+                    ),
+                    Node(
+                        package="hazard_guard_performance_monitor",
+                        executable="performance_monitor",
+                        name="hazard_guard_performance_monitor",
+                        output="screen",
+                        condition=IfCondition(use_performance_monitor),
+                        parameters=[
+                            {
+                                "storage_path": performance_storage_path,
+                                "sample_interval_sec": 1.0,
+                            }
+                        ],
                     ),
                 ],
             ),

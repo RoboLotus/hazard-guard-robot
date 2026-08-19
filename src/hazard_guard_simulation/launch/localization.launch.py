@@ -55,6 +55,8 @@ def generate_launch_description() -> LaunchDescription:
     enable_rgbd_mapping = LaunchConfiguration("enable_rgbd_mapping")
     rtabmap_database_path = LaunchConfiguration("rtabmap_database_path")
     rtabmap_reset_database = LaunchConfiguration("rtabmap_reset_database")
+    use_performance_monitor = LaunchConfiguration("use_performance_monitor")
+    performance_storage_path = LaunchConfiguration("performance_storage_path")
 
     return LaunchDescription(
         [
@@ -118,6 +120,8 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="/tmp/hazard_guard_rtabmap_capture.db",
             ),
             DeclareLaunchArgument("rtabmap_reset_database", default_value="false"),
+            DeclareLaunchArgument("use_performance_monitor", default_value="true"),
+            DeclareLaunchArgument("performance_storage_path", default_value=""),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "simulation.launch.py")
@@ -237,7 +241,20 @@ def generate_launch_description() -> LaunchDescription:
                                 ),
                             }
                         ],
-                    )
+                    ),
+                    Node(
+                        package="hazard_guard_performance_monitor",
+                        executable="performance_monitor",
+                        name="hazard_guard_performance_monitor",
+                        output="screen",
+                        condition=IfCondition(use_performance_monitor),
+                        parameters=[
+                            {
+                                "storage_path": performance_storage_path,
+                                "sample_interval_sec": 1.0,
+                            }
+                        ],
+                    ),
                 ],
             ),
             IncludeLaunchDescription(
