@@ -205,6 +205,11 @@ class ThermalVoxelAnalyzer(Node):
             if self._baseline_collector is not None
             else {}
         )
+        latest_sample_times = (
+            self._baseline_collector.latest_sample_times()
+            if self._baseline_collector is not None
+            else {}
+        )
         target = (
             self._baseline_collector.minimum_valid_visits
             if self._baseline_collector is not None
@@ -228,6 +233,9 @@ class ThermalVoxelAnalyzer(Node):
                     "baseline_state": baseline_state,
                     "baseline_sample_count": sample_count,
                     "baseline_sample_target": target,
+                    "baseline_last_sample_unix_sec": latest_sample_times.get(
+                        roi.roi_id
+                    ),
                 }
             )
         payload: dict[str, object] = {"state": state, "equipment": equipment}
@@ -585,10 +593,10 @@ class ThermalVoxelAnalyzer(Node):
         response: Trigger.Response,
     ) -> Trigger.Response:
         del request
-        if self._baselines:
+        if self._visit.active:
             response.success = False
             response.message = (
-                "Cannot reset while a validated baseline is active"
+                "Cannot reset baseline collection during an active patrol visit"
             )
         elif self._baseline_collector is None:
             response.success = False
@@ -596,9 +604,18 @@ class ThermalVoxelAnalyzer(Node):
                 "Thermal baseline collection is not configured"
             )
         else:
-            self._baseline_collector.reset()
-            response.success = True
-            response.message = self._baseline_collector.progress_message()
+            try:
+                backup = self._baseline_collector.archive_approved()
+                self._baselines = {}
+                self._baseline_collector.reset()
+                response.success = True
+                response.message = self._baseline_collector.progress_message()
+                if backup is not None:
+                    response.message += f"; archived approved baseline to {backup}"
+                self._publish_equipment_config_status("applied")
+            except OSError as exc:
+                response.success = False
+                response.message = f"Could not reset thermal baseline: {exc}"
         return response
 
     def _publish_detections(self, header, result: dict[str, object]) -> None:

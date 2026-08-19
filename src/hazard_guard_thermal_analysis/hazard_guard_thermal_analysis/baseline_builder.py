@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from pathlib import Path
 from statistics import median
 from typing import Mapping, Sequence
@@ -160,6 +161,36 @@ class BaselineCollector:
             )
             for equipment_id in self.equipment_ids
         }
+
+    def latest_sample_times(self) -> dict[str, float]:
+        result: dict[str, float] = {}
+        for equipment_id, entry in self._equipment.items():
+            samples = entry.get("samples", [])
+            recorded = [
+                value
+                for sample in samples
+                if isinstance(sample, Mapping)
+                and (value := _number(sample.get("recorded_at_unix_sec"))) is not None
+            ]
+            if recorded:
+                result[equipment_id] = max(recorded)
+        return result
+
+    def archive_approved(self) -> Path | None:
+        if not self.baseline_path.exists():
+            return None
+        timestamp = int(time.time())
+        target = self.baseline_path.with_name(
+            f"{self.baseline_path.name}.backup-{timestamp}"
+        )
+        suffix = 1
+        while target.exists():
+            target = self.baseline_path.with_name(
+                f"{self.baseline_path.name}.backup-{timestamp}-{suffix}"
+            )
+            suffix += 1
+        self.baseline_path.replace(target)
+        return target
 
     @property
     def ready(self) -> bool:

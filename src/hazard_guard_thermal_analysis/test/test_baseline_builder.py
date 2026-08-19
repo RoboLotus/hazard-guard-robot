@@ -81,6 +81,22 @@ def test_ten_visits_persist_and_create_validated_median_baseline(
     )
 
 
+def test_latest_sample_time_and_approved_archive_are_recoverable(tmp_path) -> None:
+    current = collector(tmp_path)
+    for index in range(10):
+        current.observe(completed_visit(30.0 + index * 0.1))
+
+    assert current.latest_sample_times() == {"motor": 1030.9}
+    assert current.activate_if_ready() is True
+
+    archived = current.archive_approved()
+
+    assert archived is not None
+    assert archived.exists()
+    assert not (tmp_path / "baselines.json").exists()
+    assert load_baselines(archived)["motor"].equipment.sample_count == 10
+
+
 def test_invalid_environment_quality_does_not_count(tmp_path) -> None:
     current = collector(tmp_path)
     result = current.observe(
