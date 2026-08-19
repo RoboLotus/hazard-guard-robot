@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import time
 
@@ -40,6 +41,8 @@ class ThermalVoxelAnalyzer(Node):
         self.declare_parameter("history_path", "")
         self.declare_parameter("air_temperature_topic", "")
         self.declare_parameter("oil_temperature_topic", "")
+        self.declare_parameter("sensor_timeout_sec", 5.0)
+        self.declare_parameter("required_frame_id", "")
         self.declare_parameter("publish_detections", True)
         self.declare_parameter("simulated", True)
         self._config: AnalysisConfig | None = None
@@ -47,6 +50,10 @@ class ThermalVoxelAnalyzer(Node):
         self._baselines: dict[str, EquipmentBaseline] = {}
         self._baseline_collector: BaselineCollector | None = None
         self._sensor_values: dict[str, float | None] = {
+            "air_temperature_c": None,
+            "oil_temperature_c": None,
+        }
+        self._sensor_updated_ns: dict[str, int | None] = {
             "air_temperature_c": None,
             "oil_temperature_c": None,
         }
@@ -65,7 +72,17 @@ class ThermalVoxelAnalyzer(Node):
             try:
                 self._config = load_config(config_path)
                 self._trend_config = load_trend_config(config_path)
+                required_frame = str(
+                    self.get_parameter("required_frame_id").value
+                ).strip()
+                if required_frame and self._config.frame_id != required_frame:
+                    raise ValueError(
+                        "thermal ROI frame must be "
+                        f"{required_frame!r}, got {self._config.frame_id!r}"
+                    )
             except Exception as exc:
+                self._config = None
+                self._trend_config = None
                 self.get_logger().error(f"Could not load thermal ROI config {config_path!r}: {exc}")
         else:
             self.get_logger().warning("No ROI config supplied; point clouds will be ignored")
@@ -378,10 +395,40 @@ class ThermalVoxelAnalyzer(Node):
         self._apply_equipment_config(document, candidate)
 
     def _on_air_temperature(self, message: Temperature) -> None:
-        self._sensor_values["air_temperature_c"] = float(message.temperature)
+        self._store_sensor_value("air_temperature_c", message.temperature)
 
     def _on_oil_temperature(self, message: Temperature) -> None:
-        self._sensor_values["oil_temperature_c"] = float(message.temperature)
+        self._store_sensor_value("oil_temperature_c", message.temperature)
+
+    def _store_sensor_value(self, name: str, value: float) -> None:
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            self.get_logger().warning(
+                f"Ignored non-finite {name}: {value!r}",
+                throttle_duration_sec=5.0,
+            )
+            return
+        self._sensor_values[name] = numeric
+        self._sensor_updated_ns[name] = self.get_clock().now().nanoseconds
+
+    def _fresh_sensor_values(self) -> dict[str, float | None]:
+        timeout_sec = max(
+            0.0, float(self.get_parameter("sensor_timeout_sec").value)
+        )
+        timeout_ns = int(timeout_sec * 1_000_000_000)
+        now_ns = self.get_clock().now().nanoseconds
+        fresh: dict[str, float | None] = {}
+        for name, value in self._sensor_values.items():
+            updated_ns = self._sensor_updated_ns[name]
+            age_ns = now_ns - updated_ns if updated_ns is not None else None
+            fresh[name] = (
+                value
+                if value is not None
+                and age_ns is not None
+                and 0 <= age_ns <= timeout_ns
+                else None
+            )
+        return fresh
 
     def _publish_history_snapshot(self) -> None:
         """Restore the last patrol decisions in the Web UI after a restart."""
@@ -412,7 +459,7 @@ class ThermalVoxelAnalyzer(Node):
             self._history,
             self._trend_config,
             baselines=self._baselines,
-            sensor_values=self._sensor_values,
+            sensor_values=self._fresh_sensor_values(),
             simulated=bool(self.get_parameter("simulated").value),
         )
 

@@ -179,6 +179,9 @@ def generate_launch_description() -> LaunchDescription:
                 "thermal_oil_temperature_topic", default_value=""
             ),
             DeclareLaunchArgument(
+                "thermal_sensor_timeout_sec", default_value="5.0"
+            ),
+            DeclareLaunchArgument(
                 "thermal_image_topic",
                 default_value="/thermal_camera/image_raw",
             ),
@@ -339,6 +342,13 @@ def generate_launch_description() -> LaunchDescription:
                     "oil_temperature_topic": LaunchConfiguration(
                         "thermal_oil_temperature_topic"
                     ),
+                    "sensor_timeout_sec": LaunchConfiguration(
+                        "thermal_sensor_timeout_sec"
+                    ),
+                    # AMCL's saved map is authoritative during physical patrol.
+                    # Reject odom-scoped ROIs instead of silently analyzing a
+                    # drifting facility region after localization corrections.
+                    "required_frame_id": "map",
                     "thermal_image_topic": LaunchConfiguration(
                         "thermal_image_topic"
                     ),

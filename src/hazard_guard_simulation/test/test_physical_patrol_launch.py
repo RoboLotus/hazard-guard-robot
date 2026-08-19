@@ -137,9 +137,11 @@ def test_physical_thermal_policy_forwards_local_baseline_collection():
         "thermal_baseline_minimum_valid_visits",
         "thermal_air_temperature_topic",
         "thermal_oil_temperature_topic",
+        "thermal_sensor_timeout_sec",
     ):
         assert f'"{argument}"' in source
     assert '"simulated": "false"' in source
+    assert '"required_frame_id": "map"' in source
 
 
 def test_only_physical_motor_driver_consumes_gated_velocity() -> None:
