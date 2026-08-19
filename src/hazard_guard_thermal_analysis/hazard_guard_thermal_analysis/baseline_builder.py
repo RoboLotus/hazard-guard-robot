@@ -192,6 +192,35 @@ class BaselineCollector:
         self.baseline_path.replace(target)
         return target
 
+    def retain_approved_equipment(
+        self, equipment_ids: Sequence[str]
+    ) -> tuple[str, ...]:
+        """Discard approved baselines whose ROI topology is no longer valid."""
+
+        allowed = set(str(item) for item in equipment_ids)
+        if not self.baseline_path.exists():
+            return ()
+        document = json.loads(
+            self.baseline_path.read_text(encoding="utf-8")
+        )
+        if not isinstance(document, Mapping):
+            raise ValueError("thermal baseline must be a JSON object")
+        raw_equipment = document.get("equipment", {})
+        if not isinstance(raw_equipment, Mapping):
+            raise ValueError("thermal baseline equipment must be an object")
+        retained = {
+            str(equipment_id): value
+            for equipment_id, value in raw_equipment.items()
+            if str(equipment_id) in allowed
+        }
+        if not retained:
+            self.baseline_path.unlink()
+            return ()
+        updated = dict(document)
+        updated["equipment"] = retained
+        _atomic_json(self.baseline_path, updated)
+        return tuple(sorted(retained))
+
     @property
     def ready(self) -> bool:
         return all(

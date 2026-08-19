@@ -275,3 +275,46 @@ def test_ready_equipment_activates_without_waiting_for_every_equipment(
         (tmp_path / "baselines.json").read_text(encoding="utf-8")
     )
     assert set(completed["equipment"]) == {"motor", "pump"}
+
+
+def test_roi_change_prunes_only_invalid_approved_baselines(tmp_path) -> None:
+    current = BaselineCollector(
+        tmp_path / "collection.json",
+        tmp_path / "baselines.json",
+        ("motor", "pump"),
+        minimum_valid_visits=2,
+        minimum_environment_points=40,
+    )
+    for equipment_id, temperature in (("motor", 30.0), ("pump", 40.0)):
+        current.observe(
+            completed_visit(temperature, equipment_id=equipment_id)
+        )
+        current.observe(
+            completed_visit(temperature + 0.1, equipment_id=equipment_id)
+        )
+    assert current.activate_ready_equipment() == ("motor", "pump")
+
+    assert current.retain_approved_equipment(("pump",)) == ("pump",)
+    retained = json.loads(
+        (tmp_path / "baselines.json").read_text(encoding="utf-8")
+    )
+    assert set(retained["equipment"]) == {"pump"}
+
+    current.reset()
+    current.observe(completed_visit(31.0, equipment_id="motor"))
+    current.observe(completed_visit(31.1, equipment_id="motor"))
+    current.activate_ready_equipment()
+    merged = json.loads(
+        (tmp_path / "baselines.json").read_text(encoding="utf-8")
+    )
+    assert set(merged["equipment"]) == {"motor", "pump"}
+
+
+def test_pruning_all_approved_baselines_removes_active_file(tmp_path) -> None:
+    current = collector(tmp_path, minimum_valid_visits=2)
+    current.observe(completed_visit(30.0))
+    current.observe(completed_visit(30.1))
+    assert current.activate_ready_equipment() == ("motor",)
+
+    assert current.retain_approved_equipment(()) == ()
+    assert not (tmp_path / "baselines.json").exists()

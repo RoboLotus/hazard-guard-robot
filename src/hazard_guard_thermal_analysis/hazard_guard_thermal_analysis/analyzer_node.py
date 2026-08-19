@@ -18,6 +18,7 @@ from tf2_ros import Buffer, TransformListener
 from .baseline import EquipmentBaseline, load_baselines
 from .baseline_builder import BaselineCollector
 from .cloud import iter_thermal_cloud
+from .decision_metadata import effective_threshold_range
 from .projection import RigidTransform, ThermalPoint
 from .trend import SEVERITY, evaluate_visit, load_trend_config, read_history
 from .visit import PatrolVisitAccumulator
@@ -219,7 +220,9 @@ class ThermalVoxelAnalyzer(Node):
         equipment = []
         for roi in self._config.equipment_rois:
             baseline = self._baselines.get(roi.roi_id)
-            latest_threshold = self._latest_effective_threshold(roi.roi_id)
+            threshold_min, threshold_max = (
+                self._latest_effective_threshold_range(roi.roi_id)
+            )
             if roi.roi_id in self._baselines:
                 baseline_state = "active"
                 sample_count = target
@@ -249,7 +252,11 @@ class ThermalVoxelAnalyzer(Node):
                         if baseline is not None
                         else None
                     ),
-                    "effective_adaptive_threshold_c": latest_threshold,
+                    # Keep the legacy scalar for older consoles.  It is the
+                    # upper end of the voxel-specific range, as before.
+                    "effective_adaptive_threshold_c": threshold_max,
+                    "effective_adaptive_threshold_min_c": threshold_min,
+                    "effective_adaptive_threshold_max_c": threshold_max,
                 }
             )
         payload: dict[str, object] = {"state": state, "equipment": equipment}
@@ -257,28 +264,10 @@ class ThermalVoxelAnalyzer(Node):
             payload["error"] = error
         self._publish_json(self._equipment_config_status_publisher, payload)
 
-    def _latest_effective_threshold(
+    def _latest_effective_threshold_range(
         self, equipment_id: str
-    ) -> float | None:
-        if not isinstance(self._latest_result, dict):
-            return None
-        for equipment in self._latest_result.get("equipment", []):
-            if not isinstance(equipment, dict):
-                continue
-            if str(equipment.get("equipment_id", "")) != equipment_id:
-                continue
-            candidates = []
-            for voxel in equipment.get("voxels", []):
-                if not isinstance(voxel, dict):
-                    continue
-                decision = voxel.get("trend_analysis", {})
-                if not isinstance(decision, dict):
-                    continue
-                threshold = decision.get("effective_adaptive_threshold_c")
-                if isinstance(threshold, (int, float)):
-                    candidates.append(float(threshold))
-            return max(candidates) if candidates else None
-        return None
+    ) -> tuple[float | None, float | None]:
+        return effective_threshold_range(self._latest_result, equipment_id)
 
     def _on_equipment_config(self, message: String) -> None:
         try:
@@ -300,18 +289,24 @@ class ThermalVoxelAnalyzer(Node):
         self, document: dict[str, object], candidate: AnalysisConfig
     ) -> None:
         del document
-        old_signature = tuple(
-            (roi.roi_id, roi.minimum, roi.maximum)
+        old_rois = {
+            roi.roi_id: (roi.minimum, roi.maximum)
             for roi in self._config.equipment_rois
-        ) if self._config is not None else ()
-        new_signature = tuple(
-            (roi.roi_id, roi.minimum, roi.maximum)
+        } if self._config is not None else {}
+        old_signature = tuple(sorted(old_rois.items()))
+        new_rois = {
+            roi.roi_id: (roi.minimum, roi.maximum)
             for roi in candidate.equipment_rois
+        }
+        new_signature = tuple(
+            sorted(new_rois.items())
         )
         topology_changed = old_signature != new_signature
         self._config = candidate
+        # A configuration revision invalidates threshold metadata calculated
+        # with the previous policy until the next cloud is evaluated.
+        self._latest_result = None
         if topology_changed:
-            self._baselines = {}
             self._history = []
             self._baseline_collector = None
             if self._baseline_path is not None and self._trend_config is not None:
@@ -333,8 +328,22 @@ class ThermalVoxelAnalyzer(Node):
                             self._trend_config.minimum_environment_points
                         ),
                     )
+                    unchanged_ids = tuple(
+                        equipment_id
+                        for equipment_id, bounds in new_rois.items()
+                        if old_rois.get(equipment_id) == bounds
+                    )
+                    self._baseline_collector.retain_approved_equipment(
+                        unchanged_ids
+                    )
                     self._baseline_collector.reset()
+                    self._baselines = (
+                        load_baselines(self._baseline_path)
+                        if self._baseline_path.exists()
+                        else {}
+                    )
                 except (OSError, ValueError) as exc:
+                    self._baselines = {}
                     self._baseline_collector = None
                     self.get_logger().error(
                         f"Could not reset baseline collection after ROI change: {exc}"
