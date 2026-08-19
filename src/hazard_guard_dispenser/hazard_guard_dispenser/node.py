@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""
+node.py — 비콘 큐브 디스펜서 ROS2 노드 (RoboLotus)
+
+Jetson ─USB(/dev/myserial)─ 확장보드 ─S1─ MG946R 서보
+Jetson ─BLE─ 비콘 큐브 ×N
+
+★ create_receive_threading() 을 절대 호출하지 않는다.
+  백그라운드 Mcnamu_driver 가 같은 시리얼 포트를 읽고 있어서
+  여기서 읽기 스레드를 띄우면 SerialException 이 난다.
+  서보 제어는 쓰기 전용이라 읽기가 필요 없다.
+
+구독  hazard_guard/dispenser/command (std_msgs/String)
+        drop / home / status / angle:NN
+발행  hazard_guard/dispenser/status  (std_msgs/String)
+        ready / busy / dropped / jam_suspected / error:...
+"""
+
+import threading
+import time
+
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
+try:
+    from .cube_ble import CubeLink
+except ImportError:
+    try:
+        from cube_ble import CubeLink
+    except ImportError:
+        CubeLink = None
+
+try:
+    from Rosmaster_Lib import Rosmaster
+    HARDWARE_AVAILABLE = True
+except ImportError:
+    HARDWARE_AVAILABLE = False
+
+    class Rosmaster:
+        def set_pwm_servo(self, servo_id, angle):
+            pass
+
+
+class DispenserNode(Node):
+
+    def __init__(self):
+        super().__init__("dispenser_node")
+
+        # --- 서보 (실측으로 확정된 값) ---
+        self.declare_parameter("servo_id", 1)
+        self.declare_parameter("angle_home", 0)
+        self.declare_parameter("angle_dump", 30)
+        self.declare_parameter("step_deg", 3)
+        self.declare_parameter("step_delay", 0.03)
+        self.declare_parameter("dump_hold", 1.0)
+        self.declare_parameter("home_hold", 0.5)
+
+        # --- 큐브 BLE ---
+        self.declare_parameter("use_cube_ble", True)
+        self.declare_parameter("expected_cubes", 3)   # 탐색 목표 수(제한 아님)
+        self.declare_parameter("arm_lead_time", 0.3)
+        self.declare_parameter("arm_repeat", 2)
+        self.declare_parameter("drop_report_timeout", 2.5)
+
+        self.servo_id = self._p("servo_id")
+
+        self.busy = False
+        self.lock = threading.Lock()
+        self.current_angle = self._p("angle_home")
+        self.drop_count = 0
+
+        self.bot = Rosmaster()
+        if not HARDWARE_AVAILABLE:
+            self.get_logger().warn(
+                "Rosmaster_Lib 없음. 시뮬레이션 모드. 서보는 안 움직입니다")
+
+        self.cube_link = None
+        if self._p("use_cube_ble"):
+            if CubeLink is None:
+                self.get_logger().error(
+                    "cube_ble.py 를 찾을 수 없음. 서보만 동작합니다")
+            else:
+                self.cube_link = CubeLink(
+                    expected_cubes=self._p("expected_cubes"),
+                    logger=self.get_logger())
+                self.cube_link.on_cube_off = self._on_cube_off
+                self.cube_link.start()
+        else:
+            self.get_logger().info("use_cube_ble=False. 서보만 동작")
+
+        self.pub = self.create_publisher(
+            String, "hazard_guard/dispenser/status", 10)
+        self.create_subscription(
+            String, "hazard_guard/dispenser/command", self.on_command, 10)
+
+        self._go_to(self._p("angle_home"), smooth=False)
+        self.get_logger().info(
+            f"디스펜서 준비 완료. 서보 S{self.servo_id}, "
+            f"home={self._p('angle_home')} dump={self._p('angle_dump')}")
+        self._publish_status()
+
+    def _p(self, name):
+        return self.get_parameter(name).value
+
+    # ---------------- 명령 ----------------
+    def on_command(self, msg):
+        cmd = msg.data.strip().lower()
+
+        if cmd == "drop":
+            self._request_drop()
+        elif cmd == "home":
+            self._go_to(self._p("angle_home"))
+            self.get_logger().info("챔버 대기 위치로 복귀")
+        elif cmd == "status":
+            self._publish_status()
+        elif cmd.startswith("angle:"):
+            try:
+                angle = int(cmd.split(":", 1)[1])
+            except ValueError:
+                self.get_logger().error(f"각도 형식 오류: {cmd}")
+                return
+            self._go_to(angle)
+            self.get_logger().info(f"수동 각도 -> {self.current_angle}")
+        else:
+            self.get_logger().warn(f'모르는 명령: "{msg.data}"')
+
+    def _on_cube_off(self, address, code):
+        self.get_logger().info(f"큐브 소등 확인: {address}")
+
+    # ---------------- 배출 ----------------
+    def _request_drop(self):
+        with self.lock:
+            if self.busy:
+                self.get_logger().warn("이미 배출 중. 이번 요청 무시")
+                return
+            self.busy = True
+        threading.Thread(target=self._do_drop, daemon=True).start()
+
+    def _do_drop(self):
+        try:
+            self._publish_status()
+            self.get_logger().info("배출 시작")
+
+            # 0) ARM — 반드시 기울이기 "전에"
+            armed = 0
+            if self.cube_link:
+                self.get_logger().info("  0) 큐브에 ARM 발송")
+                armed = self.cube_link.arm_all(repeat=self._p("arm_repeat"))
+                if armed == 0:
+                    self.get_logger().error(
+                        "     ARM 미전달. 배출은 진행하지만 "
+                        "경광등이 안 켜질 수 있음")
+                time.sleep(self._p("arm_lead_time"))
+
+            # 1) 기울임
+            self.get_logger().info("  1) 챔버 기울임")
+            self._go_to(self._p("angle_dump"))
+
+            # 2) 낙하 보고 대기
+            dropped_by = None
+            if self.cube_link and armed > 0:
+                self.get_logger().info("  2) 낙하 보고 대기")
+                dropped_by = self.cube_link.wait_for_drop(
+                    timeout=self._p("drop_report_timeout"))
+                if dropped_by:
+                    self.get_logger().info(f"     배출 확인: {dropped_by}")
+                else:
+                    self.get_logger().warn(
+                        "     보고 없음. 걸림 또는 큐브 연결 문제 의심")
+            else:
+                self.get_logger().info("  2) 미끄러짐 대기")
+                time.sleep(self._p("dump_hold"))
+
+            # 3) 복귀
+            self.get_logger().info("  3) 챔버 복귀")
+            self._go_to(self._p("angle_home"))
+            time.sleep(self._p("home_hold"))
+
+            self.drop_count += 1
+            self.get_logger().info(f"배출 완료. 누적 {self.drop_count}회")
+
+            if self.cube_link and armed > 0:
+                self._publish("dropped" if dropped_by else "jam_suspected")
+
+        except Exception as e:
+            self.get_logger().error(f"배출 중 오류: {e}")
+            self._publish(f"error:{e}")
+        finally:
+            with self.lock:
+                self.busy = False
+            self._publish_status()
+
+    # ---------------- 서보 ----------------
+    def _go_to(self, target, smooth=True):
+        target = max(0, min(180, int(target)))
+
+        if not smooth:
+            self.bot.set_pwm_servo(self.servo_id, target)
+            self.current_angle = target
+            return
+
+        step = self._p("step_deg")
+        delay = self._p("step_delay")
+        direction = 1 if target > self.current_angle else -1
+
+        angle = self.current_angle
+        while angle != target:
+            move = min(step, abs(target - angle))
+            angle += move * direction
+            self.bot.set_pwm_servo(self.servo_id, angle)
+            time.sleep(delay)
+
+        self.current_angle = target
+
+    # ---------------- 상태 ----------------
+    def _publish_status(self):
+        self._publish("busy" if self.busy else "ready")
+
+    def _publish(self, text):
+        msg = String()
+        msg.data = text
+        self.pub.publish(msg)
+
+    def shutdown(self):
+        try:
+            self._go_to(self._p("angle_home"), smooth=False)
+        except Exception:
+            pass
+        try:
+            if self.cube_link:
+                self.cube_link.stop()
+        except Exception:
+            pass
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = DispenserNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.shutdown()
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == "__main__":
+    main()
