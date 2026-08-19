@@ -71,6 +71,8 @@ class BagSessionManager(Node):
             return False, "ROS Bag session is already recording"
         try:
             profile_name = str(self.get_parameter("profile").value)
+            max_duration_seconds = float(self.get_parameter("max_duration_seconds").value)
+            max_size_bytes = int(float(self.get_parameter("max_size_gb").value) * 1024**3)
             profile = resolve_profile(
                 profile_name,
                 load_profile_document(Path(str(self.get_parameter("profiles_path").value))),
@@ -95,6 +97,8 @@ class BagSessionManager(Node):
                 preflight,
                 storage_id=str(self.get_parameter("storage_id").value),
                 minimum_free_bytes=minimum_free_bytes,
+                max_duration_seconds=max_duration_seconds,
+                max_size_bytes=max_size_bytes,
             )
             self._session.start()
         except (ProfileError, PreflightError, SessionError, ValueError) as exc:
@@ -136,10 +140,7 @@ class BagSessionManager(Node):
         if not self._session.is_running():
             self._stop_session("recorder-exited")
             return
-        limit = self._session.enforce_limits(
-            max_duration_seconds=float(self.get_parameter("max_duration_seconds").value),
-            max_size_bytes=int(float(self.get_parameter("max_size_gb").value) * 1024**3),
-        )
+        limit = self._session.enforce_limits()
         if limit is not None:
             self._stop_session(limit)
 

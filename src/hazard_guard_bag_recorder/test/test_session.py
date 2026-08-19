@@ -74,5 +74,20 @@ def test_recorder_stops_before_exhausting_reserved_free_space(tmp_path):
         command_runner=lambda *_args, **_kwargs: FakeProcess(),
     )
     session.start()
-    assert session.enforce_limits(max_duration_seconds=0, max_size_bytes=0) == "min-free-space"
+    assert session.enforce_limits() == "min-free-space"
     assert session.stop("min-free-space")["status"] == "limited"
+
+
+def test_recorder_uses_limits_captured_when_the_session_is_created(tmp_path):
+    session = BagSession(
+        create_session_paths(tmp_path, "frozen-limit"),
+        "navigation-core",
+        report(),
+        max_duration_seconds=0,
+        max_size_bytes=1,
+        command_runner=lambda *_args, **_kwargs: FakeProcess(),
+    )
+    session.start()
+    session.paths.bag_dir.mkdir()
+    (session.paths.bag_dir / "sample.db3").write_bytes(b"12")
+    assert session.enforce_limits() == "max-size"

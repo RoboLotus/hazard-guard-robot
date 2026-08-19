@@ -35,7 +35,7 @@ ros2 launch hazard_guard_bag_recorder bag_record.launch.py \
 
 기본 저장 위치는 `~/.local/share/hazard_guard/bags/`이다. 팀 공유나 대용량 SSD를 쓸 때만 `storage_root:=/mnt/ssd/hazard_guard-bags`처럼 변경한다.
 
-기본값은 한 세션 **30분**, bag 데이터 **10 GiB**, 최소 여유 공간 **2 GiB**다. 제한 없이 쓰려면 운영자가 각 값을 명시적으로 `0`으로 바꿔야 한다.
+기본값은 한 세션 **30분**, bag 데이터 **10 GiB**, 최소 여유 공간 **2 GiB**다. 제한 없이 쓰려면 운영자가 각 값을 명시적으로 `0`으로 바꿔야 한다. 이 값은 세션 시작 시 고정되므로, 기록 중 파라미터 변경으로 상한을 완화할 수 없다.
 
 시작·중지 ROS 서비스는 기본적으로 열지 않는다. 같은 ROS 도메인 안의 다른 노드가 임의로 기록을 시작·중지하는 것을 막기 위한 안전 기본값이다. 신뢰한 폐쇄망에서만 `enable_control_services:=true`로 명시적으로 열고 다음을 사용한다.
 

@@ -82,6 +82,8 @@ class BagSession:
         *,
         storage_id: str = "sqlite3",
         minimum_free_bytes: int = 0,
+        max_duration_seconds: float = 1800.0,
+        max_size_bytes: int = 10 * 1024**3,
         command_runner: Callable[..., subprocess.Popen] = subprocess.Popen,
     ) -> None:
         if storage_id not in ALLOWED_STORAGE_IDS:
@@ -90,11 +92,15 @@ class BagSession:
             raise SessionError(f"missing required topics: {', '.join(preflight.missing_required)}")
         if minimum_free_bytes < 0:
             raise SessionError("minimum_free_bytes must not be negative")
+        if max_duration_seconds < 0 or max_size_bytes < 0:
+            raise SessionError("recording limits must not be negative")
         self.paths = paths
         self.profile_name = profile_name
         self.preflight = preflight
         self.storage_id = storage_id
         self.minimum_free_bytes = minimum_free_bytes
+        self.max_duration_seconds = max_duration_seconds
+        self.max_size_bytes = max_size_bytes
         self._command_runner = command_runner
         self._process: subprocess.Popen | None = None
         self._log_handle = None
@@ -193,17 +199,17 @@ class BagSession:
         _atomic_json(self.paths.manifest_path, manifest)
         return manifest
 
-    def enforce_limits(self, *, max_duration_seconds: float, max_size_bytes: int) -> str | None:
+    def enforce_limits(self) -> str | None:
         if not self.is_running():
             return None
-        if max_duration_seconds > 0 and self._started_monotonic is not None:
-            if time.monotonic() - self._started_monotonic >= max_duration_seconds:
+        if self.max_duration_seconds > 0 and self._started_monotonic is not None:
+            if time.monotonic() - self._started_monotonic >= self.max_duration_seconds:
                 self.stop("max-duration")
                 return "max-duration"
         if self.minimum_free_bytes and shutil.disk_usage(self.paths.root).free < self.minimum_free_bytes:
             self.stop("min-free-space")
             return "min-free-space"
-        if max_size_bytes > 0 and _directory_size(self.paths.bag_dir) >= max_size_bytes:
+        if self.max_size_bytes > 0 and _directory_size(self.paths.bag_dir) >= self.max_size_bytes:
             self.stop("max-size")
             return "max-size"
         return None
