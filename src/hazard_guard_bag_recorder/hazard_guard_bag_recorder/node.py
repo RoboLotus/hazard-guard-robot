@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import time
 
 from ament_index_python.packages import get_package_share_directory
 from nav_msgs.msg import Odometry
@@ -33,18 +32,22 @@ class BagSessionManager(Node):
         self.declare_parameter("session_name", "field-session")
         self.declare_parameter("storage_id", "sqlite3")
         self.declare_parameter("minimum_free_gb", 2.0)
-        self.declare_parameter("max_duration_seconds", 0.0)
-        self.declare_parameter("max_size_gb", 0.0)
+        self.declare_parameter("max_duration_seconds", 1800.0)
+        self.declare_parameter("max_size_gb", 10.0)
         self.declare_parameter("allow_experimental", False)
         self.declare_parameter("auto_start", False)
+        self.declare_parameter("enable_control_services", False)
 
         self._session: BagSession | None = None
         self._finalized = True
         self._metrics = DriveMetrics()
         self.create_subscription(Odometry, "/odom", self._on_odometry, 20)
         self.create_subscription(String, "/hazard_guard/mission/status", self._on_mission_status, 10)
-        self.create_service(Trigger, "/hazard_guard/bag/start", self._on_start)
-        self.create_service(Trigger, "/hazard_guard/bag/stop", self._on_stop)
+        if bool(self.get_parameter("enable_control_services").value):
+            self.create_service(Trigger, "/hazard_guard/bag/start", self._on_start)
+            self.create_service(Trigger, "/hazard_guard/bag/stop", self._on_stop)
+        else:
+            self.get_logger().info("manual ROS Bag control services are disabled")
         self._status_publisher = self.create_publisher(String, "/hazard_guard/bag/status", 10)
         self.create_timer(1.0, self._on_tick)
         self.publish_status("idle")
@@ -72,11 +75,12 @@ class BagSessionManager(Node):
                 profile_name,
                 load_profile_document(Path(str(self.get_parameter("profiles_path").value))),
             )
+            minimum_free_bytes = int(float(self.get_parameter("minimum_free_gb").value) * 1024**3)
             preflight = run_preflight(
                 profile,
                 self._available_topic_names(),
                 Path(str(self.get_parameter("storage_root").value)),
-                minimum_free_bytes=int(float(self.get_parameter("minimum_free_gb").value) * 1024**3),
+                minimum_free_bytes=minimum_free_bytes,
                 allow_experimental=bool(self.get_parameter("allow_experimental").value),
             )
             if not preflight.can_start:
@@ -90,6 +94,7 @@ class BagSessionManager(Node):
                 profile.name,
                 preflight,
                 storage_id=str(self.get_parameter("storage_id").value),
+                minimum_free_bytes=minimum_free_bytes,
             )
             self._session.start()
         except (ProfileError, PreflightError, SessionError, ValueError) as exc:

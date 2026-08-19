@@ -63,3 +63,16 @@ def test_recorder_rejects_missing_required_topics(tmp_path):
         assert "missing required" in str(exc)
     else:
         raise AssertionError("missing required topics must prevent subprocess creation")
+
+
+def test_recorder_stops_before_exhausting_reserved_free_space(tmp_path):
+    session = BagSession(
+        create_session_paths(tmp_path, "reserved-space"),
+        "navigation-core",
+        report(),
+        minimum_free_bytes=2**63,
+        command_runner=lambda *_args, **_kwargs: FakeProcess(),
+    )
+    session.start()
+    assert session.enforce_limits(max_duration_seconds=0, max_size_bytes=0) == "min-free-space"
+    assert session.stop("min-free-space")["status"] == "limited"

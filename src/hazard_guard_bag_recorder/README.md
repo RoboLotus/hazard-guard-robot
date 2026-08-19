@@ -35,9 +35,13 @@ ros2 launch hazard_guard_bag_recorder bag_record.launch.py \
 
 기본 저장 위치는 `~/.local/share/hazard_guard/bags/`이다. 팀 공유나 대용량 SSD를 쓸 때만 `storage_root:=/mnt/ssd/hazard_guard-bags`처럼 변경한다.
 
-명시적으로 시작·중지하려면 `auto_start:=false`로 실행한 뒤 다음을 사용한다.
+기본값은 한 세션 **30분**, bag 데이터 **10 GiB**, 최소 여유 공간 **2 GiB**다. 제한 없이 쓰려면 운영자가 각 값을 명시적으로 `0`으로 바꿔야 한다.
+
+시작·중지 ROS 서비스는 기본적으로 열지 않는다. 같은 ROS 도메인 안의 다른 노드가 임의로 기록을 시작·중지하는 것을 막기 위한 안전 기본값이다. 신뢰한 폐쇄망에서만 `enable_control_services:=true`로 명시적으로 열고 다음을 사용한다.
 
 ```bash
+ros2 launch hazard_guard_bag_recorder bag_record.launch.py \
+  profile:=navigation-core enable_control_services:=true
 ros2 service call /hazard_guard/bag/start std_srvs/srv/Trigger '{}'
 ros2 service call /hazard_guard/bag/stop std_srvs/srv/Trigger '{}'
 ros2 topic echo /hazard_guard/bag/status
@@ -71,4 +75,5 @@ ros2 launch hazard_guard_bag_recorder bag_record.launch.py \
 - 실제 열화상 카메라 토픽·타입·QoS는 아직 확정되지 않았으므로, 열화상 프로파일을 기본 운용에 쓰지 않는다.
 - 카메라 원본·점군은 CPU, RAM보다 주로 디스크 I/O와 저장 용량을 크게 사용한다. `rgbd-mapping`, `patrol-thermal`은 짧게 기록한다.
 - 기록 실패 또는 토픽 누락은 `session.json`에 남기며, 필수 토픽 누락 시 기록을 시작하지 않는다.
+- 신뢰할 수 없는 장치가 같은 ROS/DDS 도메인에 참여할 수 있다면 서비스 opt-in만으로는 충분하지 않다. SROS2 또는 네트워크 분리도 적용한다.
 - `runtime/bags/`, `*.db3`, `*.mcap`은 Git에서 제외한다. 실제 데이터·개인 경로·비밀값을 커밋하지 않는다.
