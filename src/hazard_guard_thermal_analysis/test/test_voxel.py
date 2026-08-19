@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from hazard_guard_thermal_analysis.projection import ThermalPoint
-from hazard_guard_thermal_analysis.voxel import AnalysisConfig, AxisAlignedRoi, analyze_points, load_config, percentile
+from hazard_guard_thermal_analysis.voxel import AnalysisConfig, AxisAlignedRoi, analyze_points, apply_equipment_settings, load_config, percentile
 
 
 def test_schema1_keeps_legacy_ambient_delta_compatibility() -> None:
@@ -120,3 +120,45 @@ def test_config_rejects_non_increasing_threshold_levels(tmp_path) -> None:
     }]}), encoding="utf-8")
     with pytest.raises(ValueError, match="thresholds must increase"):
         load_config(path)
+
+def test_web_equipment_settings_update_name_roi_and_thresholds() -> None:
+    path = Path(__file__).parents[1] / "config" / "demo_facility_scaled_rois.json"
+    config = load_config(path)
+    updated = apply_equipment_settings(
+        config,
+        {
+            "equipment": [
+                {
+                    "id": "primary_shredder_motor",
+                    "display_name": "1번 모터",
+                    "enabled": True,
+                    "critical_temperature_c": 108.0,
+                    "adaptive_delta_c": 8.0,
+                    "roi": {
+                        "min": [-1.2, 0.0, 0.02],
+                        "max": [-0.8, 0.5, 0.42],
+                    },
+                },
+                {
+                    "id": "secondary_processor_pump",
+                    "display_name": "2차 처리기 펌프",
+                    "enabled": False,
+                    "critical_temperature_c": 105.0,
+                    "adaptive_delta_c": 10.0,
+                    "roi": {
+                        "min": [0.95, 0.53, 0.02],
+                        "max": [1.32, 0.86, 0.42],
+                    },
+                },
+            ]
+        },
+    )
+
+    assert len(updated.equipment_rois) == 1
+    motor = updated.equipment_rois[0]
+    assert motor.roi_id == "primary_shredder_motor"
+    assert motor.display_name == "1번 모터"
+    assert motor.minimum == (-1.2, 0.0, 0.02)
+    assert motor.critical_temperature_c == 108.0
+    assert motor.adaptive_delta_c == 8.0
+    assert updated.min_points_per_roi_for_p95 == config.min_points_per_roi_for_p95
