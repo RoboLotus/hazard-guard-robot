@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "navigation-core": {
+      "description": "2D SLAM, AMCL, and Nav2 field-recording baseline.",
+      "topics": [
+        {"id": "tf", "candidates": ["/tf"], "required": true},
+        {"id": "tf_static", "candidates": ["/tf_static"], "required": true},
+        {"id": "odom", "candidates": ["/odom"], "required": true},
+        {"id": "scan", "candidates": ["/scan"], "required": true},
+        {"id": "cmd_vel", "candidates": ["/cmd_vel"], "required": false},
+        {"id": "cmd_vel_safe", "candidates": ["/cmd_vel_safe"], "required": false},
+        {"id": "map", "candidates": ["/map"], "required": false},
+        {"id": "amcl_pose", "candidates": ["/amcl_pose"], "required": false},
+        {"id": "mission_status", "candidates": ["/hazard_guard/mission/status"], "required": false},
+        {"id": "telemetry", "candidates": ["/hazard_guard/telemetry"], "required": false}
+      ]
+    },
+    "rgbd-mapping": {
+      "extends": "navigation-core",
+      "description": "Short RGB-D and RTAB-Map mapping capture.",
+      "topics": [
+        {"id": "rgb_image", "candidates": ["/camera/image_raw", "/ascamera_hp60c/camera_publisher/rgb0/image_raw"], "required": true},
+        {"id": "rgb_info", "candidates": ["/camera/camera_info", "/ascamera_hp60c/camera_publisher/rgb0/camera_info"], "required": true},
+        {"id": "depth_image", "candidates": ["/depth_camera/image_raw", "/ascamera_hp60c/camera_publisher/depth0/image_raw"], "required": true},
+        {"id": "depth_info", "candidates": ["/depth_camera/camera_info", "/ascamera_hp60c/camera_publisher/depth0/camera_info"], "required": true},
+        {"id": "depth_points", "candidates": ["/depth_camera/points"], "required": false},
+        {"id": "rtabmap_cloud", "candidates": ["/hazard_guard/rtabmap/cloud_frame"], "required": false},
+        {"id": "rtabmap_surface", "candidates": ["/hazard_guard/rtabmap/cloud_surface_optimized"], "required": false}
+      ]
+    },
+    "patrol-core": {
+      "extends": "navigation-core",
+      "description": "Repeated waypoint patrol without camera originals.",
+      "topics": [
+        {"id": "thermal_analysis", "candidates": ["/hazard_guard/thermal/analysis"], "required": false},
+        {"id": "thermal_trend", "candidates": ["/hazard_guard/thermal/trend"], "required": false},
+        {"id": "thermal_detection", "candidates": ["/hazard_guard/thermal_detections"], "required": false},
+        {"id": "thermal_control", "candidates": ["/hazard_guard/thermal/inspection_control"], "required": false}
+      ]
+    },
+    "thermal-calibration": {
+      "extends": "navigation-core",
+      "experimental": true,
+      "description": "Short thermal-depth calibration capture; enable only after physical topic confirmation.",
+      "topics": [
+        {"id": "thermal_image", "candidates": ["/thermal_camera/image_raw"], "required": true},
+        {"id": "thermal_info", "candidates": ["/thermal_camera/camera_info"], "required": true},
+        {"id": "depth_image", "candidates": ["/depth_camera/image_raw", "/ascamera_hp60c/camera_publisher/depth0/image_raw"], "required": true},
+        {"id": "depth_info", "candidates": ["/depth_camera/camera_info", "/ascamera_hp60c/camera_publisher/depth0/camera_info"], "required": true},
+        {"id": "thermal_points", "candidates": ["/hazard_guard/thermal/points"], "required": false}
+      ]
+    },
+    "patrol-thermal": {
+      "extends": "patrol-core",
+      "experimental": true,
+      "description": "Thermal inspection patrol with raw thermal and depth evidence.",
+      "topics": [
+        {"id": "thermal_image", "candidates": ["/thermal_camera/image_raw"], "required": true},
+        {"id": "thermal_info", "candidates": ["/thermal_camera/camera_info"], "required": true},
+        {"id": "depth_image", "candidates": ["/depth_camera/image_raw", "/ascamera_hp60c/camera_publisher/depth0/image_raw"], "required": true},
+        {"id": "depth_info", "candidates": ["/depth_camera/camera_info", "/ascamera_hp60c/camera_publisher/depth0/camera_info"], "required": true},
+        {"id": "thermal_points", "candidates": ["/hazard_guard/thermal/points"], "required": false}
+      ]
+    }
+  }
+}
