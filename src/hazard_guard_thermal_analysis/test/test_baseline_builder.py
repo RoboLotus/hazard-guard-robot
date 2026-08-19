@@ -3,7 +3,10 @@ import json
 import pytest
 
 from hazard_guard_thermal_analysis.baseline import load_baselines
-from hazard_guard_thermal_analysis.baseline_builder import BaselineCollector
+from hazard_guard_thermal_analysis.baseline_builder import (
+    BaselineCollector,
+    prepare_collector_after_topology_change,
+)
 
 
 def completed_visit(
@@ -318,3 +321,40 @@ def test_pruning_all_approved_baselines_removes_active_file(tmp_path) -> None:
 
     assert current.retain_approved_equipment(()) == ()
     assert not (tmp_path / "baselines.json").exists()
+
+
+def test_topology_change_discards_corrupt_old_collection_before_load(
+    tmp_path,
+) -> None:
+    current = BaselineCollector(
+        tmp_path / "collection.json",
+        tmp_path / "baselines.json",
+        ("motor", "pump"),
+        minimum_valid_visits=2,
+        minimum_environment_points=40,
+    )
+    for equipment_id, temperature in (("motor", 30.0), ("pump", 40.0)):
+        current.observe(
+            completed_visit(temperature, equipment_id=equipment_id)
+        )
+        current.observe(
+            completed_visit(temperature + 0.1, equipment_id=equipment_id)
+        )
+    current.activate_ready_equipment()
+    (tmp_path / "collection.json").write_text("{broken", encoding="utf-8")
+
+    fresh = prepare_collector_after_topology_change(
+        tmp_path / "collection.json",
+        tmp_path / "baselines.json",
+        ("motor", "pump"),
+        ("pump",),
+        minimum_valid_visits=2,
+        minimum_environment_points=40,
+    )
+
+    assert fresh.counts() == {"motor": 0, "pump": 0}
+    assert not (tmp_path / "collection.json").exists()
+    retained = json.loads(
+        (tmp_path / "baselines.json").read_text(encoding="utf-8")
+    )
+    assert set(retained["equipment"]) == {"pump"}

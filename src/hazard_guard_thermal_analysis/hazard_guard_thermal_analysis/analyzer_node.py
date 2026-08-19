@@ -16,7 +16,10 @@ from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 
 from .baseline import EquipmentBaseline, load_baselines
-from .baseline_builder import BaselineCollector
+from .baseline_builder import (
+    BaselineCollector,
+    prepare_collector_after_topology_change,
+)
 from .cloud import iter_thermal_cloud
 from .decision_metadata import effective_threshold_range
 from .projection import RigidTransform, ThermalPoint
@@ -302,13 +305,11 @@ class ThermalVoxelAnalyzer(Node):
             sorted(new_rois.items())
         )
         topology_changed = old_signature != new_signature
-        self._config = candidate
-        # A configuration revision invalidates threshold metadata calculated
-        # with the previous policy until the next cloud is evaluated.
-        self._latest_result = None
+        prepared_collector = self._baseline_collector
+        prepared_baselines = self._baselines
         if topology_changed:
-            self._history = []
-            self._baseline_collector = None
+            prepared_collector = None
+            prepared_baselines = {}
             if self._baseline_path is not None and self._trend_config is not None:
                 collection_path = self._baseline_collection_path
                 if collection_path is None:
@@ -317,37 +318,53 @@ class ThermalVoxelAnalyzer(Node):
                     )
                     self._baseline_collection_path = collection_path
                 try:
-                    self._baseline_collector = BaselineCollector(
-                        collection_path,
-                        self._baseline_path,
-                        tuple(roi.roi_id for roi in candidate.equipment_rois),
-                        minimum_valid_visits=int(
-                            self.get_parameter("baseline_minimum_valid_visits").value
-                        ),
-                        minimum_environment_points=(
-                            self._trend_config.minimum_environment_points
-                        ),
-                    )
                     unchanged_ids = tuple(
                         equipment_id
                         for equipment_id, bounds in new_rois.items()
                         if old_rois.get(equipment_id) == bounds
                     )
-                    self._baseline_collector.retain_approved_equipment(
-                        unchanged_ids
+                    prepared_collector = (
+                        prepare_collector_after_topology_change(
+                            collection_path,
+                            self._baseline_path,
+                            tuple(
+                                roi.roi_id
+                                for roi in candidate.equipment_rois
+                            ),
+                            unchanged_ids,
+                            minimum_valid_visits=int(
+                                self.get_parameter(
+                                    "baseline_minimum_valid_visits"
+                                ).value
+                            ),
+                            minimum_environment_points=(
+                                self._trend_config.minimum_environment_points
+                            ),
+                        )
                     )
-                    self._baseline_collector.reset()
-                    self._baselines = (
+                    prepared_baselines = (
                         load_baselines(self._baseline_path)
                         if self._baseline_path.exists()
                         else {}
                     )
                 except (OSError, ValueError) as exc:
-                    self._baselines = {}
-                    self._baseline_collector = None
+                    self._pending_equipment_config = None
                     self.get_logger().error(
-                        f"Could not reset baseline collection after ROI change: {exc}"
+                        "Rejected ROI change because its baseline state could "
+                        f"not be invalidated safely: {exc}"
                     )
+                    self._publish_equipment_config_status(
+                        "rejected", str(exc)
+                    )
+                    return
+        self._config = candidate
+        # A configuration revision invalidates threshold metadata calculated
+        # with the previous policy until the next cloud is evaluated.
+        self._latest_result = None
+        if topology_changed:
+            self._history = []
+            self._baseline_collector = prepared_collector
+            self._baselines = prepared_baselines
         self._pending_equipment_config = None
         self.get_logger().info(
             f"Applied settings for {len(candidate.equipment_rois)} equipment items"

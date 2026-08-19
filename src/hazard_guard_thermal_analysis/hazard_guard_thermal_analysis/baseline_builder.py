@@ -40,6 +40,35 @@ def _atomic_json(path: Path, document: Mapping[str, object]) -> None:
     temporary.replace(path)
 
 
+def retain_approved_baselines(
+    baseline_path: str | Path, equipment_ids: Sequence[str]
+) -> tuple[str, ...]:
+    """Persist only baselines whose ROI topology is still valid."""
+
+    path = Path(baseline_path).expanduser()
+    allowed = set(str(item) for item in equipment_ids)
+    if not path.exists():
+        return ()
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(document, Mapping):
+        raise ValueError("thermal baseline must be a JSON object")
+    raw_equipment = document.get("equipment", {})
+    if not isinstance(raw_equipment, Mapping):
+        raise ValueError("thermal baseline equipment must be an object")
+    retained = {
+        str(equipment_id): value
+        for equipment_id, value in raw_equipment.items()
+        if str(equipment_id) in allowed
+    }
+    if not retained:
+        path.unlink()
+        return ()
+    updated = dict(document)
+    updated["equipment"] = retained
+    _atomic_json(path, updated)
+    return tuple(sorted(retained))
+
+
 class BaselineCollector:
     """Collect stable completed visits until every configured ROI is ready."""
 
@@ -196,30 +225,7 @@ class BaselineCollector:
         self, equipment_ids: Sequence[str]
     ) -> tuple[str, ...]:
         """Discard approved baselines whose ROI topology is no longer valid."""
-
-        allowed = set(str(item) for item in equipment_ids)
-        if not self.baseline_path.exists():
-            return ()
-        document = json.loads(
-            self.baseline_path.read_text(encoding="utf-8")
-        )
-        if not isinstance(document, Mapping):
-            raise ValueError("thermal baseline must be a JSON object")
-        raw_equipment = document.get("equipment", {})
-        if not isinstance(raw_equipment, Mapping):
-            raise ValueError("thermal baseline equipment must be an object")
-        retained = {
-            str(equipment_id): value
-            for equipment_id, value in raw_equipment.items()
-            if str(equipment_id) in allowed
-        }
-        if not retained:
-            self.baseline_path.unlink()
-            return ()
-        updated = dict(document)
-        updated["equipment"] = retained
-        _atomic_json(self.baseline_path, updated)
-        return tuple(sorted(retained))
+        return retain_approved_baselines(self.baseline_path, equipment_ids)
 
     @property
     def ready(self) -> bool:
@@ -655,3 +661,27 @@ class BaselineCollector:
         self._equipment.clear()
         if self.collection_path.exists():
             self.collection_path.unlink()
+
+
+def prepare_collector_after_topology_change(
+    collection_path: str | Path,
+    baseline_path: str | Path,
+    equipment_ids: Sequence[str],
+    unchanged_equipment_ids: Sequence[str],
+    *,
+    minimum_valid_visits: int,
+    minimum_environment_points: int,
+) -> BaselineCollector:
+    """Create a fresh collector only after old topology state is invalidated."""
+
+    collection = Path(collection_path).expanduser()
+    if collection.exists():
+        collection.unlink()
+    retain_approved_baselines(baseline_path, unchanged_equipment_ids)
+    return BaselineCollector(
+        collection,
+        baseline_path,
+        equipment_ids,
+        minimum_valid_visits=minimum_valid_visits,
+        minimum_environment_points=minimum_environment_points,
+    )
