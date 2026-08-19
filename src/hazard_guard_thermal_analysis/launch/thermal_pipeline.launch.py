@@ -18,11 +18,11 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("simulated", default_value="true"),
             DeclareLaunchArgument("roi_config", default_value=str(share / "config" / "demo_facility_scaled_rois.json")),
             DeclareLaunchArgument("baseline_path", default_value=""),
+            DeclareLaunchArgument("baseline_collection_path", default_value=""),
+            DeclareLaunchArgument("baseline_minimum_valid_visits", default_value="10"),
             DeclareLaunchArgument("history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
             DeclareLaunchArgument("air_temperature_topic", default_value=""),
             DeclareLaunchArgument("oil_temperature_topic", default_value=""),
-            DeclareLaunchArgument("sensor_timeout_sec", default_value="5.0"),
-            DeclareLaunchArgument("required_frame_id", default_value=""),
             DeclareLaunchArgument("thermal_image_topic", default_value="/thermal_camera/image_raw"),
             DeclareLaunchArgument("thermal_info_topic", default_value="/thermal_camera/camera_info"),
             DeclareLaunchArgument("depth_image_topic", default_value="/depth_camera/image_raw"),
@@ -58,13 +58,13 @@ def generate_launch_description() -> LaunchDescription:
                     "use_sim_time": ParameterValue(LaunchConfiguration("use_sim_time"), value_type=bool),
                     "roi_config": LaunchConfiguration("roi_config"),
                     "baseline_path": LaunchConfiguration("baseline_path"),
+                    "baseline_collection_path": LaunchConfiguration("baseline_collection_path"),
+                    "baseline_minimum_valid_visits": ParameterValue(
+                        LaunchConfiguration("baseline_minimum_valid_visits"), value_type=int
+                    ),
                     "history_path": LaunchConfiguration("history_path"),
                     "air_temperature_topic": LaunchConfiguration("air_temperature_topic"),
                     "oil_temperature_topic": LaunchConfiguration("oil_temperature_topic"),
-                    "sensor_timeout_sec": ParameterValue(
-                        LaunchConfiguration("sensor_timeout_sec"), value_type=float
-                    ),
-                    "required_frame_id": LaunchConfiguration("required_frame_id"),
                     "publish_detections": ParameterValue(LaunchConfiguration("publish_detections"), value_type=bool),
                     "simulated": ParameterValue(LaunchConfiguration("simulated"), value_type=bool),
                 }],

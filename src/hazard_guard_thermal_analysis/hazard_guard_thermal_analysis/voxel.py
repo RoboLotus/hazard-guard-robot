@@ -26,6 +26,7 @@ class AxisAlignedRoi:
     warning_delta_c: float | None = None
     watch_temperature_c: float | None = None
     watch_delta_c: float | None = None
+    adaptive_delta_c: float | None = None
     critical_delta_c: float | None = None
     trend: EquipmentTrendThresholds | None = None
     threshold_mode: str = "absolute"
@@ -165,6 +166,7 @@ def _parse_roi(value: object) -> AxisAlignedRoi:
         watch_temperature_c=watch_temperature,
         warning_temperature_c=warning_temperature,
         critical_temperature_c=critical_temperature,
+        adaptive_delta_c=_optional_float(value, "adaptive_delta_c"),
         watch_delta_c=watch_delta,
         warning_delta_c=warning_delta,
         critical_delta_c=critical_delta,
@@ -323,6 +325,7 @@ def _thresholds(roi: AxisAlignedRoi) -> dict[str, object]:
         "watch_temperature_c": roi.watch_temperature_c,
         "warning_temperature_c": roi.warning_temperature_c,
         "critical_temperature_c": roi.critical_temperature_c,
+        "adaptive_delta_c": roi.adaptive_delta_c,
         "watch_delta_c": roi.watch_delta_c,
         "warning_delta_c": roi.warning_delta_c,
         "critical_delta_c": roi.critical_delta_c,

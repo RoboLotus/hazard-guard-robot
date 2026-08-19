@@ -91,7 +91,7 @@ def test_config_validation_and_percentile(tmp_path) -> None:
     assert percentile([0.0, 10.0], 95.0) == pytest.approx(9.5)
 
 
-def test_facility_schema2_loads_reviewed_thresholds_and_quality_rules() -> None:
+def test_facility_schema3_loads_sourced_thresholds_and_simple_rule() -> None:
     path = Path(__file__).parents[1] / "config" / "demo_facility_scaled_rois.json"
     config = load_config(path)
     rois = {roi.roi_id: roi for roi in config.equipment_rois}
@@ -99,18 +99,16 @@ def test_facility_schema2_loads_reviewed_thresholds_and_quality_rules() -> None:
     motor = rois["primary_shredder_motor"]
     pump = rois["secondary_processor_pump"]
     tank = rois["baler_hydraulic_tank"]
-    assert config.schema_version == 2
+    assert config.schema_version == 3
     assert config.min_points_per_voxel == 5
     assert config.min_points_per_roi_for_p95 == 40
     assert config.recommended_points_per_roi_for_p95 == 100
     assert (config.min_hot_cluster_pixels, config.min_adjacent_hot_voxels) == (9, 2)
-    assert (waste.watch_temperature_c, waste.warning_temperature_c, waste.critical_temperature_c) == (40.0, 50.0, 65.0)
-    assert waste.reference_roi_id == "bunker_waste_reference"
-    assert (motor.simulation_watch_temperature_c, motor.simulation_warning_temperature_c, motor.simulation_critical_temperature_c) == (70.0, 80.0, 90.0)
-    assert (motor.baseline_watch_delta_c, motor.baseline_warning_delta_c, motor.baseline_critical_delta_c) == (10.0, 15.0, 20.0)
-    assert (pump.air_watch_delta_c, pump.air_warning_delta_c, pump.air_critical_delta_c) == (30.0, 35.0, 40.0)
-    assert tank.surface_alone_can_trip is False
-    assert (tank.oil_watch_temperature_c, tank.oil_warning_temperature_c, tank.oil_critical_temperature_c) == (50.0, 60.0, 70.0)
+    assert waste.critical_temperature_c == 49.0
+    assert motor.critical_temperature_c == 110.0
+    assert pump.critical_temperature_c == 105.0
+    assert tank.critical_temperature_c == 82.0
+    assert {roi.adaptive_delta_c for roi in rois.values()} == {10.0}
 
 
 def test_config_rejects_non_increasing_threshold_levels(tmp_path) -> None:

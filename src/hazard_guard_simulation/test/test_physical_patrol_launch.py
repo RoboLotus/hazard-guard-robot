@@ -128,17 +128,17 @@ def test_physical_person_detection_uses_hp60c_rgb_and_depth_topics():
     assert '"inference_rate_hz": person_inference_rate_hz' in source
 
 
-def test_physical_thermal_policy_requires_map_frame_and_forwards_evidence():
+def test_physical_thermal_policy_forwards_local_baseline_collection():
     source = LAUNCH.read_text(encoding="utf-8")
 
     for argument in (
         "thermal_baseline_path",
+        "thermal_baseline_collection_path",
+        "thermal_baseline_minimum_valid_visits",
         "thermal_air_temperature_topic",
         "thermal_oil_temperature_topic",
-        "thermal_sensor_timeout_sec",
     ):
         assert f'"{argument}"' in source
-    assert '"required_frame_id": "map"' in source
     assert '"simulated": "false"' in source
 
 

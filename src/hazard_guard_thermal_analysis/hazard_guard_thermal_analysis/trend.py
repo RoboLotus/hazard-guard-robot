@@ -1,4 +1,4 @@
-"""Evidence-aware immediate and long-term thermal anomaly decisions."""
+"""Immediate, trend and baseline-adaptive thermal anomaly decisions."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .baseline import EquipmentBaseline
+from .simple_decision import evaluate_simple_voxel
 
 SEVERITY = {"normal": 0, "watch": 1, "warning": 2, "critical": 3}
 
@@ -19,6 +20,7 @@ class TrendConfig:
     history_window_visits: int = 8
     min_trend_visits: int = 6
     minimum_positive_fraction: float = 1.0
+    minimum_step_c: float = 0.5
     noise_deadband_simulation_floor_c: float = 0.5
     fixed_slope_c_per_hour_enabled: bool = False
     trend_alone_can_trigger_critical: bool = False
@@ -32,6 +34,10 @@ class TrendConfig:
     adaptive_residual_c: float = 1.5
     noise_deadband_c: float = 0.2
 
+    default_adaptive_delta_c: float = 10.0
+    environment_reference_enabled: bool = True
+    minimum_environment_points: int = 40
+
     def validate(self) -> None:
         if self.history_window_visits < self.min_trend_visits:
             raise ValueError("history window must include minimum trend visits")
@@ -43,23 +49,31 @@ class TrendConfig:
             raise ValueError("critical Max persistence must require at least two visits")
         if self.min_hot_cluster_pixels < 1 or self.min_adjacent_hot_voxels < 1:
             raise ValueError("spatial confirmation counts must be positive")
+        if self.minimum_environment_points < 1:
+            raise ValueError(
+                "minimum environment reference points must be positive"
+            )
         for name in (
             "noise_deadband_simulation_floor_c",
             "minimum_rise_c",
             "minimum_slope_c_per_hour",
             "adaptive_residual_c",
+            "minimum_step_c",
             "noise_deadband_c",
+            "default_adaptive_delta_c",
         ):
             if getattr(self, name) < 0.0:
                 raise ValueError(f"{name} cannot be negative")
-
 
 def load_trend_config(path: str | Path) -> TrendConfig:
     document = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(document, Mapping):
         raise ValueError("thermal analysis config must be a JSON object")
     schema_version = int(document.get("schema_version", 1))
-    raw = document.get("history" if schema_version >= 2 else "trend", {})
+    if schema_version >= 3:
+        raw = document.get("decision", {})
+    else:
+        raw = document.get("history" if schema_version >= 2 else "trend", {})
     quality = document.get("quality", {})
     statistics = document.get("thermal_statistics", {})
     if not isinstance(raw, Mapping) or not isinstance(quality, Mapping):
@@ -69,8 +83,12 @@ def load_trend_config(path: str | Path) -> TrendConfig:
     defaults = TrendConfig(schema_version=schema_version)
     config = TrendConfig(
         history_window_visits=int(raw.get("history_window_visits", defaults.history_window_visits if schema_version >= 2 else 5)),
-        min_trend_visits=int(raw.get("min_trend_visits", defaults.min_trend_visits if schema_version >= 2 else 3)),
+        min_trend_visits=int(raw.get(
+            "trend_window_visits" if schema_version >= 3 else "min_trend_visits",
+            defaults.min_trend_visits if schema_version >= 2 else 3,
+        )),
         minimum_positive_fraction=float(raw.get("minimum_positive_fraction", defaults.minimum_positive_fraction if schema_version >= 2 else 0.67)),
+        minimum_step_c=float(raw.get("minimum_step_c", defaults.minimum_step_c)),
         noise_deadband_simulation_floor_c=float(quality.get("noise_deadband_simulation_floor_c", defaults.noise_deadband_simulation_floor_c)),
         fixed_slope_c_per_hour_enabled=bool(raw.get("fixed_slope_c_per_hour_enabled", schema_version < 2)),
         trend_alone_can_trigger_critical=bool(raw.get("trend_alone_can_trigger_critical", False)),
@@ -78,10 +96,17 @@ def load_trend_config(path: str | Path) -> TrendConfig:
         min_hot_cluster_pixels=int(statistics.get("min_hot_cluster_pixels", defaults.min_hot_cluster_pixels if schema_version >= 2 else 1)),
         min_adjacent_hot_voxels=int(statistics.get("min_adjacent_hot_voxels", defaults.min_adjacent_hot_voxels if schema_version >= 2 else 1)),
         schema_version=schema_version,
-        minimum_rise_c=float(raw.get("minimum_rise_c", defaults.minimum_rise_c)),
+        minimum_rise_c=float(raw.get("minimum_total_rise_c" if schema_version >= 3 else "minimum_rise_c", defaults.minimum_rise_c)),
         minimum_slope_c_per_hour=float(raw.get("minimum_slope_c_per_hour", defaults.minimum_slope_c_per_hour)),
         adaptive_residual_c=float(raw.get("adaptive_residual_c", defaults.adaptive_residual_c)),
         noise_deadband_c=float(raw.get("noise_deadband_c", defaults.noise_deadband_c)),
+        default_adaptive_delta_c=float(raw.get("default_adaptive_delta_c", defaults.default_adaptive_delta_c)),
+        environment_reference_enabled=bool(
+            raw.get("environment_reference_enabled", True)
+        ),
+        minimum_environment_points=int(
+            raw.get("minimum_environment_points", statistics.get("min_points_per_roi_for_p95", 40))
+        ),
     )
     config.validate()
     return config
@@ -115,6 +140,25 @@ def _levels(value: object) -> tuple[float | None, float | None, float | None]:
     if not isinstance(value, Mapping):
         return None, None, None
     return tuple(_number(value.get(name)) for name in ("watch", "warning", "critical"))  # type: ignore[return-value]
+
+
+def _environment_reference(
+    visit: Mapping[str, object], config: TrendConfig
+) -> float | None:
+    if not config.environment_reference_enabled:
+        return None
+    value = visit.get("ambient")
+    if not isinstance(value, Mapping):
+        return None
+    temperature = _number(value.get("median_temperature_c"))
+    point_count = _number(value.get("point_count"))
+    if (
+        temperature is None
+        or point_count is None
+        or point_count < config.minimum_environment_points
+    ):
+        return None
+    return temperature
 
 
 def _visit_time_hours(visit: Mapping[str, object]) -> tuple[float | None, str | None]:
@@ -346,16 +390,6 @@ def _immediate_decision(
     thresholds = equipment.get("thresholds")
     values = thresholds if isinstance(thresholds, Mapping) else {}
     candidates: list[tuple[str, str]] = []
-    threshold_mode = str(values.get("threshold_mode", "absolute"))
-    baseline_required = threshold_mode == "baseline_primary" and not simulated
-    baseline_ready = baseline is not None
-
-    # A production-only baseline policy cannot truthfully report NORMAL when
-    # commissioning data is missing.  Keep the patrol operational for other
-    # equipment, but surface this equipment as an explicit configuration
-    # watch instead of silently accepting any observed temperature.
-    if baseline_required and not baseline_ready:
-        candidates.append(("watch", "baseline_required_not_configured"))
 
     absolute = (
         _levels(values.get("simulation_fallback_temperature_c"))
@@ -375,7 +409,7 @@ def _immediate_decision(
     baseline_levels = _levels(values.get("baseline_delta_c"))
     baseline_status = _status_from_levels(baseline_delta, baseline_levels)
     baseline_reason = f"{baseline_status}_approved_baseline_delta"
-    if threshold_mode == "baseline_primary" and baseline_status in {"warning", "critical"}:
+    if values.get("threshold_mode") == "baseline_primary" and baseline_status in {"warning", "critical"}:
         prior_baseline_delta = None
         if history and equipment_baseline is not None:
             prior_equipment = _equipment_by_id(history[-1]).get(equipment_id)
@@ -486,10 +520,6 @@ def _immediate_decision(
         "reference_delta_c": round(reference_delta, 4) if reference_delta is not None else None,
         "air_delta_c": round(air_delta, 4) if air_delta is not None else None,
         "oil_temperature_c": oil_temperature,
-        "decision_ready": not baseline_required or baseline_ready,
-        "baseline_state": (
-            baseline.equipment.state if baseline is not None else "missing"
-        ),
     }
     return decision, hottest
 
@@ -517,14 +547,35 @@ def evaluate_visit(
     equipment_items = result.get("equipment", [])
     if not isinstance(equipment_items, list):
         equipment_items = []
+    prior_environments = [_environment_reference(item, config) for item in prior_visits]
 
+    current_environment = _environment_reference(result, config)
     for equipment in equipment_items:
         if not isinstance(equipment, dict):
             continue
         equipment_id = str(equipment.get("equipment_id", ""))
         baseline = baselines.get(equipment_id)
+        thresholds = equipment.get("thresholds")
+        threshold_values = (
+            thresholds if isinstance(thresholds, Mapping) else {}
+        )
+        critical_temperature = _number(
+            threshold_values.get("critical_temperature_c")
+        )
+        configured_adaptive_delta = _number(
+            threshold_values.get("adaptive_delta_c")
+        )
+        adaptive_delta = (
+            config.default_adaptive_delta_c
+            if configured_adaptive_delta is None
+            else configured_adaptive_delta
+        )
         historical = [
-            (_voxel_by_id(items[equipment_id]), *prior_times[index])
+            (
+                _voxel_by_id(items[equipment_id]),
+                *prior_times[index],
+                prior_environments[index],
+            )
             for index, items in enumerate(prior_equipment)
             if equipment_id in items
         ]
@@ -534,21 +585,56 @@ def evaluate_visit(
                 continue
             voxel_id = str(voxel.get("voxel_id", ""))
             priors = [
-                (items[voxel_id], timestamp, source)
-                for items, timestamp, source in historical
+                (
+                    items[voxel_id],
+                    timestamp,
+                    source,
+                    environment_reference,
+                )
+                for items, timestamp, source, environment_reference in (
+                    historical
+                )
                 if voxel_id in items
             ]
-            decision = _trend_decision(voxel, priors, current_time, current_time_source, config, baseline, simulated)
+            if config.schema_version >= 3:
+                decision = evaluate_simple_voxel(
+                    voxel,
+                    priors,
+                    current_time,
+                    current_time_source,
+                    current_environment,
+                    trend_window_visits=config.min_trend_visits,
+                    minimum_step_c=config.minimum_step_c,
+                    minimum_total_rise_c=config.minimum_rise_c,
+                    baseline=baseline,
+                    critical_temperature_c=critical_temperature,
+                    adaptive_delta_c=adaptive_delta,
+                    p95_valid=bool(equipment.get("p95_valid", True)),
+                )
+            else:
+                decision = _trend_decision(
+                    voxel,
+                    [
+                        (item, timestamp, source)
+                        for item, timestamp, source, _ in priors
+                    ],
+                    current_time,
+                    current_time_source,
+                    config,
+                    baseline,
+                    simulated,
+                )
             voxel["trend_analysis"] = decision
             statuses.append(str(decision["status"]))
 
-        immediate, hottest = _immediate_decision(equipment, prior_visits, config, baseline, sensor_values, simulated)
-        if hottest is not None and isinstance(hottest, dict):
-            existing = hottest.get("trend_analysis")
-            if not isinstance(existing, dict) or SEVERITY[immediate["status"]] >= SEVERITY[str(existing.get("status", "normal"))]:
-                merged = dict(existing) if isinstance(existing, dict) else {}
-                merged.update(immediate)
-                hottest["trend_analysis"] = merged
+        if config.schema_version < 3:
+            immediate, hottest = _immediate_decision(equipment, prior_visits, config, baseline, sensor_values, simulated)
+            if hottest is not None and isinstance(hottest, dict):
+                existing = hottest.get("trend_analysis")
+                if not isinstance(existing, dict) or SEVERITY[immediate["status"]] >= SEVERITY[str(existing.get("status", "normal"))]:
+                    merged = dict(existing) if isinstance(existing, dict) else {}
+                    merged.update(immediate)
+                    hottest["trend_analysis"] = merged
         statuses = [
             str(voxel.get("trend_analysis", {}).get("status", "normal"))
             for voxel in equipment.get("voxels", [])
@@ -560,9 +646,9 @@ def evaluate_visit(
         summaries.append({"equipment_id": equipment_id, "status": status, "voxel_counts": dict(equipment["trend_voxel_counts"])})
 
     result["trend_analysis"] = {
-        "schema_version": 2 if config.schema_version >= 2 else 1,
+        "schema_version": config.schema_version,
         "visit_index": _next_visit_index(history),
-        "decision_rule": "confirmed immediate thresholds OR baseline-qualified monotonic patrol trend",
+        "decision_rule": "Absolute Critical OR environment-compensated (Trend AND Adaptive); one signal means watch/recheck",
         "config": asdict(config),
         "equipment": summaries,
     }

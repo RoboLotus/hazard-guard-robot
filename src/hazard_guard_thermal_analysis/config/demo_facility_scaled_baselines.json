@@ -1,0 +1,46 @@
+{
+  "schema_version": 2,
+  "note": "Simulation-only provisional normal baselines. Environment deltas assume a 15 C reference surface and exercise all four synthetic hazards. Never copy these values to a real facility.",
+  "equipment": {
+    "bunker_waste_pile": {
+      "equipment": {
+        "temperature_c": 25.0,
+        "environment_delta_c": 10.0,
+        "sample_count": 10,
+        "state": "provisional",
+        "operating_state": "simulation_fixture"
+      },
+      "voxels": {}
+    },
+    "primary_shredder_motor": {
+      "equipment": {
+        "temperature_c": 60.0,
+        "environment_delta_c": 45.0,
+        "sample_count": 10,
+        "state": "provisional",
+        "operating_state": "simulation_fixture"
+      },
+      "voxels": {}
+    },
+    "secondary_processor_pump": {
+      "equipment": {
+        "temperature_c": 45.0,
+        "environment_delta_c": 30.0,
+        "sample_count": 10,
+        "state": "provisional",
+        "operating_state": "simulation_fixture"
+      },
+      "voxels": {}
+    },
+    "baler_hydraulic_tank": {
+      "equipment": {
+        "temperature_c": 35.0,
+        "environment_delta_c": 20.0,
+        "sample_count": 10,
+        "state": "provisional",
+        "operating_state": "simulation_fixture"
+      },
+      "voxels": {}
+    }
+  }
+}

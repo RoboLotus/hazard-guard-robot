@@ -150,19 +150,33 @@ def generate_launch_description() -> LaunchDescription:
                 "enable_thermal_pipeline", default_value="false"
             ),
             DeclareLaunchArgument("thermal_roi_config", default_value=""),
-            DeclareLaunchArgument("thermal_baseline_path", default_value=""),
+            DeclareLaunchArgument(
+                "thermal_baseline_path",
+                default_value=(
+                    "~/.local/share/hazard_guard/"
+                    "physical_thermal_baselines.json"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_baseline_collection_path",
+                default_value=(
+                    "~/.local/share/hazard_guard/"
+                    "physical_thermal_baseline_collection.json"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_baseline_minimum_valid_visits",
+                default_value="10",
+            ),
             DeclareLaunchArgument(
                 "thermal_history_path",
-                default_value="~/.local/share/hazard_guard/thermal_history.jsonl",
+                default_value="~/.local/share/hazard_guard/physical_thermal_history.jsonl",
             ),
             DeclareLaunchArgument(
                 "thermal_air_temperature_topic", default_value=""
             ),
             DeclareLaunchArgument(
                 "thermal_oil_temperature_topic", default_value=""
-            ),
-            DeclareLaunchArgument(
-                "thermal_sensor_timeout_sec", default_value="5.0"
             ),
             DeclareLaunchArgument(
                 "thermal_image_topic",
@@ -310,6 +324,12 @@ def generate_launch_description() -> LaunchDescription:
                     "baseline_path": LaunchConfiguration(
                         "thermal_baseline_path"
                     ),
+                    "baseline_collection_path": LaunchConfiguration(
+                        "thermal_baseline_collection_path"
+                    ),
+                    "baseline_minimum_valid_visits": LaunchConfiguration(
+                        "thermal_baseline_minimum_valid_visits"
+                    ),
                     "history_path": LaunchConfiguration(
                         "thermal_history_path"
                     ),
@@ -319,12 +339,6 @@ def generate_launch_description() -> LaunchDescription:
                     "oil_temperature_topic": LaunchConfiguration(
                         "thermal_oil_temperature_topic"
                     ),
-                    "sensor_timeout_sec": LaunchConfiguration(
-                        "thermal_sensor_timeout_sec"
-                    ),
-                    # PR #19 makes AMCL's saved map the authoritative global
-                    # frame for patrol and second-pass RGB-D collection.
-                    "required_frame_id": "map",
                     "thermal_image_topic": LaunchConfiguration(
                         "thermal_image_topic"
                     ),

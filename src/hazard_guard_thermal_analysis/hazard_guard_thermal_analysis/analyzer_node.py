@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 from pathlib import Path
 import time
 
@@ -17,6 +16,7 @@ from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformListener
 
 from .baseline import EquipmentBaseline, load_baselines
+from .baseline_builder import BaselineCollector
 from .cloud import iter_thermal_cloud
 from .projection import RigidTransform, ThermalPoint
 from .trend import SEVERITY, evaluate_visit, load_trend_config, read_history
@@ -31,21 +31,18 @@ class ThermalVoxelAnalyzer(Node):
         super().__init__("hazard_guard_thermal_voxel_analyzer")
         self.declare_parameter("roi_config", "")
         self.declare_parameter("baseline_path", "")
+        self.declare_parameter("baseline_collection_path", "")
+        self.declare_parameter("baseline_minimum_valid_visits", 10)
         self.declare_parameter("history_path", "")
         self.declare_parameter("air_temperature_topic", "")
         self.declare_parameter("oil_temperature_topic", "")
-        self.declare_parameter("sensor_timeout_sec", 5.0)
-        self.declare_parameter("required_frame_id", "")
         self.declare_parameter("publish_detections", True)
         self.declare_parameter("simulated", True)
         self._config: AnalysisConfig | None = None
         self._trend_config = None
         self._baselines: dict[str, EquipmentBaseline] = {}
+        self._baseline_collector: BaselineCollector | None = None
         self._sensor_values: dict[str, float | None] = {
-            "air_temperature_c": None,
-            "oil_temperature_c": None,
-        }
-        self._sensor_updated_ns: dict[str, int | None] = {
             "air_temperature_c": None,
             "oil_temperature_c": None,
         }
@@ -61,44 +58,84 @@ class ThermalVoxelAnalyzer(Node):
             try:
                 self._config = load_config(config_path)
                 self._trend_config = load_trend_config(config_path)
-                required_frame = str(
-                    self.get_parameter("required_frame_id").value
-                ).strip()
-                if required_frame and self._config.frame_id != required_frame:
-                    raise ValueError(
-                        "thermal ROI frame must be "
-                        f"{required_frame!r}, got {self._config.frame_id!r}"
-                    )
             except Exception as exc:
-                self._config = None
-                self._trend_config = None
                 self.get_logger().error(f"Could not load thermal ROI config {config_path!r}: {exc}")
         else:
             self.get_logger().warning("No ROI config supplied; point clouds will be ignored")
 
-        baseline_path = str(self.get_parameter("baseline_path").value).strip()
-        if baseline_path:
+        baseline_value = str(
+            self.get_parameter("baseline_path").value
+        ).strip()
+        baseline_path = (
+            Path(baseline_value).expanduser() if baseline_value else None
+        )
+        required_equipment = (
+            tuple(roi.roi_id for roi in self._config.equipment_rois)
+            if self._config is not None
+            else ()
+        )
+        if baseline_path is not None and baseline_path.exists():
             try:
-                self._baselines = load_baselines(baseline_path)
-                self.get_logger().info(f"Loaded approved baselines for {len(self._baselines)} equipment items")
+                loaded = load_baselines(baseline_path)
+                approved = all(
+                    equipment_id in loaded
+                    and loaded[equipment_id].equipment.state == "validated"
+                    for equipment_id in required_equipment
+                )
+                if approved:
+                    self._baselines = loaded
+                    self.get_logger().info(
+                        "Loaded approved baselines for "
+                        f"{len(self._baselines)} equipment items"
+                    )
+                else:
+                    self.get_logger().warning(
+                        "Thermal baseline is incomplete or not validated; "
+                        "collection remains active"
+                    )
             except Exception as exc:
                 self.get_logger().error(f"Could not load thermal baselines {baseline_path!r}: {exc}")
 
+        collection_value = str(
+            self.get_parameter("baseline_collection_path").value
+        ).strip()
         if (
-            self._config is not None
-            and not bool(self.get_parameter("simulated").value)
+            baseline_path is not None
+            and required_equipment
+            and not self._baselines
+            and self._trend_config is not None
         ):
-            required = {
-                roi.roi_id
-                for roi in self._config.equipment_rois
-                if roi.threshold_mode == "baseline_primary"
-            }
-            missing = sorted(required.difference(self._baselines))
-            if missing:
-                self.get_logger().warning(
-                    "Production baseline is missing for: "
-                    + ", ".join(missing)
-                    + "; those equipment decisions will remain WATCH"
+            collection_path = (
+                Path(collection_value).expanduser()
+                if collection_value
+                else baseline_path.with_name(
+                    baseline_path.name + ".collection"
+                )
+            )
+            try:
+                self._baseline_collector = BaselineCollector(
+                    collection_path,
+                    baseline_path,
+                    required_equipment,
+                    minimum_valid_visits=int(
+                        self.get_parameter(
+                            "baseline_minimum_valid_visits"
+                        ).value
+                    ),
+                    minimum_environment_points=(
+                        self._trend_config.minimum_environment_points
+                    ),
+                )
+                activation = self._activate_collected_baseline()
+                self.get_logger().info(
+                    activation
+                    if activation is not None
+                    else self._baseline_collector.progress_message()
+                )
+            except Exception as exc:
+                self.get_logger().error(
+                    "Could not initialize thermal baseline collection: "
+                    f"{exc}"
                 )
 
         history_path = str(self.get_parameter("history_path").value)
@@ -119,6 +156,21 @@ class ThermalVoxelAnalyzer(Node):
         self.create_subscription(String, "/hazard_guard/thermal/inspection_control", self._on_inspection_control, 10)
         self.create_service(Trigger, "/hazard_guard/thermal/start_visit", self._start_visit)
         self.create_service(Trigger, "/hazard_guard/thermal/record_visit", self._record_visit)
+        self.create_service(
+            Trigger,
+            "/hazard_guard/thermal/baseline_status",
+            self._baseline_status,
+        )
+        self.create_service(
+            Trigger,
+            "/hazard_guard/thermal/approve_baseline",
+            self._approve_baseline,
+        )
+        self.create_service(
+            Trigger,
+            "/hazard_guard/thermal/reset_baseline_collection",
+            self._reset_baseline_collection,
+        )
         air_topic = str(self.get_parameter("air_temperature_topic").value).strip()
         oil_topic = str(self.get_parameter("oil_temperature_topic").value).strip()
         if air_topic:
@@ -128,39 +180,10 @@ class ThermalVoxelAnalyzer(Node):
         self._history_timer = self.create_timer(1.0, self._publish_history_snapshot)
 
     def _on_air_temperature(self, message: Temperature) -> None:
-        self._store_sensor_value("air_temperature_c", message.temperature)
+        self._sensor_values["air_temperature_c"] = float(message.temperature)
 
     def _on_oil_temperature(self, message: Temperature) -> None:
-        self._store_sensor_value("oil_temperature_c", message.temperature)
-
-    def _store_sensor_value(self, name: str, value: float) -> None:
-        numeric = float(value)
-        if not math.isfinite(numeric):
-            self.get_logger().warning(
-                f"Ignored non-finite {name}", throttle_duration_sec=5.0
-            )
-            return
-        self._sensor_values[name] = numeric
-        self._sensor_updated_ns[name] = self.get_clock().now().nanoseconds
-
-    def _fresh_sensor_values(self) -> dict[str, float | None]:
-        timeout_sec = max(
-            0.0, float(self.get_parameter("sensor_timeout_sec").value)
-        )
-        timeout_ns = int(timeout_sec * 1_000_000_000)
-        now_ns = self.get_clock().now().nanoseconds
-        fresh: dict[str, float | None] = {}
-        for name, value in self._sensor_values.items():
-            updated_ns = self._sensor_updated_ns[name]
-            age_ns = now_ns - updated_ns if updated_ns is not None else None
-            fresh[name] = (
-                value
-                if value is not None
-                and age_ns is not None
-                and 0 <= age_ns <= timeout_ns
-                else None
-            )
-        return fresh
+        self._sensor_values["oil_temperature_c"] = float(message.temperature)
 
     def _publish_history_snapshot(self) -> None:
         """Restore the last patrol decisions in the Web UI after a restart."""
@@ -191,7 +214,7 @@ class ThermalVoxelAnalyzer(Node):
             self._history,
             self._trend_config,
             baselines=self._baselines,
-            sensor_values=self._fresh_sensor_values(),
+            sensor_values=self._sensor_values,
             simulated=bool(self.get_parameter("simulated").value),
         )
 
@@ -254,16 +277,8 @@ class ThermalVoxelAnalyzer(Node):
         action = str(command.get("action", ""))
         if action == "focus_equipment":
             equipment_id = str(command.get("equipment_id", "")).strip()
-            configured = {
-                roi.roi_id for roi in self._config.equipment_rois
-            } if self._config is not None else set()
-            if equipment_id and equipment_id in configured:
+            if equipment_id:
                 self._visit.focus(equipment_id)
-            elif equipment_id:
-                self._visit.focus(None)
-                self.get_logger().error(
-                    f"Ignored unknown thermal equipment_id {equipment_id!r}"
-                )
         elif action == "clear_focus":
             self._visit.focus(None)
 
@@ -313,6 +328,26 @@ class ThermalVoxelAnalyzer(Node):
         self._last_recorded_key = self._latest_key
         self._visit.active = False
         self._visit.focus_equipment_id = None
+        if self._baseline_collector is not None and not self._baselines:
+            try:
+                update = self._baseline_collector.observe(result)
+                activation = self._activate_collected_baseline()
+                if activation is not None:
+                    response.message += "; " + activation
+                    self.get_logger().info(activation)
+                elif (
+                    update.get("accepted")
+                    or update.get("paused")
+                    or update.get("resumed")
+                ):
+                    progress = self._baseline_collector.progress_message()
+                    response.message += "; " + progress
+                    self.get_logger().info(progress)
+            except (OSError, ValueError, KeyError) as exc:
+                self.get_logger().error(
+                    "Could not update thermal baseline collection: "
+                    f"{exc}"
+                )
         self._publish_json(self._trend_publisher, result)
         if bool(self.get_parameter("publish_detections").value):
             self._publish_detections(self._latest_header, result)
@@ -341,9 +376,105 @@ class ThermalVoxelAnalyzer(Node):
             self.get_logger().warning(f"Could not append thermal history: {exc}", throttle_duration_sec=10.0)
             return False, f"Could not append thermal history: {exc}"
 
+    def _activate_collected_baseline(self) -> str | None:
+        if (
+            self._baseline_collector is None
+            or self._baselines
+            or not self._baseline_collector.activate_if_ready()
+        ):
+            return None
+        self._baselines = load_baselines(
+            self._baseline_collector.baseline_path
+        )
+        return (
+            "Automatically activated thermal baselines for "
+            f"{len(self._baselines)} equipment items"
+        )
+
+    def _baseline_status(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ) -> Trigger.Response:
+        del request
+        response.success = True
+        if self._baselines:
+            response.message = (
+                "Validated thermal baseline is active for "
+                f"{len(self._baselines)} equipment items"
+            )
+        elif self._baseline_collector is not None:
+            response.message = self._baseline_collector.progress_message()
+        else:
+            response.success = False
+            response.message = (
+                "Thermal baseline collection is not configured"
+            )
+        return response
+
+    def _approve_baseline(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ) -> Trigger.Response:
+        del request
+        if self._baselines:
+            response.success = False
+            response.message = (
+                "A validated thermal baseline is already active"
+            )
+            return response
+        if self._baseline_collector is None:
+            response.success = False
+            response.message = (
+                "Thermal baseline collection is not configured"
+            )
+            return response
+        if not self._baseline_collector.ready:
+            response.success = False
+            response.message = self._baseline_collector.progress_message()
+            return response
+        try:
+            self._baseline_collector.approve()
+            self._baselines = load_baselines(
+                self._baseline_collector.baseline_path
+            )
+            response.success = True
+            response.message = (
+                "Approved and activated thermal baselines for "
+                f"{len(self._baselines)} equipment items"
+            )
+        except (OSError, ValueError, KeyError) as exc:
+            response.success = False
+            response.message = f"Could not approve thermal baseline: {exc}"
+        return response
+
+    def _reset_baseline_collection(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ) -> Trigger.Response:
+        del request
+        if self._baselines:
+            response.success = False
+            response.message = (
+                "Cannot reset while a validated baseline is active"
+            )
+        elif self._baseline_collector is None:
+            response.success = False
+            response.message = (
+                "Thermal baseline collection is not configured"
+            )
+        else:
+            self._baseline_collector.reset()
+            response.success = True
+            response.message = self._baseline_collector.progress_message()
+        return response
+
     def _publish_detections(self, header, result: dict[str, object]) -> None:
         if self._config is None:
             return
+
         for equipment in result.get("equipment", []):
             if not isinstance(equipment, dict):
                 continue
