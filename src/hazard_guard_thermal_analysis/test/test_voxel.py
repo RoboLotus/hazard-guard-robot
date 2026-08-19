@@ -109,6 +109,7 @@ def test_facility_schema3_loads_sourced_thresholds_and_simple_rule() -> None:
     assert pump.critical_temperature_c == 105.0
     assert tank.critical_temperature_c == 82.0
     assert {roi.adaptive_delta_c for roi in rois.values()} == {10.0}
+    assert all(roi.adaptive_threshold_enabled for roi in rois.values())
 
 
 def test_config_rejects_non_increasing_threshold_levels(tmp_path) -> None:
@@ -134,6 +135,7 @@ def test_web_equipment_settings_update_name_roi_and_thresholds() -> None:
                     "enabled": True,
                     "critical_temperature_c": 108.0,
                     "adaptive_delta_c": 8.0,
+                    "adaptive_threshold_enabled": False,
                     "roi": {
                         "min": [-1.2, 0.0, 0.02],
                         "max": [-0.8, 0.5, 0.42],
@@ -161,4 +163,5 @@ def test_web_equipment_settings_update_name_roi_and_thresholds() -> None:
     assert motor.minimum == (-1.2, 0.0, 0.02)
     assert motor.critical_temperature_c == 108.0
     assert motor.adaptive_delta_c == 8.0
+    assert motor.adaptive_threshold_enabled is False
     assert updated.min_points_per_roi_for_p95 == config.min_points_per_roi_for_p95

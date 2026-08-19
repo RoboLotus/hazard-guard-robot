@@ -13,7 +13,12 @@ def config() -> TrendConfig:
     )
 
 
-def visit(temperature_c: float, timestamp: float) -> dict:
+def visit(
+    temperature_c: float,
+    timestamp: float,
+    *,
+    adaptive_threshold_enabled: bool = True,
+) -> dict:
     voxel = {
         "voxel_id": "motor:0:0:0",
         "p95_temperature_c": temperature_c,
@@ -30,6 +35,7 @@ def visit(temperature_c: float, timestamp: float) -> dict:
                 "thresholds": {
                     "critical_temperature_c": 49.0,
                     "adaptive_delta_c": 10.0,
+                    "adaptive_threshold_enabled": adaptive_threshold_enabled,
                 },
                 "voxels": [voxel],
             }
@@ -200,4 +206,46 @@ def test_missing_baseline_reports_collection_pending() -> None:
     current = decision(evaluate_visit(visit(30.0, 0.0), [], config()))
     assert current["status"] == "normal"
     assert current["reason"] == "baseline_pending"
+    assert current["adaptive"] is False
+
+
+def test_disabling_adaptive_policy_keeps_only_fixed_critical_rule() -> None:
+    current = decision(
+        evaluate_visit(
+            visit(41.0, 0.0, adaptive_threshold_enabled=False),
+            [],
+            config(),
+            baselines=baseline(),
+        )
+    )
+    assert current["status"] == "normal"
+    assert current["reason"] == "adaptive_disabled"
+    assert current["adaptive"] is False
+    assert current["adaptive_candidate"] is True
+    assert current["policy_mode"] == "fixed_only"
+
+
+def test_disabling_adaptive_policy_does_not_disable_absolute_critical() -> None:
+    current = decision(
+        evaluate_visit(
+            visit(50.0, 0.0, adaptive_threshold_enabled=False),
+            [],
+            config(),
+            baselines=baseline(),
+        )
+    )
+    assert current["status"] == "critical"
+    assert current["critical"] is True
+
+
+def test_effective_threshold_tracks_environment_reference() -> None:
+    current = decision(
+        evaluate_visit(
+            environment_visit(74.0, 0.0, 30.0),
+            [],
+            config(),
+            baselines=baseline(60.0, environment_delta_c=35.0),
+        )
+    )
+    assert current["effective_adaptive_threshold_c"] == 75.0
     assert current["adaptive"] is False

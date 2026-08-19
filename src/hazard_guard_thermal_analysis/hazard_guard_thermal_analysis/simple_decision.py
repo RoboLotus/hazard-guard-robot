@@ -36,6 +36,7 @@ def evaluate_simple_voxel(
     baseline: EquipmentBaseline | None,
     critical_temperature_c: float | None,
     adaptive_delta_c: float,
+    adaptive_threshold_enabled: bool,
     p95_valid: bool,
 ) -> dict[str, object]:
     """Apply ``Critical OR (Trend AND Adaptive)`` to one Voxel.
@@ -127,11 +128,12 @@ def evaluate_simple_voxel(
         if adaptive_current is not None and adaptive_baseline is not None
         else None
     )
-    adaptive = (
+    adaptive_candidate = (
         p95_valid
         and residual is not None
         and residual >= adaptive_delta_c
     )
+    adaptive = adaptive_threshold_enabled and adaptive_candidate
     critical = (
         p95_valid
         and current_value is not None
@@ -147,6 +149,8 @@ def evaluate_simple_voxel(
         status, reason = "watch", "trend_only_recheck"
     elif adaptive:
         status, reason = "watch", "adaptive_only_recheck"
+    elif not adaptive_threshold_enabled:
+        status, reason = "normal", "adaptive_disabled"
     elif baseline_stats is None:
         status, reason = "normal", "baseline_pending"
     else:
@@ -160,6 +164,13 @@ def evaluate_simple_voxel(
         "critical_max": False,
         "trend": trend,
         "adaptive": adaptive,
+        "adaptive_candidate": adaptive_candidate,
+        "adaptive_threshold_enabled": adaptive_threshold_enabled,
+        "policy_mode": (
+            "adaptive_assisted"
+            if adaptive_threshold_enabled
+            else "fixed_only"
+        ),
         "signal": "voxel_p95_temperature",
         "trend_signal": (
             "p95_minus_environment_reference"
@@ -206,6 +217,23 @@ def evaluate_simple_voxel(
             round(residual, 4) if residual is not None else None
         ),
         "baseline_residual_threshold_c": adaptive_delta_c,
+        "effective_adaptive_threshold_c": (
+            round(
+                (
+                    current_environment_reference_c
+                    + baseline_stats.environment_delta_c
+                    + adaptive_delta_c
+                )
+                if adaptive_uses_environment
+                and baseline_stats is not None
+                and baseline_stats.environment_delta_c is not None
+                and current_environment_reference_c is not None
+                else baseline_stats.temperature_c + adaptive_delta_c,
+                4,
+            )
+            if baseline_stats is not None
+            else None
+        ),
         "baseline_state": (
             baseline_stats.state if baseline_stats is not None else "missing"
         ),

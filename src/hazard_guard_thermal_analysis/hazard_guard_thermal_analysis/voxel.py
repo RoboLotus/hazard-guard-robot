@@ -28,6 +28,7 @@ class AxisAlignedRoi:
     watch_temperature_c: float | None = None
     watch_delta_c: float | None = None
     adaptive_delta_c: float | None = None
+    adaptive_threshold_enabled: bool = True
     critical_delta_c: float | None = None
     trend: EquipmentTrendThresholds | None = None
     threshold_mode: str = "absolute"
@@ -91,6 +92,15 @@ def _optional_float(value: Mapping[str, object], name: str) -> float | None:
     if not math.isfinite(result) or result < 0.0:
         raise ValueError(f"{name} must be a non-negative finite number")
     return result
+
+
+def _optional_bool(
+    value: Mapping[str, object], name: str, *, default: bool
+) -> bool:
+    raw = value.get(name, default)
+    if not isinstance(raw, bool):
+        raise ValueError(f"{name} must be a boolean")
+    return raw
 
 
 def _levels(
@@ -172,6 +182,9 @@ def _parse_roi(value: object) -> AxisAlignedRoi:
         warning_temperature_c=warning_temperature,
         critical_temperature_c=critical_temperature,
         adaptive_delta_c=_optional_float(value, "adaptive_delta_c"),
+        adaptive_threshold_enabled=_optional_bool(
+            value, "adaptive_threshold_enabled", default=True
+        ),
         watch_delta_c=watch_delta,
         warning_delta_c=warning_delta,
         critical_delta_c=critical_delta,
@@ -298,6 +311,9 @@ def apply_equipment_settings(
             raise ValueError("each equipment ROI min value must be smaller than max")
         critical = _optional_float(raw, "critical_temperature_c")
         adaptive = _optional_float(raw, "adaptive_delta_c")
+        adaptive_enabled = _optional_bool(
+            raw, "adaptive_threshold_enabled", default=True
+        )
         if critical is None or adaptive is None:
             raise ValueError(f"equipment {equipment_id!r} needs both thresholds")
         base = existing.get(equipment_id)
@@ -309,6 +325,7 @@ def apply_equipment_settings(
                 display_name=display_name,
                 critical_temperature_c=critical,
                 adaptive_delta_c=adaptive,
+                adaptive_threshold_enabled=adaptive_enabled,
             )
         else:
             base = replace(
@@ -318,6 +335,7 @@ def apply_equipment_settings(
                 display_name=display_name,
                 critical_temperature_c=critical,
                 adaptive_delta_c=adaptive,
+                adaptive_threshold_enabled=adaptive_enabled,
             )
         configured.append(base)
     if not configured:
@@ -390,6 +408,7 @@ def _thresholds(roi: AxisAlignedRoi) -> dict[str, object]:
         "warning_temperature_c": roi.warning_temperature_c,
         "critical_temperature_c": roi.critical_temperature_c,
         "adaptive_delta_c": roi.adaptive_delta_c,
+        "adaptive_threshold_enabled": roi.adaptive_threshold_enabled,
         "watch_delta_c": roi.watch_delta_c,
         "warning_delta_c": roi.warning_delta_c,
         "critical_delta_c": roi.critical_delta_c,

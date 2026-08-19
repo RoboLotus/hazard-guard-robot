@@ -565,6 +565,11 @@ def evaluate_visit(
         configured_adaptive_delta = _number(
             threshold_values.get("adaptive_delta_c")
         )
+        adaptive_threshold_enabled = threshold_values.get(
+            "adaptive_threshold_enabled", True
+        )
+        if not isinstance(adaptive_threshold_enabled, bool):
+            adaptive_threshold_enabled = True
         adaptive_delta = (
             config.default_adaptive_delta_c
             if configured_adaptive_delta is None
@@ -609,6 +614,7 @@ def evaluate_visit(
                     baseline=baseline,
                     critical_temperature_c=critical_temperature,
                     adaptive_delta_c=adaptive_delta,
+                    adaptive_threshold_enabled=adaptive_threshold_enabled,
                     p95_valid=bool(equipment.get("p95_valid", True)),
                 )
             else:
@@ -648,7 +654,7 @@ def evaluate_visit(
     result["trend_analysis"] = {
         "schema_version": config.schema_version,
         "visit_index": _next_visit_index(history),
-        "decision_rule": "Absolute Critical OR environment-compensated (Trend AND Adaptive); one signal means watch/recheck",
+        "decision_rule": "Absolute Critical always; per-equipment adaptive mode adds environment-compensated Trend AND Adaptive; one signal means watch/recheck",
         "config": asdict(config),
         "equipment": summaries,
     }
