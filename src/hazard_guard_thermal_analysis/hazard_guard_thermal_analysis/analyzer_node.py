@@ -80,21 +80,22 @@ class ThermalVoxelAnalyzer(Node):
         if baseline_path is not None and baseline_path.exists():
             try:
                 loaded = load_baselines(baseline_path)
-                approved = all(
-                    equipment_id in loaded
-                    and loaded[equipment_id].equipment.state == "validated"
+                approved = {
+                    equipment_id: loaded[equipment_id]
                     for equipment_id in required_equipment
-                )
+                    if equipment_id in loaded
+                    and loaded[equipment_id].equipment.state == "validated"
+                }
                 if approved:
-                    self._baselines = loaded
+                    self._baselines = approved
                     self.get_logger().info(
                         "Loaded approved baselines for "
                         f"{len(self._baselines)} equipment items"
                     )
-                else:
+                if len(approved) < len(required_equipment):
                     self.get_logger().warning(
                         "Thermal baseline is incomplete or not validated; "
-                        "collection remains active"
+                        "collection remains active for missing equipment"
                     )
             except Exception as exc:
                 self.get_logger().error(f"Could not load thermal baselines {baseline_path!r}: {exc}")
@@ -105,7 +106,7 @@ class ThermalVoxelAnalyzer(Node):
         if (
             baseline_path is not None
             and required_equipment
-            and not self._baselines
+            and len(self._baselines) < len(required_equipment)
             and self._trend_config is not None
         ):
             self._baseline_collection_path = collection_path = (
@@ -217,6 +218,8 @@ class ThermalVoxelAnalyzer(Node):
         )
         equipment = []
         for roi in self._config.equipment_rois:
+            baseline = self._baselines.get(roi.roi_id)
+            latest_threshold = self._latest_effective_threshold(roi.roi_id)
             if roi.roi_id in self._baselines:
                 baseline_state = "active"
                 sample_count = target
@@ -236,12 +239,46 @@ class ThermalVoxelAnalyzer(Node):
                     "baseline_last_sample_unix_sec": latest_sample_times.get(
                         roi.roi_id
                     ),
+                    "baseline_temperature_c": (
+                        baseline.equipment.temperature_c
+                        if baseline is not None
+                        else None
+                    ),
+                    "baseline_environment_delta_c": (
+                        baseline.equipment.environment_delta_c
+                        if baseline is not None
+                        else None
+                    ),
+                    "effective_adaptive_threshold_c": latest_threshold,
                 }
             )
         payload: dict[str, object] = {"state": state, "equipment": equipment}
         if error:
             payload["error"] = error
         self._publish_json(self._equipment_config_status_publisher, payload)
+
+    def _latest_effective_threshold(
+        self, equipment_id: str
+    ) -> float | None:
+        if not isinstance(self._latest_result, dict):
+            return None
+        for equipment in self._latest_result.get("equipment", []):
+            if not isinstance(equipment, dict):
+                continue
+            if str(equipment.get("equipment_id", "")) != equipment_id:
+                continue
+            candidates = []
+            for voxel in equipment.get("voxels", []):
+                if not isinstance(voxel, dict):
+                    continue
+                decision = voxel.get("trend_analysis", {})
+                if not isinstance(decision, dict):
+                    continue
+                threshold = decision.get("effective_adaptive_threshold_c")
+                if isinstance(threshold, (int, float)):
+                    candidates.append(float(threshold))
+            return max(candidates) if candidates else None
+        return None
 
     def _on_equipment_config(self, message: String) -> None:
         try:
@@ -464,7 +501,7 @@ class ThermalVoxelAnalyzer(Node):
         self._last_recorded_key = self._latest_key
         self._visit.active = False
         self._visit.focus_equipment_id = None
-        if self._baseline_collector is not None and not self._baselines:
+        if self._baseline_collector is not None:
             try:
                 update = self._baseline_collector.observe(result)
                 activation = self._activate_collected_baseline()
@@ -515,18 +552,22 @@ class ThermalVoxelAnalyzer(Node):
             return False, f"Could not append thermal history: {exc}"
 
     def _activate_collected_baseline(self) -> str | None:
-        if (
-            self._baseline_collector is None
-            or self._baselines
-            or not self._baseline_collector.activate_if_ready()
-        ):
+        if self._baseline_collector is None:
+            return None
+        previous = set(self._baselines)
+        ready = set(self._baseline_collector.ready_equipment_ids)
+        if ready.issubset(previous):
+            return None
+        activated = self._baseline_collector.activate_ready_equipment()
+        new_equipment = sorted(set(activated) - previous)
+        if not new_equipment:
             return None
         self._baselines = load_baselines(
             self._baseline_collector.baseline_path
         )
         return (
-            "Automatically activated thermal baselines for "
-            f"{len(self._baselines)} equipment items"
+            "Automatically activated thermal baseline for "
+            + ", ".join(new_equipment)
         )
 
     def _baseline_status(
@@ -537,10 +578,20 @@ class ThermalVoxelAnalyzer(Node):
         del request
         response.success = True
         if self._baselines:
+            active = len(self._baselines)
+            total = (
+                len(self._config.equipment_rois)
+                if self._config is not None
+                else active
+            )
             response.message = (
                 "Validated thermal baseline is active for "
-                f"{len(self._baselines)} equipment items"
+                f"{active}/{total} equipment items"
             )
+            if active < total and self._baseline_collector is not None:
+                response.message += (
+                    "; " + self._baseline_collector.progress_message()
+                )
         elif self._baseline_collector is not None:
             response.message = self._baseline_collector.progress_message()
         else:
@@ -556,7 +607,12 @@ class ThermalVoxelAnalyzer(Node):
         response: Trigger.Response,
     ) -> Trigger.Response:
         del request
-        if self._baselines:
+        required = (
+            {roi.roi_id for roi in self._config.equipment_rois}
+            if self._config is not None
+            else set()
+        )
+        if required and required.issubset(self._baselines):
             response.success = False
             response.message = (
                 "A validated thermal baseline is already active"

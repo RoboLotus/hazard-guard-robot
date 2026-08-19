@@ -202,6 +202,18 @@ class BaselineCollector:
             for equipment_id, count in self.counts().items()
         )
 
+    @property
+    def ready_equipment_ids(self) -> tuple[str, ...]:
+        counts = self.counts()
+        return tuple(
+            equipment_id
+            for equipment_id in self.equipment_ids
+            if counts[equipment_id] >= self.minimum_valid_visits
+            and not bool(
+                self._equipment.get(equipment_id, {}).get("paused", False)
+            )
+        )
+
     def recovery_status(self) -> dict[str, dict[str, object]]:
         return {
             equipment_id: {
@@ -540,11 +552,17 @@ class BaselineCollector:
             "operating_state": "normal_load",
         }
 
-    def baseline_document(self, state: str = "validated") -> dict[str, object]:
-        if not self.ready:
-            raise ValueError("baseline collection is not ready")
+    def baseline_document(
+        self,
+        state: str = "validated",
+        equipment_ids: Sequence[str] | None = None,
+    ) -> dict[str, object]:
+        selected = tuple(equipment_ids or self.equipment_ids)
+        ready = set(self.ready_equipment_ids)
+        if not selected or any(item not in ready for item in selected):
+            raise ValueError("selected baseline collection is not ready")
         equipment: dict[str, object] = {}
-        for equipment_id in self.equipment_ids:
+        for equipment_id in selected:
             entry = self._equipment[equipment_id]
             samples = entry["samples"]
             raw_voxels = entry.get("voxels", {})
@@ -568,6 +586,35 @@ class BaselineCollector:
             self.baseline_path,
             self.baseline_document(state="validated"),
         )
+
+    def activate_ready_equipment(self) -> tuple[str, ...]:
+        """Persist individually ready baselines without dropping prior ones."""
+
+        ready = self.ready_equipment_ids
+        if not ready:
+            return ()
+        document = self.baseline_document(
+            state="validated", equipment_ids=ready
+        )
+        merged: dict[str, object] = {}
+        if self.baseline_path.exists():
+            existing = json.loads(
+                self.baseline_path.read_text(encoding="utf-8")
+            )
+            if isinstance(existing, Mapping):
+                equipment = existing.get("equipment", {})
+                if isinstance(equipment, Mapping):
+                    merged.update(
+                        {
+                            str(equipment_id): value
+                            for equipment_id, value in equipment.items()
+                            if str(equipment_id) in self.equipment_ids
+                        }
+                    )
+        merged.update(document["equipment"])
+        document["equipment"] = merged
+        _atomic_json(self.baseline_path, document)
+        return ready
 
     def activate_if_ready(self) -> bool:
         if not self.ready:

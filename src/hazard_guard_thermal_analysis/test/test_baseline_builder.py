@@ -245,3 +245,33 @@ def test_reset_removes_persistent_collection(tmp_path) -> None:
     current.reset()
     assert current.counts() == {"motor": 0}
     assert not (tmp_path / "collection.json").exists()
+
+
+def test_ready_equipment_activates_without_waiting_for_every_equipment(
+    tmp_path,
+) -> None:
+    current = BaselineCollector(
+        tmp_path / "collection.json",
+        tmp_path / "baselines.json",
+        ("motor", "pump"),
+        minimum_valid_visits=2,
+        minimum_environment_points=40,
+    )
+    current.observe(completed_visit(30.0, equipment_id="motor"))
+    current.observe(completed_visit(30.1, equipment_id="motor"))
+
+    assert current.ready is False
+    assert current.ready_equipment_ids == ("motor",)
+    assert current.activate_ready_equipment() == ("motor",)
+    first = json.loads(
+        (tmp_path / "baselines.json").read_text(encoding="utf-8")
+    )
+    assert set(first["equipment"]) == {"motor"}
+
+    current.observe(completed_visit(40.0, equipment_id="pump"))
+    current.observe(completed_visit(40.1, equipment_id="pump"))
+    assert current.activate_ready_equipment() == ("motor", "pump")
+    completed = json.loads(
+        (tmp_path / "baselines.json").read_text(encoding="utf-8")
+    )
+    assert set(completed["equipment"]) == {"motor", "pump"}
