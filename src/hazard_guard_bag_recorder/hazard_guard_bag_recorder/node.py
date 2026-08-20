@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 import time
 
 from ament_index_python.packages import get_package_share_directory
@@ -45,6 +46,9 @@ class BagSessionManager(Node):
         self._finalized = True
         self._active_profile: str | None = None
         self._last_manifest: dict | None = None
+        self._storage_root = Path(
+            str(self.get_parameter("storage_root").value)
+        ).expanduser().resolve()
         self._metrics = DriveMetrics()
         self.create_subscription(Odometry, "/odom", self._on_odometry, 20)
         self.create_subscription(String, "/hazard_guard/mission/status", self._on_mission_status, 10)
@@ -105,7 +109,7 @@ class BagSessionManager(Node):
             preflight = run_preflight(
                 profile,
                 self._available_topic_names(),
-                Path(str(self.get_parameter("storage_root").value)),
+                self._storage_root,
                 minimum_free_bytes=minimum_free_bytes,
                 allow_experimental=effective_experimental,
             )
@@ -114,7 +118,7 @@ class BagSessionManager(Node):
             self._metrics = DriveMetrics()
             self._session = BagSession(
                 create_session_paths(
-                    Path(str(self.get_parameter("storage_root").value)),
+                    self._storage_root,
                     session_name,
                 ),
                 profile.name,
@@ -224,26 +228,63 @@ class BagSessionManager(Node):
         return payload
 
     def _recent_sessions(self) -> list[dict]:
-        root = Path(str(self.get_parameter("storage_root").value)).expanduser()
+        root = self._storage_root
         sessions = []
+        candidates = []
         try:
-            manifests = sorted(root.glob("*/session.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+            with os.scandir(root) as entries:
+                for entry in entries:
+                    if len(candidates) >= 200:
+                        break
+                    if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
+                        continue
+                    manifest_path = Path(entry.path) / "session.json"
+                    try:
+                        details = manifest_path.lstat()
+                        resolved = manifest_path.resolve(strict=True)
+                        if manifest_path.is_symlink() or root not in resolved.parents:
+                            continue
+                        if details.st_size > 1_000_000:
+                            continue
+                        candidates.append((details.st_mtime, manifest_path, entry.name))
+                    except OSError:
+                        continue
         except OSError:
             return sessions
-        for manifest_path in manifests[:50]:
+        for _modified, manifest_path, directory_name in sorted(candidates, reverse=True)[:50]:
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
                 if not isinstance(manifest, dict):
                     continue
+                summary = manifest.get("bag_summary", {})
+                if not isinstance(summary, dict):
+                    summary = {}
+                topic_metrics = summary.get("topic_metrics", [])
+                if not isinstance(topic_metrics, list):
+                    topic_metrics = []
+                normalized_metrics = []
+                for item in topic_metrics[:50]:
+                    if not isinstance(item, dict):
+                        continue
+                    normalized_metrics.append({
+                        "name": str(item.get("name", ""))[:160],
+                        "type": str(item.get("type", ""))[:160],
+                        "messages": int(item.get("messages", 0) or 0),
+                        "duration_seconds": float(item.get("duration_seconds", 0) or 0),
+                        "average_rate_hz": item.get("average_rate_hz"),
+                    })
                 sessions.append({
-                    "session_id": str(manifest.get("session_directory", manifest_path.parent.name)),
+                    "session_id": directory_name,
                     "profile": str(manifest.get("profile", "unknown")),
                     "status": str(manifest.get("status", "unknown")),
                     "started_at": manifest.get("started_at"),
                     "duration_seconds": manifest.get("duration_seconds", 0.0),
                     "bag_size_bytes": manifest.get("bag_size_bytes", 0),
                     "end_reason": manifest.get("end_reason"),
-                    "bag_summary": manifest.get("bag_summary", {}),
+                    "bag_summary": {
+                        "storage_summary": str(summary.get("storage_summary", ""))[:160],
+                        "topic_metrics": normalized_metrics,
+                    },
                 })
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
