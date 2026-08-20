@@ -82,7 +82,17 @@ class BagSessionManager(Node):
         self._metrics.latest_mission_status = message.data[:512]
 
     def _available_topic_names(self) -> set[str]:
-        return {name for name, _types in self.get_topic_names_and_types()}
+        available = set()
+        for name, _types in self.get_topic_names_and_types():
+            try:
+                # Topic graph names also include subscription-only endpoints.
+                # A recorder subscription must not make a missing sensor look
+                # available, so require at least one discovered publisher.
+                if self.get_publishers_info_by_topic(name):
+                    available.add(name)
+            except (RuntimeError, ValueError):
+                continue
+        return available
 
     def _start_session(
         self,
@@ -206,6 +216,10 @@ class BagSessionManager(Node):
 
     def _on_tick(self) -> None:
         if self._session is None or self._finalized:
+            # The WebUI bridge can start after this node. A periodic idle
+            # heartbeat prevents a volatile startup sample from leaving the
+            # console in a permanent offline state.
+            self.publish_status(self.status_payload()["state"])
             return
         if not self._session.is_running():
             self._stop_session("recorder-exited")
@@ -213,6 +227,8 @@ class BagSessionManager(Node):
         limit = self._session.enforce_limits()
         if limit is not None:
             self._stop_session(limit)
+            return
+        self.publish_status("recording")
 
     def publish_status(self, state: str) -> None:
         # Keep the original compact status topic stable for CLI users.
