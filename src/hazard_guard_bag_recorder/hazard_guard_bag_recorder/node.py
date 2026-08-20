@@ -46,6 +46,7 @@ class BagSessionManager(Node):
         self._finalized = True
         self._active_profile: str | None = None
         self._last_manifest: dict | None = None
+        self._web_control_enabled = False
         self._storage_root = Path(
             str(self.get_parameter("storage_root").value)
         ).expanduser().resolve()
@@ -167,7 +168,20 @@ class BagSessionManager(Node):
         self, request: BagRecorderControl.Request, response: BagRecorderControl.Response
     ) -> BagRecorderControl.Response:
         command = request.command.strip().lower()
-        if command == "start":
+        if command == "enable":
+            self._web_control_enabled = True
+            response.accepted, response.message = True, "web recording control enabled"
+        elif command == "disable":
+            if self._session is not None and self._session.is_running():
+                response.accepted, response.message = False, "stop the active ROS Bag session first"
+            else:
+                self._web_control_enabled = False
+                response.accepted, response.message = True, "web recording control disabled"
+        elif command == "start":
+            if not self._web_control_enabled:
+                response.accepted, response.message = False, "ROS Bag recording control is OFF"
+                response.status_json = json.dumps(self.status_payload(), ensure_ascii=False)
+                return response
             response.accepted, response.message = self._start_session(
                 profile_name=request.profile.strip() or None,
                 session_name=request.session_name.strip() or None,
@@ -213,6 +227,7 @@ class BagSessionManager(Node):
             "recording": active,
             "profile": self._active_profile or (self._last_manifest or {}).get("profile"),
             "control_enabled": bool(self.get_parameter("enable_control_services").value),
+            "recording_control_enabled": self._web_control_enabled,
             "updated_at_unix": round(time.time(), 3),
         }
         if self._session is not None:
