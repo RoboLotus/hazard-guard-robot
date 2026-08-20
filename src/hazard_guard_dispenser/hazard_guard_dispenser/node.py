@@ -24,11 +24,20 @@ import uuid
 import re
 
 import rclpy
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from std_msgs.msg import String
 
-from .request_ledger import RequestLedger, RequestLedgerError
-from .command_policy import allow_legacy_drop, allow_maintenance_command
+from .request_ledger import (
+    IdempotencyConflictError,
+    RequestLedger,
+    RequestLedgerError,
+)
+from .command_policy import (
+    allow_legacy_drop,
+    allow_maintenance_command,
+    physical_drop_block_reason,
+)
 
 
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
@@ -81,6 +90,14 @@ class DispenserNode(Node):
         )
         self.declare_parameter("allow_legacy_unkeyed_commands", False)
         self.declare_parameter("allow_maintenance_manual_commands", False)
+        self.declare_parameter("enable_physical_drop", False)
+        self.declare_parameter("home_on_startup", False)
+        self.declare_parameter("home_on_shutdown", False)
+        self.declare_parameter("odom_topic", "/odom")
+        self.declare_parameter("odom_timeout_sec", 0.75)
+        self.declare_parameter("stop_linear_mps", 0.02)
+        self.declare_parameter("stop_angular_rps", 0.05)
+        self.declare_parameter("stop_hold_sec", 0.5)
 
         self.servo_id = self._p("servo_id")
 
@@ -88,6 +105,9 @@ class DispenserNode(Node):
         self.lock = threading.Lock()
         self.current_angle = self._p("angle_home")
         self.drop_count = 0
+        self._motion_lock = threading.Lock()
+        self._last_odom_monotonic = None
+        self._stopped_since_monotonic = None
         self.request_ledger = None
         try:
             self.request_ledger = RequestLedger(self._p("request_ledger_path"))
@@ -95,8 +115,17 @@ class DispenserNode(Node):
             # No durable record means the node cannot prove a retry is safe.
             self.get_logger().error(f"요청 원장 초기화 실패. 배출 차단: {exc}")
 
-        self.bot = Rosmaster()
-        if not HARDWARE_AVAILABLE:
+        self.bot = None
+        self.hardware_ready = False
+        if HARDWARE_AVAILABLE:
+            try:
+                self.bot = Rosmaster()
+                self.hardware_ready = True
+            except Exception as exc:
+                self.get_logger().error(
+                    f"Rosmaster 하드웨어 초기화 실패. 배출 차단: {exc}"
+                )
+        else:
             self.get_logger().warn(
                 "Rosmaster_Lib 없음. 시뮬레이션 모드. 서보는 안 움직입니다")
 
@@ -131,8 +160,15 @@ class DispenserNode(Node):
             self.get_logger().error("DispenserRequestStatus 인터페이스가 없어 결과 조회 서비스를 비활성화합니다")
         self.create_subscription(
             String, "hazard_guard/dispenser/command", self.on_command, 10)
+        self.create_subscription(
+            Odometry,
+            self._p("odom_topic"),
+            self._on_odom,
+            10,
+        )
 
-        self._go_to(self._p("angle_home"), smooth=False)
+        if self._p("home_on_startup") and self.hardware_ready:
+            self._go_to(self._p("angle_home"), smooth=False)
         self.get_logger().info(
             f"디스펜서 준비 완료. 서보 S{self.servo_id}, "
             f"home={self._p('angle_home')} dump={self._p('angle_dump')}")
@@ -203,6 +239,43 @@ class DispenserNode(Node):
     def _on_cube_off(self, address, code):
         self.get_logger().info(f"큐브 소등 확인: {address}")
 
+    def _on_odom(self, message):
+        now = time.monotonic()
+        linear = message.twist.twist.linear
+        angular = message.twist.twist.angular
+        linear_speed = (
+            float(linear.x) ** 2
+            + float(linear.y) ** 2
+            + float(linear.z) ** 2
+        ) ** 0.5
+        angular_speed = (
+            float(angular.x) ** 2
+            + float(angular.y) ** 2
+            + float(angular.z) ** 2
+        ) ** 0.5
+        stopped = (
+            linear_speed <= float(self._p("stop_linear_mps"))
+            and angular_speed <= float(self._p("stop_angular_rps"))
+        )
+        with self._motion_lock:
+            self._last_odom_monotonic = now
+            if stopped:
+                if self._stopped_since_monotonic is None:
+                    self._stopped_since_monotonic = now
+            else:
+                self._stopped_since_monotonic = None
+
+    def _motion_is_stably_stopped(self):
+        now = time.monotonic()
+        with self._motion_lock:
+            last_odom = self._last_odom_monotonic
+            stopped_since = self._stopped_since_monotonic
+        if last_odom is None or stopped_since is None:
+            return False
+        if now - last_odom > float(self._p("odom_timeout_sec")):
+            return False
+        return now - stopped_since >= float(self._p("stop_hold_sec"))
+
     # ---------------- 배출 ----------------
     def _request_drop(self, request_id, detection_id):
         with self.lock:
@@ -221,6 +294,17 @@ class DispenserNode(Node):
                     request_id=request_id,
                     detection_id=detection_id,
                 )
+            except IdempotencyConflictError as exc:
+                self.get_logger().error(f"멱등성 키 충돌. 배출 차단: {exc}")
+                self._publish_result(
+                    {
+                        "request_id": request_id,
+                        "detection_id": detection_id,
+                        "state": "idempotency_conflict",
+                        "result_detail": str(exc),
+                    }
+                )
+                return
             except RequestLedgerError as exc:
                 self.get_logger().error(f"요청 원장 기록 실패. 배출 차단: {exc}")
                 self._publish_result(
@@ -235,6 +319,25 @@ class DispenserNode(Node):
             if not created:
                 self._publish_result({**record, "duplicate": True})
                 return
+            block_reason = physical_drop_block_reason(
+                enabled=bool(self._p("enable_physical_drop")),
+                hardware_available=self.hardware_ready,
+                motion_stopped=self._motion_is_stably_stopped(),
+            )
+            if block_reason is not None:
+                state = (
+                    "hardware_unavailable"
+                    if block_reason == "hardware_unavailable"
+                    else "safety_interlock"
+                )
+                record = self.request_ledger.transition(
+                    request_id,
+                    state,
+                    result_detail=block_reason,
+                    actuation_started=False,
+                )
+                self._publish_result(record)
+                return
             if self.busy:
                 record = self.request_ledger.transition(
                     request_id, "rejected_busy", result_detail="another_request_active"
@@ -248,6 +351,7 @@ class DispenserNode(Node):
 
     def _do_drop(self, request_id):
         final_record = None
+        actuation_started = False
         try:
             self._publish_status()
             self.get_logger().info("배출 시작")
@@ -257,14 +361,40 @@ class DispenserNode(Node):
             if self.cube_link:
                 self.get_logger().info("  0) 큐브에 ARM 발송")
                 armed = self.cube_link.arm_all(repeat=self._p("arm_repeat"))
-                if armed == 0:
-                    self.get_logger().error(
-                        "     ARM 미전달. 배출은 진행하지만 "
-                        "경광등이 안 켜질 수 있음")
-                time.sleep(self._p("arm_lead_time"))
+            block_reason = physical_drop_block_reason(
+                enabled=True,
+                hardware_available=self.hardware_ready,
+                motion_stopped=self._motion_is_stably_stopped(),
+                armed_count=armed,
+            )
+            if block_reason is not None:
+                state = (
+                    "rejected_no_confirmation"
+                    if block_reason == "no_ble_confirmation_channel"
+                    else "safety_interlock"
+                )
+                self.get_logger().error(f"     안전 조건 미충족: {block_reason}")
+                final_record = self.request_ledger.transition(
+                    request_id,
+                    state,
+                    result_detail=block_reason,
+                    connected_cubes=(
+                        self.cube_link.connected_count() if self.cube_link else 0
+                    ),
+                    actuation_started=False,
+                )
+                self._publish(state)
+                if self.cube_link:
+                    self.cube_link.cancel_all()
+                return
+            time.sleep(self._p("arm_lead_time"))
 
             # 1) 기울임
             self.get_logger().info("  1) 챔버 기울임")
+            actuation_started = True
+            self.request_ledger.transition(
+                request_id, "dispensing", actuation_started=True
+            )
             self._go_to(self._p("angle_dump"))
 
             # 2) 낙하 보고 대기
@@ -292,22 +422,36 @@ class DispenserNode(Node):
             self.drop_count += 1
             self.get_logger().info(f"배출 완료. 누적 {self.drop_count}회")
 
-            if self.cube_link and armed > 0:
-                outcome = "succeeded" if dropped_by else "jam_suspected"
-                detail = "ble_drop_confirmed" if dropped_by else "drop_report_missing"
-            else:
-                outcome = "command_completed_unverified"
-                detail = "servo_cycle_finished_without_ble_confirmation"
+            outcome = "succeeded" if dropped_by else "jam_suspected"
+            detail = "ble_drop_confirmed" if dropped_by else "drop_report_missing"
             final_record = self.request_ledger.transition(
-                request_id, outcome, result_detail=detail, dropped_by=dropped_by
+                request_id,
+                outcome,
+                result_detail=detail,
+                dropped_by=dropped_by,
+                actuation_started=True,
+                home_recovered=True,
             )
             self._publish("dropped" if outcome == "succeeded" else outcome)
 
         except Exception as e:
             self.get_logger().error(f"배출 중 오류: {e}")
+            home_recovered = False
+            if actuation_started and self.hardware_ready:
+                try:
+                    self._go_to(self._p("angle_home"), smooth=False)
+                    home_recovered = True
+                except Exception as home_error:
+                    self.get_logger().error(
+                        f"오류 후 home 복귀 실패: {home_error}"
+                    )
             try:
                 final_record = self.request_ledger.transition(
-                    request_id, "hardware_error", result_detail=str(e)
+                    request_id,
+                    "jam_suspected" if actuation_started else "hardware_error",
+                    result_detail=str(e),
+                    actuation_started=actuation_started,
+                    home_recovered=home_recovered,
                 )
             except RequestLedgerError:
                 pass
@@ -321,6 +465,8 @@ class DispenserNode(Node):
 
     # ---------------- 서보 ----------------
     def _go_to(self, target, smooth=True):
+        if not self.hardware_ready or self.bot is None:
+            raise RuntimeError("Rosmaster 하드웨어가 준비되지 않았습니다")
         target = max(0, min(180, int(target)))
 
         if not smooth:
@@ -376,10 +522,11 @@ class DispenserNode(Node):
         return response
 
     def shutdown(self):
-        try:
-            self._go_to(self._p("angle_home"), smooth=False)
-        except Exception:
-            pass
+        if self._p("home_on_shutdown") and self.hardware_ready:
+            try:
+                self._go_to(self._p("angle_home"), smooth=False)
+            except Exception:
+                pass
         try:
             if self.cube_link:
                 self.cube_link.stop()

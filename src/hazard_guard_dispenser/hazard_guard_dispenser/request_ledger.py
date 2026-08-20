@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -13,6 +14,7 @@ from typing import Any
 TERMINAL_STATES = frozenset({
     "succeeded", "jam_suspected", "hardware_error", "canceled",
     "rejected_busy", "recovery_required", "command_completed_unverified",
+    "hardware_unavailable", "rejected_no_confirmation", "safety_interlock",
 })
 IN_PROGRESS_STATES = frozenset({"accepted", "dispensing", "waiting", "homing"})
 _PROGRESS_ORDER = {"accepted": 0, "dispensing": 1, "waiting": 2, "homing": 3}
@@ -22,8 +24,21 @@ class RequestLedgerError(RuntimeError):
     """Raised when durable idempotency state cannot be safely maintained."""
 
 
+class IdempotencyConflictError(RequestLedgerError):
+    """Raised when an idempotency key is reused for a different operation."""
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def request_fingerprint(command: str, detection_id: str | None) -> str:
+    canonical = json.dumps(
+        {"command": command, "detection_id": detection_id},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class RequestLedger:
@@ -97,15 +112,63 @@ class RequestLedger:
     def claim(self, *, request_id: str, detection_id: str | None, command: str = "drop") -> tuple[dict[str, Any], bool]:
         with self._lock, self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute(
+            request_row = connection.execute(
                 "SELECT record_json FROM dispenser_requests WHERE request_id = ?", (request_id,)
             ).fetchone()
-            if row is None and detection_id:
-                row = connection.execute(
+            detection_row = None
+            if detection_id:
+                detection_row = connection.execute(
                     "SELECT record_json FROM dispenser_requests WHERE detection_id = ?", (detection_id,)
                 ).fetchone()
-            existing = self._row_record(row)
+            by_request = self._row_record(request_row)
+            by_detection = self._row_record(detection_row)
+            if (
+                by_request is not None
+                and by_detection is not None
+                and by_request["request_id"] != by_detection["request_id"]
+            ):
+                connection.rollback()
+                raise IdempotencyConflictError(
+                    "request_id와 detection_id가 서로 다른 기존 요청을 가리킵니다"
+                )
+            existing = by_request or by_detection
             if existing is not None:
+                expected = request_fingerprint(command, detection_id)
+                actual = existing.get("request_fingerprint") or request_fingerprint(
+                    existing["command"], existing.get("detection_id")
+                )
+                if by_request is not None and actual != expected:
+                    connection.rollback()
+                    raise IdempotencyConflictError(
+                        "request_id가 다른 배출 요청 내용으로 재사용되었습니다"
+                    )
+                if existing["command"] != command:
+                    connection.rollback()
+                    raise IdempotencyConflictError(
+                        "detection_id가 다른 명령으로 재사용되었습니다"
+                    )
+                if existing["state"] in {
+                    "rejected_busy",
+                    "hardware_unavailable",
+                    "rejected_no_confirmation",
+                    "safety_interlock",
+                }:
+                    existing.update(
+                        state="accepted",
+                        updated_at=_now(),
+                        result_detail="safe_retry_before_actuation",
+                    )
+                    connection.execute(
+                        "UPDATE dispenser_requests SET state=?, record_json=?, updated_at=? WHERE request_id=?",
+                        (
+                            existing["state"],
+                            self._encode(existing),
+                            existing["updated_at"],
+                            existing["request_id"],
+                        ),
+                    )
+                    connection.commit()
+                    return existing, True
                 connection.commit()
                 return existing, False
             timestamp = _now()
@@ -113,6 +176,7 @@ class RequestLedger:
                 "request_id": request_id,
                 "detection_id": detection_id,
                 "command": command,
+                "request_fingerprint": request_fingerprint(command, detection_id),
                 "state": "accepted",
                 "created_at": timestamp,
                 "updated_at": timestamp,

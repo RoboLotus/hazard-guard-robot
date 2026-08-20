@@ -3,7 +3,11 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from hazard_guard_dispenser.request_ledger import RequestLedger, RequestLedgerError
+from hazard_guard_dispenser.request_ledger import (
+    IdempotencyConflictError,
+    RequestLedger,
+    RequestLedgerError,
+)
 
 
 class RequestLedgerTest(unittest.TestCase):
@@ -34,6 +38,27 @@ class RequestLedgerTest(unittest.TestCase):
 
         self.assertFalse(created)
         self.assertEqual(record["request_id"], "req-1")
+
+    def test_request_id_reuse_with_different_detection_is_rejected(self):
+        ledger = RequestLedger(self.path)
+        ledger.claim(request_id="req-1", detection_id="thermal-1")
+
+        with self.assertRaises(IdempotencyConflictError):
+            ledger.claim(request_id="req-1", detection_id="thermal-2")
+
+    def test_busy_request_can_retry_once_without_reusing_actuation(self):
+        ledger = RequestLedger(self.path)
+        ledger.claim(request_id="req-1", detection_id="thermal-1")
+        ledger.transition(
+            "req-1", "rejected_busy", actuation_started=False
+        )
+
+        record, created = ledger.claim(
+            request_id="req-1", detection_id="thermal-1"
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(record["state"], "accepted")
 
     def test_restart_restores_terminal_result_without_replaying(self):
         first = RequestLedger(self.path)
