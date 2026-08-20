@@ -224,17 +224,26 @@ class BagSessionManager(Node):
                 else float((self._last_manifest or {}).get("duration_seconds", 0.0))
             )
         if include_sessions:
-            payload["sessions"] = self._recent_sessions()
+            sessions, truncated = self._recent_sessions()
+            payload["sessions"] = sessions
+            payload["sessions_truncated"] = truncated
         return payload
 
-    def _recent_sessions(self) -> list[dict]:
+    def _recent_sessions(self) -> tuple[list[dict], bool]:
         root = self._storage_root
         sessions = []
         candidates = []
+        scanned = 0
+        truncated = False
         try:
             with os.scandir(root) as entries:
                 for entry in entries:
+                    scanned += 1
+                    if scanned > 400:
+                        truncated = True
+                        break
                     if len(candidates) >= 200:
+                        truncated = True
                         break
                     if entry.is_symlink() or not entry.is_dir(follow_symlinks=False):
                         continue
@@ -250,7 +259,7 @@ class BagSessionManager(Node):
                     except OSError:
                         continue
         except OSError:
-            return sessions
+            return sessions, truncated
         for _modified, manifest_path, directory_name in sorted(candidates, reverse=True)[:50]:
             try:
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -288,7 +297,7 @@ class BagSessionManager(Node):
                 })
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
-        return sessions
+        return sessions, truncated
 
     def destroy_node(self) -> bool:
         if self._session is not None and not self._finalized:
