@@ -173,9 +173,13 @@ class BagSessionManager(Node):
             response.accepted, response.message = self._stop_session("operator-stop")
         elif command == "status":
             response.accepted, response.message = True, "status"
+        elif command == "list":
+            response.accepted, response.message = True, "sessions"
         else:
             response.accepted, response.message = False, "unsupported bag recorder command"
-        response.status_json = json.dumps(self.status_payload(), ensure_ascii=False)
+        response.status_json = json.dumps(
+            self.status_payload(include_sessions=command == "list"), ensure_ascii=False
+        )
         return response
 
     def _on_tick(self) -> None:
@@ -195,7 +199,7 @@ class BagSessionManager(Node):
             String(data=json.dumps(self.status_payload(state), ensure_ascii=False))
         )
 
-    def status_payload(self, state: str | None = None) -> dict:
+    def status_payload(self, state: str | None = None, *, include_sessions: bool = False) -> dict:
         active = self._session is not None and self._session.is_running() and not self._finalized
         current_state = state or (
             "recording" if active else str((self._last_manifest or {}).get("status", "idle"))
@@ -215,7 +219,35 @@ class BagSessionManager(Node):
                 if active and self._session._started_monotonic is not None
                 else float((self._last_manifest or {}).get("duration_seconds", 0.0))
             )
+        if include_sessions:
+            payload["sessions"] = self._recent_sessions()
         return payload
+
+    def _recent_sessions(self) -> list[dict]:
+        root = Path(str(self.get_parameter("storage_root").value)).expanduser()
+        sessions = []
+        try:
+            manifests = sorted(root.glob("*/session.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+        except OSError:
+            return sessions
+        for manifest_path in manifests[:50]:
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if not isinstance(manifest, dict):
+                    continue
+                sessions.append({
+                    "session_id": str(manifest.get("session_directory", manifest_path.parent.name)),
+                    "profile": str(manifest.get("profile", "unknown")),
+                    "status": str(manifest.get("status", "unknown")),
+                    "started_at": manifest.get("started_at"),
+                    "duration_seconds": manifest.get("duration_seconds", 0.0),
+                    "bag_size_bytes": manifest.get("bag_size_bytes", 0),
+                    "end_reason": manifest.get("end_reason"),
+                    "bag_summary": manifest.get("bag_summary", {}),
+                })
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
+        return sessions
 
     def destroy_node(self) -> bool:
         if self._session is not None and not self._finalized:

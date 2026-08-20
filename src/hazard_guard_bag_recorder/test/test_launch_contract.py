@@ -14,3 +14,4 @@ def test_recorder_exposes_web_control_contract():
     assert "status_json" in source
     assert '"/hazard_guard/bag/status_json"' in source
     assert "effective_experimental" in source
+    assert 'command == "list"' in source
