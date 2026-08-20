@@ -15,6 +15,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PersonSafetyState.msg"
   "msg/RobotTelemetry.msg"
   "srv/RobotCommand.srv"
+  "srv/BagRecorderControl.srv"
+  "srv/DispenserRequestStatus.srv"
   DEPENDENCIES builtin_interfaces std_msgs
 )
 
