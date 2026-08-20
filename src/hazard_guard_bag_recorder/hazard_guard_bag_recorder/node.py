@@ -44,6 +44,7 @@ class BagSessionManager(Node):
         self._session: BagSession | None = None
         self._finalized = True
         self._active_profile: str | None = None
+        self._last_manifest: dict | None = None
         self._metrics = DriveMetrics()
         self.create_subscription(Odometry, "/odom", self._on_odometry, 20)
         self.create_subscription(String, "/hazard_guard/mission/status", self._on_mission_status, 10)
@@ -58,6 +59,9 @@ class BagSessionManager(Node):
         else:
             self.get_logger().info("manual ROS Bag control services are disabled")
         self._status_publisher = self.create_publisher(String, "/hazard_guard/bag/status", 10)
+        self._status_json_publisher = self.create_publisher(
+            String, "/hazard_guard/bag/status_json", 10
+        )
         self.create_timer(1.0, self._on_tick)
         self.publish_status("idle")
         if bool(self.get_parameter("auto_start").value):
@@ -87,6 +91,10 @@ class BagSessionManager(Node):
         try:
             profile_name = profile_name or str(self.get_parameter("profile").value)
             session_name = session_name or str(self.get_parameter("session_name").value)
+            effective_experimental = (
+                bool(self.get_parameter("allow_experimental").value)
+                and (True if allow_experimental is None else bool(allow_experimental))
+            )
             max_duration_seconds = float(self.get_parameter("max_duration_seconds").value)
             max_size_bytes = int(float(self.get_parameter("max_size_gb").value) * 1024**3)
             profile = resolve_profile(
@@ -99,10 +107,7 @@ class BagSessionManager(Node):
                 self._available_topic_names(),
                 Path(str(self.get_parameter("storage_root").value)),
                 minimum_free_bytes=minimum_free_bytes,
-                allow_experimental=(
-                    bool(self.get_parameter("allow_experimental").value)
-                    if allow_experimental is None else allow_experimental
-                ),
+                allow_experimental=effective_experimental,
             )
             if not preflight.can_start:
                 return False, f"required topics missing: {', '.join(preflight.missing_required)}"
@@ -139,7 +144,7 @@ class BagSessionManager(Node):
                 if self._session.storage_id == "sqlite3"
                 else {"storage_summary": "mcap summary is not available in v1", "topic_metrics": []},
             }
-            self._session.update_final_metadata(**metadata)
+            self._last_manifest = self._session.update_final_metadata(**metadata)
         except SessionError as exc:
             return False, str(exc)
         self._finalized = True
@@ -184,26 +189,32 @@ class BagSessionManager(Node):
             self._stop_session(limit)
 
     def publish_status(self, state: str) -> None:
-        self._status_publisher.publish(
+        # Keep the original compact status topic stable for CLI users.
+        self._status_publisher.publish(String(data=state))
+        self._status_json_publisher.publish(
             String(data=json.dumps(self.status_payload(state), ensure_ascii=False))
         )
 
     def status_payload(self, state: str | None = None) -> dict:
         active = self._session is not None and self._session.is_running() and not self._finalized
-        current_state = state or ("recording" if active else "idle")
+        current_state = state or (
+            "recording" if active else str((self._last_manifest or {}).get("status", "idle"))
+        )
         payload = {
             "state": current_state,
             "recording": active,
-            "profile": self._active_profile,
+            "profile": self._active_profile or (self._last_manifest or {}).get("profile"),
             "control_enabled": bool(self.get_parameter("enable_control_services").value),
             "updated_at_unix": round(time.time(), 3),
         }
         if self._session is not None:
             payload["session_id"] = self._session.paths.session_dir.name
             payload["storage_id"] = self._session.storage_id
-            payload["elapsed_seconds"] = round(
-                time.monotonic() - self._session._started_monotonic, 1
-            ) if self._session._started_monotonic is not None else 0.0
+            payload["elapsed_seconds"] = (
+                round(time.monotonic() - self._session._started_monotonic, 1)
+                if active and self._session._started_monotonic is not None
+                else float((self._last_manifest or {}).get("duration_seconds", 0.0))
+            )
         return payload
 
     def destroy_node(self) -> bool:

@@ -12,3 +12,5 @@ def test_recorder_exposes_web_control_contract():
     source = (Path(__file__).resolve().parent.parent / "hazard_guard_bag_recorder" / "node.py").read_text(encoding="utf-8")
     assert '"/hazard_guard/bag/control"' in source
     assert "status_json" in source
+    assert '"/hazard_guard/bag/status_json"' in source
+    assert "effective_experimental" in source
