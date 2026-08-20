@@ -21,12 +21,16 @@ import os
 import threading
 import time
 import uuid
+import re
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
 from .request_ledger import RequestLedger, RequestLedgerError
+
+
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
 
 try:
     from .cube_ble import CubeLink
@@ -71,9 +75,10 @@ class DispenserNode(Node):
             "request_ledger_path",
             os.getenv(
                 "HAZARD_GUARD_DISPENSER_LEDGER_PATH",
-                "~/.local/state/hazard_guard/dispenser/requests.json",
+                "~/.local/state/hazard_guard/dispenser/requests.sqlite3",
             ),
         )
+        self.declare_parameter("allow_legacy_unkeyed_commands", False)
 
         self.servo_id = self._p("servo_id")
 
@@ -111,6 +116,17 @@ class DispenserNode(Node):
             String, "hazard_guard/dispenser/status", 10)
         self.result_pub = self.create_publisher(
             String, "hazard_guard/dispenser/result", 10)
+        try:
+            from hazard_guard_interfaces.srv import DispenserRequestStatus
+
+            self._request_status_service = self.create_service(
+                DispenserRequestStatus,
+                "hazard_guard/dispenser/request_status",
+                self._on_request_status,
+            )
+        except ImportError:
+            self._request_status_service = None
+            self.get_logger().error("DispenserRequestStatus 인터페이스가 없어 결과 조회 서비스를 비활성화합니다")
         self.create_subscription(
             String, "hazard_guard/dispenser/command", self.on_command, 10)
 
@@ -139,8 +155,11 @@ class DispenserNode(Node):
             request_id = str(payload.get("request_id", "")).strip()
             detection_id = payload.get("detection_id")
             detection_id = str(detection_id).strip() if detection_id else None
-            if not request_id:
-                self.get_logger().warn("request_id 없는 배출 요청을 거부했습니다")
+            if not REQUEST_ID_PATTERN.fullmatch(request_id):
+                self.get_logger().warn("유효하지 않은 request_id 배출 요청을 거부했습니다")
+                return
+            if detection_id is not None and not REQUEST_ID_PATTERN.fullmatch(detection_id):
+                self.get_logger().warn("유효하지 않은 detection_id 배출 요청을 거부했습니다")
                 return
             self._request_drop(request_id, detection_id)
             return
@@ -148,9 +167,10 @@ class DispenserNode(Node):
         cmd = raw.lower()
 
         if cmd == "drop":
-            # Existing terminal commands remain usable for bench testing, but
-            # production callers must provide a replay-safe JSON request_id.
-            self.get_logger().warn("legacy drop 명령: 멱등 키가 없는 개발용 호출")
+            if not self._p("allow_legacy_unkeyed_commands"):
+                self.get_logger().warn("멱등 키 없는 legacy drop 명령을 거부했습니다")
+                return
+            self.get_logger().warn("legacy drop 명령: 개발 전용 멱등성 우회")
             self._request_drop(f"legacy-{uuid.uuid4()}", None)
         elif cmd == "home":
             self._go_to(self._p("angle_home"))
@@ -322,6 +342,26 @@ class DispenserNode(Node):
         message = String()
         message.data = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
         self.result_pub.publish(message)
+
+    def _on_request_status(self, request, response):
+        request_id = str(request.request_id).strip()
+        if self.request_ledger is None or not REQUEST_ID_PATTERN.fullmatch(request_id):
+            response.found = False
+            response.record_json = ""
+            return response
+        try:
+            record = self.request_ledger.get(request_id)
+        except RequestLedgerError as exc:
+            self.get_logger().error(f"요청 원장 조회 실패: {exc}")
+            response.found = False
+            response.record_json = ""
+            return response
+        response.found = record is not None
+        response.record_json = (
+            json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+            if record is not None else ""
+        )
+        return response
 
     def shutdown(self):
         try:

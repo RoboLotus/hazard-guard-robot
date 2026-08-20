@@ -1,8 +1,9 @@
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from hazard_guard_dispenser.request_ledger import RequestLedger
+from hazard_guard_dispenser.request_ledger import RequestLedger, RequestLedgerError
 
 
 class RequestLedgerTest(unittest.TestCase):
@@ -56,3 +57,23 @@ class RequestLedgerTest(unittest.TestCase):
 
         self.assertFalse(created)
         self.assertEqual(record["state"], "recovery_required")
+
+    def test_corrupt_sqlite_ledger_blocks_a_physical_request(self):
+        self.path.write_text("not a sqlite database", encoding="utf-8")
+
+        with self.assertRaises(RequestLedgerError):
+            RequestLedger(self.path)
+
+    def test_two_node_connections_claim_only_once(self):
+        first = RequestLedger(self.path)
+        second = RequestLedger(self.path)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(
+                executor.map(
+                    lambda ledger: ledger.claim(
+                        request_id="req-1", detection_id="thermal-1"
+                    ),
+                    (first, second),
+                )
+            )
+        self.assertEqual(sum(created for _, created in results), 1)
