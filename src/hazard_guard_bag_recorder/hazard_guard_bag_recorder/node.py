@@ -157,6 +157,10 @@ class BagSessionManager(Node):
         return True, f"saved: {self._session.paths.session_dir}"
 
     def _on_start(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        if not self._web_control_enabled:
+            response.success = False
+            response.message = "ROS Bag recording control is OFF"
+            return response
         response.success, response.message = self._start_session()
         return response
 
