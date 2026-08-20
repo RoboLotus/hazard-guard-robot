@@ -28,6 +28,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 from .request_ledger import RequestLedger, RequestLedgerError
+from .command_policy import allow_legacy_drop, allow_maintenance_command
 
 
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
@@ -79,6 +80,7 @@ class DispenserNode(Node):
             ),
         )
         self.declare_parameter("allow_legacy_unkeyed_commands", False)
+        self.declare_parameter("allow_maintenance_manual_commands", False)
 
         self.servo_id = self._p("servo_id")
 
@@ -167,17 +169,27 @@ class DispenserNode(Node):
         cmd = raw.lower()
 
         if cmd == "drop":
-            if not self._p("allow_legacy_unkeyed_commands"):
+            if not allow_legacy_drop(self._p("allow_legacy_unkeyed_commands")):
                 self.get_logger().warn("멱등 키 없는 legacy drop 명령을 거부했습니다")
                 return
             self.get_logger().warn("legacy drop 명령: 개발 전용 멱등성 우회")
             self._request_drop(f"legacy-{uuid.uuid4()}", None)
         elif cmd == "home":
+            if not allow_maintenance_command(
+                cmd, self._p("allow_maintenance_manual_commands")
+            ):
+                self.get_logger().warn("운영 모드에서는 home 정비 명령을 거부했습니다")
+                return
             self._go_to(self._p("angle_home"))
             self.get_logger().info("챔버 대기 위치로 복귀")
         elif cmd == "status":
             self._publish_status()
         elif cmd.startswith("angle:"):
+            if not allow_maintenance_command(
+                cmd, self._p("allow_maintenance_manual_commands")
+            ):
+                self.get_logger().warn("운영 모드에서는 angle 정비 명령을 거부했습니다")
+                return
             try:
                 angle = int(cmd.split(":", 1)[1])
             except ValueError:
