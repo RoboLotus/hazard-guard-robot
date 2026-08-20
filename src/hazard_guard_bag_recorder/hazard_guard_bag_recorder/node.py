@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import time
 
 from ament_index_python.packages import get_package_share_directory
 from nav_msgs.msg import Odometry
@@ -10,6 +12,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+from hazard_guard_interfaces.srv import BagRecorderControl
 
 from .metrics import DriveMetrics
 from .preflight import PreflightError, run_preflight
@@ -40,12 +43,18 @@ class BagSessionManager(Node):
 
         self._session: BagSession | None = None
         self._finalized = True
+        self._active_profile: str | None = None
         self._metrics = DriveMetrics()
         self.create_subscription(Odometry, "/odom", self._on_odometry, 20)
         self.create_subscription(String, "/hazard_guard/mission/status", self._on_mission_status, 10)
         if bool(self.get_parameter("enable_control_services").value):
             self.create_service(Trigger, "/hazard_guard/bag/start", self._on_start)
             self.create_service(Trigger, "/hazard_guard/bag/stop", self._on_stop)
+            self.create_service(
+                BagRecorderControl,
+                "/hazard_guard/bag/control",
+                self._on_control,
+            )
         else:
             self.get_logger().info("manual ROS Bag control services are disabled")
         self._status_publisher = self.create_publisher(String, "/hazard_guard/bag/status", 10)
@@ -66,11 +75,18 @@ class BagSessionManager(Node):
     def _available_topic_names(self) -> set[str]:
         return {name for name, _types in self.get_topic_names_and_types()}
 
-    def _start_session(self) -> tuple[bool, str]:
+    def _start_session(
+        self,
+        *,
+        profile_name: str | None = None,
+        session_name: str | None = None,
+        allow_experimental: bool | None = None,
+    ) -> tuple[bool, str]:
         if self._session is not None and self._session.is_running():
             return False, "ROS Bag session is already recording"
         try:
-            profile_name = str(self.get_parameter("profile").value)
+            profile_name = profile_name or str(self.get_parameter("profile").value)
+            session_name = session_name or str(self.get_parameter("session_name").value)
             max_duration_seconds = float(self.get_parameter("max_duration_seconds").value)
             max_size_bytes = int(float(self.get_parameter("max_size_gb").value) * 1024**3)
             profile = resolve_profile(
@@ -83,7 +99,10 @@ class BagSessionManager(Node):
                 self._available_topic_names(),
                 Path(str(self.get_parameter("storage_root").value)),
                 minimum_free_bytes=minimum_free_bytes,
-                allow_experimental=bool(self.get_parameter("allow_experimental").value),
+                allow_experimental=(
+                    bool(self.get_parameter("allow_experimental").value)
+                    if allow_experimental is None else allow_experimental
+                ),
             )
             if not preflight.can_start:
                 return False, f"required topics missing: {', '.join(preflight.missing_required)}"
@@ -91,7 +110,7 @@ class BagSessionManager(Node):
             self._session = BagSession(
                 create_session_paths(
                     Path(str(self.get_parameter("storage_root").value)),
-                    str(self.get_parameter("session_name").value),
+                    session_name,
                 ),
                 profile.name,
                 preflight,
@@ -105,6 +124,7 @@ class BagSessionManager(Node):
             self.get_logger().error(str(exc))
             return False, str(exc)
         self._finalized = False
+        self._active_profile = profile.name
         self.publish_status("recording")
         return True, f"recording: {self._session.paths.session_dir}"
 
@@ -134,6 +154,25 @@ class BagSessionManager(Node):
         response.success, response.message = self._stop_session("operator-stop")
         return response
 
+    def _on_control(
+        self, request: BagRecorderControl.Request, response: BagRecorderControl.Response
+    ) -> BagRecorderControl.Response:
+        command = request.command.strip().lower()
+        if command == "start":
+            response.accepted, response.message = self._start_session(
+                profile_name=request.profile.strip() or None,
+                session_name=request.session_name.strip() or None,
+                allow_experimental=bool(request.allow_experimental),
+            )
+        elif command == "stop":
+            response.accepted, response.message = self._stop_session("operator-stop")
+        elif command == "status":
+            response.accepted, response.message = True, "status"
+        else:
+            response.accepted, response.message = False, "unsupported bag recorder command"
+        response.status_json = json.dumps(self.status_payload(), ensure_ascii=False)
+        return response
+
     def _on_tick(self) -> None:
         if self._session is None or self._finalized:
             return
@@ -145,7 +184,27 @@ class BagSessionManager(Node):
             self._stop_session(limit)
 
     def publish_status(self, state: str) -> None:
-        self._status_publisher.publish(String(data=state))
+        self._status_publisher.publish(
+            String(data=json.dumps(self.status_payload(state), ensure_ascii=False))
+        )
+
+    def status_payload(self, state: str | None = None) -> dict:
+        active = self._session is not None and self._session.is_running() and not self._finalized
+        current_state = state or ("recording" if active else "idle")
+        payload = {
+            "state": current_state,
+            "recording": active,
+            "profile": self._active_profile,
+            "control_enabled": bool(self.get_parameter("enable_control_services").value),
+            "updated_at_unix": round(time.time(), 3),
+        }
+        if self._session is not None:
+            payload["session_id"] = self._session.paths.session_dir.name
+            payload["storage_id"] = self._session.storage_id
+            payload["elapsed_seconds"] = round(
+                time.monotonic() - self._session._started_monotonic, 1
+            ) if self._session._started_monotonic is not None else 0.0
+        return payload
 
     def destroy_node(self) -> bool:
         if self._session is not None and not self._finalized:
