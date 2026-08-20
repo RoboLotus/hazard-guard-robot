@@ -16,12 +16,17 @@ Jetson ─BLE─ 비콘 큐브 ×N
         ready / busy / dropped / jam_suspected / error:...
 """
 
+import json
+import os
 import threading
 import time
+import uuid
 
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
+
+from .request_ledger import RequestLedger, RequestLedgerError
 
 try:
     from .cube_ble import CubeLink
@@ -62,6 +67,13 @@ class DispenserNode(Node):
         self.declare_parameter("arm_lead_time", 0.3)
         self.declare_parameter("arm_repeat", 2)
         self.declare_parameter("drop_report_timeout", 2.5)
+        self.declare_parameter(
+            "request_ledger_path",
+            os.getenv(
+                "HAZARD_GUARD_DISPENSER_LEDGER_PATH",
+                "~/.local/state/hazard_guard/dispenser/requests.json",
+            ),
+        )
 
         self.servo_id = self._p("servo_id")
 
@@ -69,6 +81,12 @@ class DispenserNode(Node):
         self.lock = threading.Lock()
         self.current_angle = self._p("angle_home")
         self.drop_count = 0
+        self.request_ledger = None
+        try:
+            self.request_ledger = RequestLedger(self._p("request_ledger_path"))
+        except RequestLedgerError as exc:
+            # No durable record means the node cannot prove a retry is safe.
+            self.get_logger().error(f"요청 원장 초기화 실패. 배출 차단: {exc}")
 
         self.bot = Rosmaster()
         if not HARDWARE_AVAILABLE:
@@ -91,6 +109,8 @@ class DispenserNode(Node):
 
         self.pub = self.create_publisher(
             String, "hazard_guard/dispenser/status", 10)
+        self.result_pub = self.create_publisher(
+            String, "hazard_guard/dispenser/result", 10)
         self.create_subscription(
             String, "hazard_guard/dispenser/command", self.on_command, 10)
 
@@ -105,10 +125,33 @@ class DispenserNode(Node):
 
     # ---------------- 명령 ----------------
     def on_command(self, msg):
-        cmd = msg.data.strip().lower()
+        raw = msg.data.strip()
+        try:
+            payload = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = None
+
+        if isinstance(payload, dict):
+            command = str(payload.get("command", "")).strip().lower()
+            if command != "drop":
+                self.get_logger().warn("JSON 명령은 drop만 지원합니다")
+                return
+            request_id = str(payload.get("request_id", "")).strip()
+            detection_id = payload.get("detection_id")
+            detection_id = str(detection_id).strip() if detection_id else None
+            if not request_id:
+                self.get_logger().warn("request_id 없는 배출 요청을 거부했습니다")
+                return
+            self._request_drop(request_id, detection_id)
+            return
+
+        cmd = raw.lower()
 
         if cmd == "drop":
-            self._request_drop()
+            # Existing terminal commands remain usable for bench testing, but
+            # production callers must provide a replay-safe JSON request_id.
+            self.get_logger().warn("legacy drop 명령: 멱등 키가 없는 개발용 호출")
+            self._request_drop(f"legacy-{uuid.uuid4()}", None)
         elif cmd == "home":
             self._go_to(self._p("angle_home"))
             self.get_logger().info("챔버 대기 위치로 복귀")
@@ -129,15 +172,50 @@ class DispenserNode(Node):
         self.get_logger().info(f"큐브 소등 확인: {address}")
 
     # ---------------- 배출 ----------------
-    def _request_drop(self):
+    def _request_drop(self, request_id, detection_id):
         with self.lock:
+            if self.request_ledger is None:
+                self._publish_result(
+                    {
+                        "request_id": request_id,
+                        "detection_id": detection_id,
+                        "state": "hardware_error",
+                        "result_detail": "request_ledger_unavailable",
+                    }
+                )
+                return
+            try:
+                record, created = self.request_ledger.claim(
+                    request_id=request_id,
+                    detection_id=detection_id,
+                )
+            except RequestLedgerError as exc:
+                self.get_logger().error(f"요청 원장 기록 실패. 배출 차단: {exc}")
+                self._publish_result(
+                    {
+                        "request_id": request_id,
+                        "detection_id": detection_id,
+                        "state": "hardware_error",
+                        "result_detail": "request_ledger_write_failed",
+                    }
+                )
+                return
+            if not created:
+                self._publish_result({**record, "duplicate": True})
+                return
             if self.busy:
-                self.get_logger().warn("이미 배출 중. 이번 요청 무시")
+                record = self.request_ledger.transition(
+                    request_id, "rejected_busy", result_detail="another_request_active"
+                )
+                self._publish_result(record)
                 return
             self.busy = True
-        threading.Thread(target=self._do_drop, daemon=True).start()
+            record = self.request_ledger.transition(request_id, "dispensing")
+        self._publish_result(record)
+        threading.Thread(target=self._do_drop, args=(request_id,), daemon=True).start()
 
-    def _do_drop(self):
+    def _do_drop(self, request_id):
+        final_record = None
         try:
             self._publish_status()
             self.get_logger().info("배출 시작")
@@ -161,6 +239,7 @@ class DispenserNode(Node):
             dropped_by = None
             if self.cube_link and armed > 0:
                 self.get_logger().info("  2) 낙하 보고 대기")
+                self.request_ledger.transition(request_id, "waiting")
                 dropped_by = self.cube_link.wait_for_drop(
                     timeout=self._p("drop_report_timeout"))
                 if dropped_by:
@@ -174,6 +253,7 @@ class DispenserNode(Node):
 
             # 3) 복귀
             self.get_logger().info("  3) 챔버 복귀")
+            self.request_ledger.transition(request_id, "homing")
             self._go_to(self._p("angle_home"))
             time.sleep(self._p("home_hold"))
 
@@ -181,14 +261,30 @@ class DispenserNode(Node):
             self.get_logger().info(f"배출 완료. 누적 {self.drop_count}회")
 
             if self.cube_link and armed > 0:
-                self._publish("dropped" if dropped_by else "jam_suspected")
+                outcome = "succeeded" if dropped_by else "jam_suspected"
+                detail = "ble_drop_confirmed" if dropped_by else "drop_report_missing"
+            else:
+                outcome = "command_completed_unverified"
+                detail = "servo_cycle_finished_without_ble_confirmation"
+            final_record = self.request_ledger.transition(
+                request_id, outcome, result_detail=detail, dropped_by=dropped_by
+            )
+            self._publish("dropped" if outcome == "succeeded" else outcome)
 
         except Exception as e:
             self.get_logger().error(f"배출 중 오류: {e}")
+            try:
+                final_record = self.request_ledger.transition(
+                    request_id, "hardware_error", result_detail=str(e)
+                )
+            except RequestLedgerError:
+                pass
             self._publish(f"error:{e}")
         finally:
             with self.lock:
                 self.busy = False
+            if final_record is not None:
+                self._publish_result(final_record)
             self._publish_status()
 
     # ---------------- 서보 ----------------
@@ -221,6 +317,11 @@ class DispenserNode(Node):
         msg = String()
         msg.data = text
         self.pub.publish(msg)
+
+    def _publish_result(self, record):
+        message = String()
+        message.data = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+        self.result_pub.publish(message)
 
     def shutdown(self):
         try:
