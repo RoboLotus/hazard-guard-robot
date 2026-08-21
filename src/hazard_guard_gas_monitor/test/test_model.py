@@ -22,6 +22,10 @@ def test_timeline_enters_voc_before_heating_and_combustion() -> None:
     assert scenario.phase_at(15.0).surface_temperature_c < 30.0
     assert scenario.phase_at(55.0).surface_temperature_c == 58.0
     assert scenario.phase_at(95.0).surface_temperature_c == 105.0
+    assert scenario.decision.voc_absolute_watch_index == 150.0
+    assert scenario.decision.co_absolute_warning_ppm == 30.0
+    assert scenario.decision.co_absolute_critical_ppm == 200.0
+    assert scenario.decision.baseline_min_visits == 6
 
 
 def test_fan_reduces_sensor_lag() -> None:

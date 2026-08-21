@@ -21,30 +21,75 @@ class GasDecisionEngine:
     PAUSED_STATES = {"voc_watch", "warning", "critical"}
     FAN_STATES = PAUSED_STATES | {"investigating"}
 
-    def __init__(self, ambient: GasVector, config: DecisionConfig) -> None:
+    def __init__(
+        self,
+        ambient: GasVector,
+        config: DecisionConfig,
+        baseline_ready: bool = True,
+    ) -> None:
         self.ambient = ambient
         self.config = config
+        self.baseline_ready = baseline_ready
         self.state = "warming_up"
         self._voc_samples = 0
         self._clear_samples = 0
         self._watch_started_sec: float | None = None
 
+    def set_ambient(self, ambient: GasVector) -> None:
+        self.ambient = ambient
+        self.baseline_ready = True
+
+    def voc_abnormal(self, reading: GasVector) -> bool:
+        return (
+            reading.voc_index >= self.config.voc_absolute_watch_index
+            or (
+                self.baseline_ready
+                and reading.voc_index - self.ambient.voc_index
+                >= self.config.voc_watch_delta
+            )
+        )
+
+    def voc_cleared(self, reading: GasVector) -> bool:
+        if not self.baseline_ready:
+            return reading.voc_index < self.config.voc_absolute_watch_index
+        return (
+            reading.voc_index < self.config.voc_absolute_watch_index
+            and reading.voc_index - self.ambient.voc_index
+            <= self.config.voc_clear_delta
+        )
+
+    def co_warning(self, reading: GasVector) -> bool:
+        return (
+            reading.co_ppm >= self.config.co_absolute_warning_ppm
+            or (
+                self.baseline_ready
+                and reading.co_ppm - self.ambient.co_ppm
+                >= self.config.co_warning_delta_ppm
+            )
+        )
+
+    def co_critical(self, reading: GasVector) -> bool:
+        return reading.co_ppm >= self.config.co_absolute_critical_ppm
+
     def update(self, reading: GasVector, elapsed_sec: float, warmed_up: bool) -> GasDecision:
         previous = self.state
-        voc_delta = reading.voc_index - self.ambient.voc_index
-        co_delta = reading.co_ppm - self.ambient.co_ppm
 
         if not warmed_up:
             next_state, reason = "warming_up", "sensor_warmup"
-        elif co_delta >= self.config.co_critical_delta_ppm:
-            next_state, reason = "critical", "co_critical_with_gas_plume"
-        elif co_delta >= self.config.co_warning_delta_ppm:
-            next_state, reason = "warning", "co_confirms_combustion_risk"
+        elif self.co_critical(reading):
+            next_state, reason = "critical", "co_absolute_critical"
+        elif self.co_warning(reading):
+            reason = (
+                "co_absolute_warning"
+                if reading.co_ppm >= self.config.co_absolute_warning_ppm
+                else "co_baseline_excursion"
+            )
+            next_state = "warning"
         else:
-            if voc_delta >= self.config.voc_watch_delta:
+            if self.voc_abnormal(reading):
                 self._voc_samples += 1
                 self._clear_samples = 0
-            elif voc_delta <= self.config.voc_clear_delta:
+            elif self.voc_cleared(reading):
                 self._clear_samples += 1
                 self._voc_samples = 0
             else:

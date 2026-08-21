@@ -60,12 +60,15 @@ class SensorConfig:
 @dataclass(frozen=True)
 class DecisionConfig:
     voc_watch_delta: float
+    voc_absolute_watch_index: float
     voc_persistent_samples: int
     voc_clear_delta: float
     clear_samples: int
     investigation_delay_sec: float
     co_warning_delta_ppm: float
-    co_critical_delta_ppm: float
+    co_absolute_warning_ppm: float
+    co_absolute_critical_ppm: float
+    baseline_min_visits: int
     thermal_confirmation_max_age_sec: float
 
 

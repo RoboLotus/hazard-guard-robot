@@ -12,6 +12,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String
 
+from .baseline import GasBaselineStore
 from .decision import GasDecisionEngine
 from .fusion import fuse_risk, thermal_identity
 from .model import GasScenario, GasVector
@@ -26,12 +27,23 @@ class GasDetector(Node):
             / "demo_gas_scenario.json"
         )
         self.declare_parameter("scenario_path", str(default_config))
+        self.declare_parameter(
+            "baseline_path",
+            str(Path.home() / ".ros" / "hazard_guard" / "gas_baselines.json"),
+        )
+        self.declare_parameter(
+            "inspection_control_topic",
+            "/hazard_guard/thermal/inspection_control",
+        )
         self.scenario = GasScenario.load(
             str(self.get_parameter("scenario_path").value)
         )
-        self.engine = GasDecisionEngine(
-            self.scenario.ambient, self.scenario.decision
+        self._baselines = GasBaselineStore(
+            str(self.get_parameter("baseline_path").value),
+            self.scenario.decision.baseline_min_visits,
         )
+        self._engines: dict[tuple[bool, str], GasDecisionEngine] = {}
+        self._search_context: tuple[bool, str] | None = None
         self._peak_voc_index = self.scenario.ambient.voc_index
         self._peak_x: float | None = None
         self._peak_y: float | None = None
@@ -39,7 +51,11 @@ class GasDetector(Node):
         self._search_location_count = 0
         self._last_search_position: tuple[float, float] | None = None
         self._thermal_by_equipment: dict[str, dict[str, object]] = {}
-        self._last_event_signature: tuple[str, str, str] | None = None
+        self._last_event_signature: tuple[bool, str, str, str, str] | None = None
+        self._visit_equipment_id: str | None = None
+        self._visit_simulated: bool | None = None
+        self._visit_readings: list[GasVector] = []
+        self._visit_blocked = False
         status_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -60,6 +76,12 @@ class GasDetector(Node):
         self.create_subscription(
             String, "/hazard_guard/gas/reading", self._on_reading, 10
         )
+        self.create_subscription(
+            String,
+            str(self.get_parameter("inspection_control_topic").value),
+            self._on_inspection_control,
+            10,
+        )
         detection_qos = QoSProfile(
             depth=10,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -75,6 +97,75 @@ class GasDetector(Node):
             detection_qos,
         )
         self.get_logger().info("Gas early-warning detector ready")
+
+    def _engine_for(
+        self,
+        equipment_id: str,
+        simulated: bool,
+    ) -> GasDecisionEngine:
+        key = (simulated, equipment_id)
+        engine = self._engines.get(key)
+        if engine is None:
+            _, baseline = self._baselines.status(equipment_id, simulated)
+            ambient = baseline.vector if baseline is not None else self.scenario.ambient
+            engine = GasDecisionEngine(
+                ambient,
+                self.scenario.decision,
+                baseline_ready=baseline is not None,
+            )
+            self._engines[key] = engine
+        return engine
+
+    def _finish_baseline_visit(self) -> None:
+        equipment_id = self._visit_equipment_id
+        simulated = self._visit_simulated
+        if (
+            equipment_id
+            and simulated is not None
+            and self._visit_readings
+            and not self._visit_blocked
+        ):
+            before_count, before = self._baselines.status(equipment_id, simulated)
+            baseline = self._baselines.add_visit(
+                equipment_id,
+                simulated,
+                self._visit_readings,
+            )
+            after_count, _ = self._baselines.status(equipment_id, simulated)
+            if baseline is not None:
+                self._engine_for(equipment_id, simulated).set_ambient(
+                    baseline.vector
+                )
+                if before is None:
+                    self.get_logger().info(
+                        f"Gas baseline ready for {equipment_id}: "
+                        f"{baseline.visit_count} visits"
+                    )
+            elif after_count > before_count:
+                self.get_logger().info(
+                    f"Gas baseline candidate for {equipment_id}: "
+                    f"{after_count}/{self.scenario.decision.baseline_min_visits}"
+                )
+        self._visit_equipment_id = None
+        self._visit_simulated = None
+        self._visit_readings = []
+        self._visit_blocked = False
+
+    def _on_inspection_control(self, message: String) -> None:
+        try:
+            payload = json.loads(message.data)
+        except (TypeError, ValueError):
+            return
+        action = str(payload.get("action") or "")
+        if action == "focus_equipment":
+            equipment_id = str(payload.get("equipment_id") or "").strip()
+            if not equipment_id:
+                return
+            if self._visit_equipment_id != equipment_id:
+                self._finish_baseline_visit()
+                self._visit_equipment_id = equipment_id
+        elif action == "clear_focus":
+            self._finish_baseline_visit()
 
     def _on_thermal_detection(self, message: HazardDetection) -> None:
         equipment_id, status, reason = thermal_identity(
@@ -102,9 +193,13 @@ class GasDetector(Node):
             "simulated": bool(message.simulated),
         }
 
-    def _fresh_thermal(self, equipment_id: str) -> dict[str, object] | None:
+    def _fresh_thermal(
+        self,
+        equipment_id: str,
+        simulated: bool,
+    ) -> dict[str, object] | None:
         evidence = self._thermal_by_equipment.get(equipment_id)
-        if evidence is None:
+        if evidence is None or bool(evidence["simulated"]) != simulated:
             return None
         age = time.monotonic() - float(evidence["received_monotonic"])
         if age > self.scenario.decision.thermal_confirmation_max_age_sec:
@@ -120,13 +215,45 @@ class GasDetector(Node):
                 float(reading["co2_ppm"]),
             )
             elapsed = float(reading["elapsed_sec"])
-            warmed_up = bool(reading["warmed_up"])
+            warmed_up_value = reading["warmed_up"]
+            simulated_value = reading.get("simulated", False)
+            if not isinstance(warmed_up_value, bool) or not isinstance(
+                simulated_value,
+                bool,
+            ):
+                raise ValueError("boolean gas-reading fields are malformed")
+            if not all(
+                math.isfinite(value)
+                for value in (
+                    vector.voc_index,
+                    vector.co_ppm,
+                    vector.co2_ppm,
+                    elapsed,
+                )
+            ):
+                raise ValueError("non-finite gas reading")
+            warmed_up = warmed_up_value
+            equipment_id = str(
+                reading.get("equipment_id")
+                or self.scenario.source.equipment_id
+            )
+            simulated = simulated_value
         except (KeyError, TypeError, ValueError):
             self.get_logger().warning("Discarded malformed gas reading")
             return
-        decision = self.engine.update(vector, elapsed, warmed_up)
+        engine = self._engine_for(equipment_id, simulated)
+        search_context = (simulated, equipment_id)
+        if self._search_context != search_context:
+            self._search_context = search_context
+            self._peak_voc_index = engine.ambient.voc_index
+            self._peak_x = None
+            self._peak_y = None
+            self._search_samples = 0
+            self._search_location_count = 0
+            self._last_search_position = None
+        decision = engine.update(vector, elapsed, warmed_up)
         if decision.state == "normal":
-            self._peak_voc_index = self.scenario.ambient.voc_index
+            self._peak_voc_index = engine.ambient.voc_index
             self._peak_x = None
             self._peak_y = None
             self._search_samples = 0
@@ -149,20 +276,15 @@ class GasDetector(Node):
                 self._search_location_count += 1
                 self._last_search_position = current_position
 
-        equipment_id = str(
-            reading.get("equipment_id")
-            or self.scenario.source.equipment_id
-        )
-        thermal = self._fresh_thermal(equipment_id)
-        co_delta = vector.co_ppm - self.scenario.ambient.co_ppm
+        thermal = self._fresh_thermal(equipment_id, simulated)
         voc_abnormal = decision.state in {
             "voc_watch",
             "investigating",
             "warning",
             "critical",
         }
-        co_warning = co_delta >= self.scenario.decision.co_warning_delta_ppm
-        co_critical = co_delta >= self.scenario.decision.co_critical_delta_ppm
+        co_warning = engine.co_warning(vector)
+        co_critical = engine.co_critical(vector)
         fusion = fuse_risk(
             voc_abnormal=voc_abnormal,
             co_warning=co_warning,
@@ -180,6 +302,18 @@ class GasDetector(Node):
             "warning",
             "critical",
         }
+        if warmed_up and self._visit_equipment_id == equipment_id:
+            if self._visit_simulated is None:
+                self._visit_simulated = simulated
+            elif self._visit_simulated != simulated:
+                self._visit_blocked = True
+            self._visit_readings.append(vector)
+            if decision.level != "info" or fusion.level != "normal":
+                self._visit_blocked = True
+        baseline_visits, baseline = self._baselines.status(
+            equipment_id,
+            simulated,
+        )
         payload = {
             "schema_version": 1,
             "event_id": (
@@ -197,6 +331,11 @@ class GasDetector(Node):
             "voc_index": reading.get("voc_index"),
             "co_ppm": reading.get("co_ppm"),
             "co2_ppm": reading.get("co2_ppm"),
+            "baseline_ready": baseline is not None,
+            "baseline_visit_count": baseline_visits,
+            "baseline_required_visits": (
+                self.scenario.decision.baseline_min_visits
+            ),
             "source_id": reading.get("source_id"),
             "source_name": reading.get("source_name"),
             "equipment_id": equipment_id,
@@ -222,7 +361,7 @@ class GasDetector(Node):
             ),
             "thermal_x": float(thermal["x"]) if thermal is not None else None,
             "thermal_y": float(thermal["y"]) if thermal is not None else None,
-            "simulated": bool(reading.get("simulated", False)),
+            "simulated": simulated,
             "elapsed_sec": elapsed,
         }
         status = String()
@@ -237,7 +376,13 @@ class GasDetector(Node):
             ensure_ascii=False,
         )
         self._control_publisher.publish(control)
-        signature = (decision.state, fusion.level, fusion.reason)
+        signature = (
+            simulated,
+            equipment_id,
+            decision.state,
+            fusion.level,
+            fusion.reason,
+        )
         changed = signature != self._last_event_signature
         self._last_event_signature = signature
         if changed and fusion.level != "normal":

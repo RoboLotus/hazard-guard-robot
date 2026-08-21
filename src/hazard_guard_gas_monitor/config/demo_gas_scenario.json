@@ -64,13 +64,16 @@
     "thermal_time_constant_sec": 10.0
   },
   "decision": {
-    "voc_watch_delta": 25.0,
+    "voc_watch_delta": 50.0,
+    "voc_absolute_watch_index": 150.0,
     "voc_persistent_samples": 3,
     "voc_clear_delta": 10.0,
     "clear_samples": 5,
     "investigation_delay_sec": 8.0,
     "co_warning_delta_ppm": 5.0,
-    "co_critical_delta_ppm": 20.0,
+    "co_absolute_warning_ppm": 30.0,
+    "co_absolute_critical_ppm": 200.0,
+    "baseline_min_visits": 6,
     "thermal_confirmation_max_age_sec": 15.0
   }
 }
