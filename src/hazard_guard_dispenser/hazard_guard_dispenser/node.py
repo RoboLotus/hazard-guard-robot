@@ -69,7 +69,7 @@ class DispenserNode(Node):
         # --- 서보 (실측으로 확정된 값) ---
         self.declare_parameter("servo_id", 1)
         self.declare_parameter("angle_home", 0)
-        self.declare_parameter("angle_dump", 30)
+        self.declare_parameter("angle_dump", 60)
         self.declare_parameter("step_deg", 3)
         self.declare_parameter("step_delay", 0.03)
         self.declare_parameter("dump_hold", 1.0)
