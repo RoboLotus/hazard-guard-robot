@@ -40,6 +40,7 @@ install(PROGRAMS scripts/rtabmap_scan_demo.py scripts/auto_explore.py
   scripts/thermal_colorize.py scripts/thermal_overlay.py
   scripts/thermal_camera_info.py scripts/thermal_camera_publisher.py
   scripts/physical_thermal_calibration.py
+  scripts/physical_calibration_validator.py
   scripts/thermal_cloud.py
   scripts/timestamp_diagnostics.py
   scripts/person_detector.py
@@ -68,6 +69,9 @@ if(BUILD_TESTING)
   )
   ament_add_pytest_test(test_physical_thermal_calibration
     test/test_physical_thermal_calibration.py
+  )
+  ament_add_pytest_test(test_physical_calibration_validator
+    test/test_physical_calibration_validator.py
   )
   ament_add_pytest_test(test_rtabmap_real_launch
     test/test_rtabmap_real_launch.py

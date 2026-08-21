@@ -709,6 +709,21 @@ HP60C RGB optical frame을 부모로 하는 `thermal_camera_optical_frame` 정�
 적용됩니다. 이 TF는 센서 사이의 고정 변환만 담당하며 `map -> odom`을 발행하지
 않습니다.
 
+계산 결과는 `latest_report.json`의 thermal/stereo RMS로 먼저 확인하고, 구독
+전용 검증 GUI로 실제 투영을 확인합니다. 이 노드는 토픽이나 TF를 발행하지 않아
+주행·SLAM·Nav2에 영향을 주지 않습니다.
+
+```bash
+ros2 run hazard_guard_simulation physical_calibration_validator.py
+```
+
+RGB와 Depth 화면의 십자가는 각각 영상 중앙입니다. Thermal 화면에는 같은 중심
+광선을 중앙 depth 거리의 3D 점으로 만든 뒤 저장된 extrinsic으로 투영하여
+RGB는 자홍색 `R`, Depth는 청록색 `D`로 표시합니다. 두 점이 거의 겹치는 것은
+HP60C의 RGB-depth registration이 정상이라는 뜻입니다. `Q`는 종료, `S`는 현재
+검증 화면을 PNG로 저장합니다. 중앙 depth가 비어 있으면 1 m를 임시 사용하므로
+화면 하단의 `measured`/`fallback` 표시도 함께 확인합니다.
+
 시뮬레이션이 떠 있는 상태에서 창을 띄웁니다. 기본은 열화상과 뎁스 2개이고,
 `show_rgb:=true` 로 RGB도 함께 볼 수 있습니다.
 
