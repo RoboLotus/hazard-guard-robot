@@ -651,6 +651,48 @@ ros2 launch hazard_guard_simulation physical_thermal_camera.launch.py \
 임시값입니다. 실물 내부파라미터 캘리브레이션 후 표준 ROS camera YAML 경로를
 `calibration_file:=...`로 전달해야 합니다.
 
+### 실물 RGB-D ↔ 열화상 캘리브레이션
+
+실물 도구는 6×4칸 체커보드의 5×3 내부 코너와 47.5 mm 칸을 기본값으로
+사용합니다. HP60C와 열화상 카메라를 먼저 실행한 다음 터미널에서 한 번만
+실행합니다.
+
+```bash
+ros2 run hazard_guard_simulation physical_thermal_calibration.py
+```
+
+실행하면 RGB, 컬러 depth, 열화상의 3분할 실시간 미리보기 창이 열립니다.
+RGB와 열화상 패널에 각각 `corners OK`가 표시된 것을 확인하고 체커보드를
+정지한 뒤 `Space`를 눌러 자세를 저장합니다. 키는 실행 터미널과 미리보기 창
+어느 쪽에 포커스가 있어도 동작합니다. GUI가 없는 환경에서는 `--no-gui`를
+사용할 수 있습니다. `D`는 마지막 자세를 삭제하고, 최소 15개(권장 25~40개)를
+모은 뒤 `S`를 누르면 계산·저장하고 종료합니다. `Q`는 계산하지 않고 종료하지만
+수집한 원본은 보존합니다.
+
+```text
+SPACE  현재 RGB·Depth·Thermal과 검출 코너 저장
+D      마지막 저장 삭제
+S      thermal intrinsic과 thermal↔RGB extrinsic 계산·저장
+Q      종료
+```
+
+결과와 자세별 압축 원본은 다음 위치에 영구 저장됩니다. 기존 결과가 있으면 새
+결과를 쓰기 전에 날짜가 붙은 백업을 만듭니다.
+
+```text
+~/.local/share/hazard_guard/calibration/
+├── thermal_intrinsics.yaml
+├── thermal_rgb_extrinsic.yaml
+├── latest_report.json
+└── sessions/physical-YYYYMMDD-HHMMSS/
+```
+
+`physical_thermal_camera.launch.py`는 위 두 YAML을 기본 경로에서 자동으로 읽고,
+HP60C RGB optical frame을 부모로 하는 `thermal_camera_optical_frame` 정적 TF를
+발행합니다. 캘리브레이션이 끝난 뒤 열화상 launch를 한 번 재시작해야 새 결과가
+적용됩니다. 이 TF는 센서 사이의 고정 변환만 담당하며 `map -> odom`을 발행하지
+않습니다.
+
 시뮬레이션이 떠 있는 상태에서 창을 띄웁니다. 기본은 열화상과 뎁스 2개이고,
 `show_rgb:=true` 로 RGB도 함께 볼 수 있습니다.
 
