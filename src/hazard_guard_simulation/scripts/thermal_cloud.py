@@ -25,12 +25,16 @@ calibration publishes those.
 """
 from __future__ import annotations
 
+from collections import deque
+import time
+
 import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image, PointCloud2, PointField
 from tf2_ros import Buffer, TransformListener
 
@@ -39,7 +43,13 @@ from tf2_ros import Buffer, TransformListener
 KELVIN_PER_COUNT = 0.01
 ABSOLUTE_ZERO_C = -273.15
 
-POINT_DTYPE = np.dtype([("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("rgb", "<f4")])
+POINT_DTYPE = np.dtype([
+    ("x", "<f4"),
+    ("y", "<f4"),
+    ("z", "<f4"),
+    ("rgb", "<f4"),
+    ("temperature", "<f4"),
+])
 
 
 def rotation_from_quaternion(q) -> np.ndarray:
@@ -77,6 +87,25 @@ def back_project(depth: np.ndarray, k, stride: int, near: float, far: float) -> 
     return np.column_stack(((u - cx) * z / fx, (v - cy) * z / fy, z))
 
 
+def depth_in_metres(
+    depth: np.ndarray,
+    encoding: str,
+    configured_scale: float = 0.0,
+) -> np.ndarray:
+    """Convert ROS depth encodings to metres without changing the source."""
+    if configured_scale > 0.0:
+        scale = configured_scale
+    elif encoding.upper() in {"16UC1", "MONO16"}:
+        scale = 0.001
+    elif encoding.upper() == "32FC1":
+        scale = 1.0
+    else:
+        raise ValueError(
+            f"unsupported depth encoding {encoding!r}; set depth_scale explicitly"
+        )
+    return depth.astype(np.float32) * scale
+
+
 def project(points: np.ndarray, k) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Points in an optical frame -> pixel coordinates plus an in-front mask."""
     in_front = points[:, 2] > 0
@@ -84,6 +113,44 @@ def project(points: np.ndarray, k) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     u = k[0] * points[:, 0] / z + k[2]
     v = k[4] * points[:, 1] / z + k[5]
     return u, v, in_front
+
+
+def nearest_per_thermal_pixel(
+    columns: np.ndarray,
+    rows: np.ndarray,
+    depths: np.ndarray,
+    width: int,
+) -> np.ndarray:
+    """Return local indices of the front-most point at each thermal pixel."""
+    if columns.size == 0:
+        return np.empty(0, dtype=np.int64)
+    pixel = rows.astype(np.int64) * width + columns.astype(np.int64)
+    order = np.lexsort((depths, pixel))
+    sorted_pixels = pixel[order]
+    first = np.r_[True, sorted_pixels[1:] != sorted_pixels[:-1]]
+    return order[first]
+
+
+def rotation_angle(rotation_a: np.ndarray, rotation_b: np.ndarray) -> float:
+    relative = rotation_a.T @ rotation_b
+    cosine = np.clip((np.trace(relative) - 1.0) * 0.5, -1.0, 1.0)
+    return float(np.arccos(cosine))
+
+
+def is_keyframe(
+    previous: tuple[np.ndarray, np.ndarray] | None,
+    rotation: np.ndarray,
+    translation: np.ndarray,
+    minimum_translation: float,
+    minimum_rotation: float,
+) -> bool:
+    if previous is None:
+        return True
+    previous_rotation, previous_translation = previous
+    return bool(
+        np.linalg.norm(translation - previous_translation) >= minimum_translation
+        or rotation_angle(previous_rotation, rotation) >= minimum_rotation
+    )
 
 
 def voxel_average(points: np.ndarray, values: np.ndarray, voxel_size: float):
@@ -112,13 +179,20 @@ def temperature_colors(temperatures: np.ndarray, low: float, high: float) -> np.
     return (bgr[:, 2] << 16) | (bgr[:, 1] << 8) | bgr[:, 0]
 
 
-def cloud_message(points: np.ndarray, colors: np.ndarray, frame_id: str, stamp) -> PointCloud2:
+def cloud_message(
+    points: np.ndarray,
+    colors: np.ndarray,
+    temperatures: np.ndarray,
+    frame_id: str,
+    stamp,
+) -> PointCloud2:
     records = np.empty(points.shape[0], dtype=POINT_DTYPE)
     records["x"] = points[:, 0]
     records["y"] = points[:, 1]
     records["z"] = points[:, 2]
     # The PCL convention: 32 bits of packed colour carried in a float field.
     records["rgb"] = colors.astype(np.uint32).view(np.float32)
+    records["temperature"] = temperatures.astype(np.float32)
 
     message = PointCloud2()
     message.header.frame_id = frame_id
@@ -130,6 +204,10 @@ def cloud_message(points: np.ndarray, colors: np.ndarray, frame_id: str, stamp) 
         PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
         PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
         PointField(name="rgb", offset=12, datatype=PointField.FLOAT32, count=1),
+        PointField(
+            name="temperature", offset=16,
+            datatype=PointField.FLOAT32, count=1,
+        ),
     ]
     message.is_bigendian = False
     message.point_step = POINT_DTYPE.itemsize
@@ -156,12 +234,18 @@ class ThermalCloud(Node):
         # noise and the far edge is where the 68 mm baseline stops mattering.
         self.declare_parameter("range_min_m", 0.25)
         self.declare_parameter("range_max_m", 5.0)
+        # 0 selects the scale from the ROS encoding. HP60C 16UC1 is mm.
+        self.declare_parameter("depth_scale", 0.0)
+        self.declare_parameter("sync_by_receipt_time", False)
+        self.declare_parameter("receipt_sync_slop_sec", 0.20)
         self.declare_parameter("min_temp_c", 10.0)
         self.declare_parameter("max_temp_c", 60.0)
         # A wall repainted by one noisy frame is worse than a slow response.
         self.declare_parameter("temperature_alpha", 0.35)
         self.declare_parameter("publish_period_sec", 1.0)
         self.declare_parameter("max_voxels", 400000)
+        self.declare_parameter("keyframe_translation_m", 0.10)
+        self.declare_parameter("keyframe_rotation_deg", 6.0)
 
         self.bridge = CvBridge()
         self.tf_buffer = Buffer()
@@ -171,30 +255,55 @@ class ThermalCloud(Node):
         # Voxel index -> temperature in Celsius. The position is the voxel
         # centre, so nothing else has to be stored.
         self.voxels: dict[tuple[int, int, int], float] = {}
+        self.last_pose: tuple[np.ndarray, np.ndarray] | None = None
 
         self.create_subscription(
             CameraInfo, self.get_parameter("depth_info").value,
-            lambda m: setattr(self, "depth_info", m), 10,
+            lambda m: setattr(self, "depth_info", m), qos_profile_sensor_data,
         )
         self.create_subscription(
             CameraInfo, self.get_parameter("thermal_info").value,
-            lambda m: setattr(self, "thermal_info", m), 10,
+            lambda m: setattr(self, "thermal_info", m), qos_profile_sensor_data,
         )
         self.publisher = self.create_publisher(
-            PointCloud2, self.get_parameter("output_topic").value, 1
+            PointCloud2, self.get_parameter("output_topic").value,
+            qos_profile_sensor_data,
         )
 
-        # The two cameras run at different rates (10 Hz and 8.7 Hz), the same
-        # reason thermal_overlay.py pairs by closest stamp rather than exactly.
-        synchronizer = ApproximateTimeSynchronizer(
-            [
-                Subscriber(self, Image, self.get_parameter("depth_image").value),
-                Subscriber(self, Image, self.get_parameter("thermal_image").value),
-            ],
-            queue_size=10,
-            slop=0.15,
-        )
-        synchronizer.registerCallback(self.on_pair)
+        # The physical HP60C clock can have a stable offset from ROS system
+        # time. Receipt-time pairing preserves both original stamps while
+        # avoiding a false no-match. Simulation keeps header-time sync.
+        self.depth_receipts: deque[tuple[float, Image]] = deque(maxlen=20)
+        self.synchronizer = None
+        if bool(self.get_parameter("sync_by_receipt_time").value):
+            self.create_subscription(
+                Image,
+                self.get_parameter("depth_image").value,
+                self._on_depth_received,
+                qos_profile_sensor_data,
+            )
+            self.create_subscription(
+                Image,
+                self.get_parameter("thermal_image").value,
+                self._on_thermal_received,
+                qos_profile_sensor_data,
+            )
+        else:
+            self.synchronizer = ApproximateTimeSynchronizer(
+                [
+                    Subscriber(
+                        self, Image, self.get_parameter("depth_image").value,
+                        qos_profile=qos_profile_sensor_data,
+                    ),
+                    Subscriber(
+                        self, Image, self.get_parameter("thermal_image").value,
+                        qos_profile=qos_profile_sensor_data,
+                    ),
+                ],
+                queue_size=10,
+                slop=0.15,
+            )
+            self.synchronizer.registerCallback(self.on_pair)
         self.create_timer(
             self.get_parameter("publish_period_sec").value, self.publish_cloud
         )
@@ -204,11 +313,28 @@ class ThermalCloud(Node):
             f"{self.get_parameter('output_topic').value}"
         )
 
+    def _on_depth_received(self, message: Image) -> None:
+        self.depth_receipts.append((time.monotonic(), message))
+
+    def _on_thermal_received(self, message: Image) -> None:
+        if not self.depth_receipts:
+            return
+        now = time.monotonic()
+        receipt, depth_message = min(
+            self.depth_receipts,
+            key=lambda item: abs(item[0] - now),
+        )
+        slop = float(self.get_parameter("receipt_sync_slop_sec").value)
+        if abs(receipt - now) <= slop:
+            self.on_pair(depth_message, message)
+
     def on_pair(self, depth_message: Image, thermal_message: Image) -> None:
         if self.depth_info is None or self.thermal_info is None:
             return
 
-        depth = self.bridge.imgmsg_to_cv2(depth_message, desired_encoding="passthrough")
+        depth_raw = self.bridge.imgmsg_to_cv2(
+            depth_message, desired_encoding="passthrough"
+        )
         thermal = self.bridge.imgmsg_to_cv2(thermal_message, desired_encoding="passthrough")
         if thermal.ndim != 2:
             self.get_logger().warn(
@@ -216,6 +342,43 @@ class ThermalCloud(Node):
                 "image; point it at the raw stream",
                 throttle_duration_sec=10.0,
             )
+            return
+        try:
+            depth = depth_in_metres(
+                depth_raw,
+                depth_message.encoding,
+                float(self.get_parameter("depth_scale").value),
+            )
+        except ValueError as error:
+            self.get_logger().warn(str(error), throttle_duration_sec=10.0)
+            return
+
+        depth_frame = depth_message.header.frame_id
+        try:
+            to_thermal = self.tf_buffer.lookup_transform(
+                thermal_message.header.frame_id, depth_frame, rclpy.time.Time()
+            )
+            to_map = self.tf_buffer.lookup_transform(
+                self.get_parameter("map_frame").value,
+                depth_frame,
+                rclpy.time.Time(),
+            )
+        except Exception as error:  # noqa: BLE001 - all TF failures drop a pair
+            self.get_logger().warn(
+                f"TF lookup failed: {error}", throttle_duration_sec=5.0
+            )
+            return
+
+        map_rotation, map_translation = transform_matrix(to_map)
+        if not is_keyframe(
+            self.last_pose,
+            map_rotation,
+            map_translation,
+            float(self.get_parameter("keyframe_translation_m").value),
+            np.deg2rad(
+                float(self.get_parameter("keyframe_rotation_deg").value)
+            ),
+        ):
             return
 
         points = back_project(
@@ -228,22 +391,9 @@ class ThermalCloud(Node):
         if points.shape[0] == 0:
             return
 
-        depth_frame = depth_message.header.frame_id
-        try:
-            to_thermal = self.tf_buffer.lookup_transform(
-                thermal_message.header.frame_id, depth_frame, rclpy.time.Time()
-            )
-            to_map = self.tf_buffer.lookup_transform(
-                self.get_parameter("map_frame").value, depth_frame, rclpy.time.Time()
-            )
-        except Exception as error:  # noqa: BLE001 - any TF failure is the same here
-            self.get_logger().warn(
-                f"TF lookup failed: {error}", throttle_duration_sec=5.0
-            )
-            return
-
-        rotation, translation = transform_matrix(to_thermal)
-        u, v, in_front = project(points @ rotation.T + translation, self.thermal_info.k)
+        thermal_rotation, thermal_translation = transform_matrix(to_thermal)
+        in_thermal = points @ thermal_rotation.T + thermal_translation
+        u, v, in_front = project(in_thermal, self.thermal_info.k)
         column = np.round(u).astype(np.int64)
         row = np.round(v).astype(np.int64)
         height, width = thermal.shape[:2]
@@ -255,11 +405,21 @@ class ThermalCloud(Node):
         if not seen.any():
             return
 
-        celsius = thermal[row[seen], column[seen]].astype(np.float32) * KELVIN_PER_COUNT
+        seen_indices = np.flatnonzero(seen)
+        nearest = nearest_per_thermal_pixel(
+            column[seen_indices],
+            row[seen_indices],
+            in_thermal[seen_indices, 2],
+            width,
+        )
+        visible_indices = seen_indices[nearest]
+        celsius = thermal[
+            row[visible_indices], column[visible_indices]
+        ].astype(np.float32) * KELVIN_PER_COUNT
         celsius += ABSOLUTE_ZERO_C
 
-        rotation, translation = transform_matrix(to_map)
-        in_map = points[seen] @ rotation.T + translation
+        self.last_pose = (map_rotation.copy(), map_translation.copy())
+        in_map = points[visible_indices] @ map_rotation.T + map_translation
         keys, temperatures = voxel_average(
             in_map, celsius, float(self.get_parameter("voxel_size").value)
         )
@@ -297,6 +457,7 @@ class ThermalCloud(Node):
             cloud_message(
                 centres,
                 colors,
+                temperatures,
                 self.get_parameter("map_frame").value,
                 self.get_clock().now().to_msg(),
             )

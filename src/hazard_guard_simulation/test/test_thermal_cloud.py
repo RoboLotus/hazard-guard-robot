@@ -13,6 +13,9 @@ from builtin_interfaces.msg import Time
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "thermal_cloud.py"
+PHYSICAL_MAPPING = (
+    Path(__file__).parents[1] / "launch" / "physical_mapping.launch.py"
+)
 SPEC = spec_from_file_location("thermal_cloud", SCRIPT)
 MODULE = module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -40,10 +43,51 @@ def test_back_project_drops_holes_and_out_of_range_depth():
     assert MODULE.back_project(depth, K, 1, 0.25, 5.0).shape[0] == 0
 
 
+def test_hp60c_uint16_depth_is_converted_from_millimetres():
+    depth = np.array([[0, 1000, 2500]], dtype=np.uint16)
+
+    metres = MODULE.depth_in_metres(depth, "16UC1")
+
+    assert metres.dtype == np.float32
+    assert metres.tolist() == [[0.0, 1.0, 2.5]]
+
+
+def test_float_depth_remains_in_metres():
+    depth = np.array([[1.25]], dtype=np.float32)
+
+    assert MODULE.depth_in_metres(depth, "32FC1").tolist() == [[1.25]]
+
+
 def test_project_marks_points_behind_the_camera():
     points = np.array([[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]], dtype=np.float32)
     _, _, in_front = MODULE.project(points, K)
     assert in_front.tolist() == [True, False]
+
+
+def test_occlusion_keeps_nearest_point_per_thermal_pixel():
+    selected = MODULE.nearest_per_thermal_pixel(
+        np.array([4, 4, 7]),
+        np.array([2, 2, 3]),
+        np.array([2.0, 1.0, 5.0]),
+        width=160,
+    )
+
+    assert selected.tolist() == [1, 2]
+
+
+def test_keyframe_requires_translation_or_rotation():
+    identity = np.eye(3)
+    previous = (identity, np.zeros(3))
+    angle = np.deg2rad(7.0)
+    rotated = np.array([
+        [np.cos(angle), -np.sin(angle), 0.0],
+        [np.sin(angle), np.cos(angle), 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+
+    assert not MODULE.is_keyframe(previous, identity, np.array([0.02, 0, 0]), 0.1, np.deg2rad(6))
+    assert MODULE.is_keyframe(previous, identity, np.array([0.11, 0, 0]), 0.1, np.deg2rad(6))
+    assert MODULE.is_keyframe(previous, rotated, np.zeros(3), 0.1, np.deg2rad(6))
 
 
 def test_voxel_average_groups_by_cell_and_averages_inside_it():
@@ -77,11 +121,28 @@ def test_colour_ramp_runs_cold_blue_to_hot_red_and_clamps():
 def test_cloud_message_is_readable_the_way_the_console_reads_it():
     """The console unpacks the rgb field as a uint32 at offset 12."""
     points = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
-    message = MODULE.cloud_message(points, np.array([0x123456]), "map", Time())
+    message = MODULE.cloud_message(
+        points, np.array([0x123456]), np.array([42.5]), "map", Time()
+    )
 
-    assert message.point_step == 16
+    assert message.point_step == 20
     assert message.width == 1 and message.height == 1
-    assert [field.name for field in message.fields] == ["x", "y", "z", "rgb"]
+    assert [field.name for field in message.fields] == [
+        "x", "y", "z", "rgb", "temperature",
+    ]
     x, y, z = struct.unpack_from("<fff", message.data, 0)
     assert (x, y, z) == (1.0, 2.0, 3.0)
     assert struct.unpack_from("<I", message.data, 12)[0] == 0x123456
+    assert struct.unpack_from("<f", message.data, 16)[0] == 42.5
+
+
+def test_physical_mapping_connects_hp60c_thermal_cloud_to_console_topic():
+    source = PHYSICAL_MAPPING.read_text(encoding="utf-8")
+
+    assert '"physical_thermal_camera.launch.py"' in source
+    assert 'executable="thermal_cloud.py"' in source
+    assert '"/ascamera_hp60c/camera_publisher/depth0/image_raw"' in source
+    assert '"/ascamera_hp60c/camera_publisher/depth0/camera_info"' in source
+    assert 'default_value="/hazard_guard/thermal/points"' in source
+    assert '"enable_thermal_mapping"' in source
+    assert '"sync_by_receipt_time": True' in source
