@@ -42,8 +42,8 @@ class BaselineStats:
         ):
             raise ValueError("baseline environment_delta_c must be finite")
 
-        if self.sample_count < 10:
-            raise ValueError("baseline sample_count must be at least 10")
+        if self.sample_count < 8:
+            raise ValueError("baseline sample_count must be at least 8")
         if self.state not in {"provisional", "validated"}:
             raise ValueError(
                 "baseline state must be provisional or validated"

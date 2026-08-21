@@ -47,7 +47,7 @@ def completed_visit(
     }
 
 
-def collector(tmp_path, minimum_valid_visits=10) -> BaselineCollector:
+def collector(tmp_path, minimum_valid_visits=8) -> BaselineCollector:
     return BaselineCollector(
         tmp_path / "collection.json",
         tmp_path / "baselines.json",
@@ -57,39 +57,44 @@ def collector(tmp_path, minimum_valid_visits=10) -> BaselineCollector:
     )
 
 
-def test_ten_visits_persist_and_create_validated_median_baseline(
+def test_collector_rejects_less_than_eight_valid_visits(tmp_path) -> None:
+    with pytest.raises(ValueError, match="at least eight"):
+        collector(tmp_path, minimum_valid_visits=7)
+
+
+def test_eight_visits_persist_and_create_validated_median_baseline(
     tmp_path,
 ) -> None:
     current = collector(tmp_path)
-    for index in range(10):
+    for index in range(8):
         result = current.observe(completed_visit(30.0 + index * 0.1))
         assert result["accepted"] == ["motor"]
 
     assert current.ready is True
-    assert current.counts() == {"motor": 10}
+    assert current.counts() == {"motor": 8}
 
     restored = collector(tmp_path)
     assert restored.ready is True
-    assert restored.counts() == {"motor": 10}
+    assert restored.counts() == {"motor": 8}
     assert restored.activate_if_ready() is True
     assert (tmp_path / "baselines.json").exists()
 
     baseline = load_baselines(tmp_path / "baselines.json")["motor"]
-    assert baseline.equipment.temperature_c == pytest.approx(30.45)
-    assert baseline.equipment.environment_delta_c == pytest.approx(10.45)
-    assert baseline.equipment.sample_count == 10
+    assert baseline.equipment.temperature_c == pytest.approx(30.35)
+    assert baseline.equipment.environment_delta_c == pytest.approx(10.35)
+    assert baseline.equipment.sample_count == 8
     assert baseline.equipment.state == "validated"
     assert baseline.voxels["motor:0:0:0"].temperature_c == pytest.approx(
-        31.45
+        31.35
     )
 
 
 def test_latest_sample_time_and_approved_archive_are_recoverable(tmp_path) -> None:
     current = collector(tmp_path)
-    for index in range(10):
+    for index in range(8):
         current.observe(completed_visit(30.0 + index * 0.1))
 
-    assert current.latest_sample_times() == {"motor": 1030.9}
+    assert current.latest_sample_times() == {"motor": 1030.7}
     assert current.activate_if_ready() is True
 
     archived = current.archive_approved()
@@ -97,7 +102,7 @@ def test_latest_sample_time_and_approved_archive_are_recoverable(tmp_path) -> No
     assert archived is not None
     assert archived.exists()
     assert not (tmp_path / "baselines.json").exists()
-    assert load_baselines(archived)["motor"].equipment.sample_count == 10
+    assert load_baselines(archived)["motor"].equipment.sample_count == 8
 
 
 def test_invalid_environment_quality_does_not_count(tmp_path) -> None:
@@ -112,7 +117,7 @@ def test_invalid_environment_quality_does_not_count(tmp_path) -> None:
 
 
 def test_critical_pauses_without_deleting_prior_samples(tmp_path) -> None:
-    current = collector(tmp_path, minimum_valid_visits=5)
+    current = collector(tmp_path)
     current.observe(completed_visit(30.0))
     current.observe(completed_visit(30.1))
     result = current.observe(completed_visit(30.2, critical=True))
@@ -126,7 +131,7 @@ def test_critical_pauses_without_deleting_prior_samples(tmp_path) -> None:
         "excluded_count": 1,
     }
 
-    restored = collector(tmp_path, minimum_valid_visits=5)
+    restored = collector(tmp_path)
     assert restored.counts() == {"motor": 2}
     assert restored.recovery_status()["motor"]["paused"] is True
 
@@ -176,7 +181,7 @@ def test_repeated_trend_does_not_remove_older_preserved_samples(
 
 
 def test_three_stable_visits_resume_collection(tmp_path) -> None:
-    current = collector(tmp_path, minimum_valid_visits=5)
+    current = collector(tmp_path)
     current.observe(completed_visit(30.0))
     current.observe(completed_visit(30.1))
     current.observe(completed_visit(31.0, critical=True))
@@ -201,20 +206,20 @@ def test_three_stable_visits_resume_collection(tmp_path) -> None:
 def test_paused_complete_collection_is_not_ready_for_approval(
     tmp_path,
 ) -> None:
-    current = collector(tmp_path, minimum_valid_visits=2)
-    current.observe(completed_visit(30.0))
-    current.observe(completed_visit(30.1))
+    current = collector(tmp_path)
+    for index in range(8):
+        current.observe(completed_visit(30.0 + index * 0.1))
     assert current.ready is True
 
     current.observe(completed_visit(31.0, critical=True))
-    assert current.counts() == {"motor": 2}
+    assert current.counts() == {"motor": 8}
     assert current.ready is False
 
 
 def test_approval_is_rejected_until_every_equipment_is_ready(
     tmp_path,
 ) -> None:
-    current = collector(tmp_path, minimum_valid_visits=3)
+    current = collector(tmp_path)
     current.observe(completed_visit(30.0))
     assert current.activate_if_ready() is False
     assert not (tmp_path / "baselines.json").exists()
@@ -227,22 +232,26 @@ def test_every_configured_equipment_must_reach_the_minimum(tmp_path) -> None:
         tmp_path / "collection.json",
         tmp_path / "baselines.json",
         ("motor", "pump"),
-        minimum_valid_visits=2,
+        minimum_valid_visits=8,
         minimum_environment_points=40,
     )
-    current.observe(completed_visit(30.0, equipment_id="motor"))
-    current.observe(completed_visit(30.1, equipment_id="motor"))
-    assert current.counts() == {"motor": 2, "pump": 0}
+    for index in range(8):
+        current.observe(
+            completed_visit(30.0 + index * 0.1, equipment_id="motor")
+        )
+    assert current.counts() == {"motor": 8, "pump": 0}
     assert current.ready is False
 
-    current.observe(completed_visit(40.0, equipment_id="pump"))
-    current.observe(completed_visit(40.1, equipment_id="pump"))
-    assert current.counts() == {"motor": 2, "pump": 2}
+    for index in range(8):
+        current.observe(
+            completed_visit(40.0 + index * 0.1, equipment_id="pump")
+        )
+    assert current.counts() == {"motor": 8, "pump": 8}
     assert current.ready is True
 
 
 def test_reset_removes_persistent_collection(tmp_path) -> None:
-    current = collector(tmp_path, minimum_valid_visits=3)
+    current = collector(tmp_path)
     current.observe(completed_visit(30.0))
     assert (tmp_path / "collection.json").exists()
     current.reset()
@@ -257,11 +266,13 @@ def test_ready_equipment_activates_without_waiting_for_every_equipment(
         tmp_path / "collection.json",
         tmp_path / "baselines.json",
         ("motor", "pump"),
-        minimum_valid_visits=2,
+        minimum_valid_visits=8,
         minimum_environment_points=40,
     )
-    current.observe(completed_visit(30.0, equipment_id="motor"))
-    current.observe(completed_visit(30.1, equipment_id="motor"))
+    for index in range(8):
+        current.observe(
+            completed_visit(30.0 + index * 0.1, equipment_id="motor")
+        )
 
     assert current.ready is False
     assert current.ready_equipment_ids == ("motor",)
@@ -271,8 +282,10 @@ def test_ready_equipment_activates_without_waiting_for_every_equipment(
     )
     assert set(first["equipment"]) == {"motor"}
 
-    current.observe(completed_visit(40.0, equipment_id="pump"))
-    current.observe(completed_visit(40.1, equipment_id="pump"))
+    for index in range(8):
+        current.observe(
+            completed_visit(40.0 + index * 0.1, equipment_id="pump")
+        )
     assert current.activate_ready_equipment() == ("motor", "pump")
     completed = json.loads(
         (tmp_path / "baselines.json").read_text(encoding="utf-8")
@@ -285,16 +298,17 @@ def test_roi_change_prunes_only_invalid_approved_baselines(tmp_path) -> None:
         tmp_path / "collection.json",
         tmp_path / "baselines.json",
         ("motor", "pump"),
-        minimum_valid_visits=2,
+        minimum_valid_visits=8,
         minimum_environment_points=40,
     )
     for equipment_id, temperature in (("motor", 30.0), ("pump", 40.0)):
-        current.observe(
-            completed_visit(temperature, equipment_id=equipment_id)
-        )
-        current.observe(
-            completed_visit(temperature + 0.1, equipment_id=equipment_id)
-        )
+        for index in range(8):
+            current.observe(
+                completed_visit(
+                    temperature + index * 0.1,
+                    equipment_id=equipment_id,
+                )
+            )
     assert current.activate_ready_equipment() == ("motor", "pump")
 
     assert current.retain_approved_equipment(("pump",)) == ("pump",)
@@ -304,8 +318,10 @@ def test_roi_change_prunes_only_invalid_approved_baselines(tmp_path) -> None:
     assert set(retained["equipment"]) == {"pump"}
 
     current.reset()
-    current.observe(completed_visit(31.0, equipment_id="motor"))
-    current.observe(completed_visit(31.1, equipment_id="motor"))
+    for index in range(8):
+        current.observe(
+            completed_visit(31.0 + index * 0.1, equipment_id="motor")
+        )
     current.activate_ready_equipment()
     merged = json.loads(
         (tmp_path / "baselines.json").read_text(encoding="utf-8")
@@ -314,9 +330,9 @@ def test_roi_change_prunes_only_invalid_approved_baselines(tmp_path) -> None:
 
 
 def test_pruning_all_approved_baselines_removes_active_file(tmp_path) -> None:
-    current = collector(tmp_path, minimum_valid_visits=2)
-    current.observe(completed_visit(30.0))
-    current.observe(completed_visit(30.1))
+    current = collector(tmp_path)
+    for index in range(8):
+        current.observe(completed_visit(30.0 + index * 0.1))
     assert current.activate_ready_equipment() == ("motor",)
 
     assert current.retain_approved_equipment(()) == ()
@@ -330,16 +346,17 @@ def test_topology_change_discards_corrupt_old_collection_before_load(
         tmp_path / "collection.json",
         tmp_path / "baselines.json",
         ("motor", "pump"),
-        minimum_valid_visits=2,
+        minimum_valid_visits=8,
         minimum_environment_points=40,
     )
     for equipment_id, temperature in (("motor", 30.0), ("pump", 40.0)):
-        current.observe(
-            completed_visit(temperature, equipment_id=equipment_id)
-        )
-        current.observe(
-            completed_visit(temperature + 0.1, equipment_id=equipment_id)
-        )
+        for index in range(8):
+            current.observe(
+                completed_visit(
+                    temperature + index * 0.1,
+                    equipment_id=equipment_id,
+                )
+            )
     current.activate_ready_equipment()
     (tmp_path / "collection.json").write_text("{broken", encoding="utf-8")
 
@@ -348,7 +365,7 @@ def test_topology_change_discards_corrupt_old_collection_before_load(
         tmp_path / "baselines.json",
         ("motor", "pump"),
         ("pump",),
-        minimum_valid_visits=2,
+        minimum_valid_visits=8,
         minimum_environment_points=40,
     )
 

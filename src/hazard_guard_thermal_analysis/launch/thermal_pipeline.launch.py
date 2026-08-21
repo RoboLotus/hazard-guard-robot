@@ -19,7 +19,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("roi_config", default_value=str(share / "config" / "demo_facility_scaled_rois.json")),
             DeclareLaunchArgument("baseline_path", default_value=""),
             DeclareLaunchArgument("baseline_collection_path", default_value=""),
-            DeclareLaunchArgument("baseline_minimum_valid_visits", default_value="10"),
+            DeclareLaunchArgument("baseline_minimum_valid_visits", default_value="8"),
             DeclareLaunchArgument("history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
             DeclareLaunchArgument("air_temperature_topic", default_value=""),
             DeclareLaunchArgument("oil_temperature_topic", default_value=""),

@@ -29,7 +29,7 @@ class TrendConfig:
     min_adjacent_hot_voxels: int = 2
     schema_version: int = 2
     # Schema-1 compatibility only. Schema 2 obtains these from approved baselines.
-    minimum_rise_c: float = 2.0
+    minimum_rise_c: float = 1.0
     minimum_slope_c_per_hour: float = 2.0
     adaptive_residual_c: float = 1.5
     noise_deadband_c: float = 0.2
