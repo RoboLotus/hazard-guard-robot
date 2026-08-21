@@ -4,6 +4,7 @@ project(hazard_guard_simulation)
 find_package(ament_cmake REQUIRED)
 find_package(ignition-gazebo6 REQUIRED)
 find_package(ignition-plugin1 REQUIRED COMPONENTS register)
+find_package(ignition-transport11 REQUIRED)
 
 add_library(hazard_guard_random_walk_system SHARED
   src/RandomWalkSystem.cc
@@ -19,6 +20,7 @@ add_library(hazard_guard_heat_transfer_system SHARED
 target_link_libraries(hazard_guard_heat_transfer_system PRIVATE
   ignition-gazebo6::ignition-gazebo6
   ignition-plugin1::ignition-plugin1
+  ignition-transport11::ignition-transport11
 )
 
 install(TARGETS

@@ -36,6 +36,11 @@ def test_generated_world_uses_transient_diffusion_and_stationary_worker(
                         "z": 0.3,
                         "temperature_c": 80.0,
                         "radius_m": 0.05,
+                        "incident_model": "discarded_lithium_power_bank",
+                        "incident_model_yaw_rad": 0.35,
+                        "temperature_topic": (
+                            "/hazard_guard/incident/battery/temperature"
+                        ),
                     }
                 ],
             }
@@ -50,10 +55,36 @@ def test_generated_world_uses_transient_diffusion_and_stationary_worker(
     assert float(controller.findtext("effective_diffusivity")) > 0.0
     assert float(controller.findtext("update_period")) == 0.5
     layers = controller.findall("layer")
-    assert len(layers) == len(MODULE.DIFFUSION_DISTANCE_MULTIPLIERS)
+    assert len(layers) == len(MODULE.DIFFUSION_DISTANCE_MULTIPLIERS) + 2
     distances = [float(layer.findtext("distance")) for layer in layers]
     assert distances == sorted(distances)
+    assert layers[0].findtext("always_visible") == "true"
+    assert all(
+        layer.findtext("temperature_topic")
+        == "/hazard_guard/incident/battery/temperature"
+        for layer in layers
+    )
     assert controller.find(".//delay") is None
+
+    battery = root.find(".//model[@name='discarded_lithium_power_bank']")
+    assert battery is not None
+    battery_pose = [float(value) for value in battery.findtext("pose").split()]
+    assert battery_pose[:2] == [1.0, 2.0]
+    assert battery_pose[2] == 0.3 + MODULE.BATTERY_Z_OFFSET_M
+    assert battery.find(".//sphere") is None
+    assert battery.findtext(".//collision/geometry/box/size") == "0.090 0.045 0.018"
+    visual_names = {
+        visual.get("name") for visual in battery.findall(".//visual")
+    }
+    assert visual_names == {
+        "body_visual",
+        "top_label_visual",
+        "usb_port_visual",
+        "warning_band_visual",
+    }
+    assert len(battery.findall(".//plugin[@filename='ignition-gazebo-thermal-system']")) == 4
+    controlled_models = [layer.findtext("model") for layer in layers]
+    assert controlled_models[0] == "discarded_lithium_power_bank"
 
     core = root.find(".//model[@name='sim-hot-motor_surface_core']")
     assert core is not None

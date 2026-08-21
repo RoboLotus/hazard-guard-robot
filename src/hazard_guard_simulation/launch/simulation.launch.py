@@ -29,6 +29,9 @@ def generate_launch_description() -> LaunchDescription:
     thermal_analysis_share = Path(
         get_package_share_directory("hazard_guard_thermal_analysis")
     )
+    gas_monitor_share = Path(
+        get_package_share_directory("hazard_guard_gas_monitor")
+    )
     ros_gz_share = Path(get_package_share_directory("ros_gz_sim"))
     default_world = simulation_share / "worlds" / "demo_facility_scaled.sdf"
     robot = simulation_share / "urdf" / "hazard_guard_m1.urdf.xacro"
@@ -56,6 +59,8 @@ def generate_launch_description() -> LaunchDescription:
     thermal_baseline_minimum_valid_visits = LaunchConfiguration(
         "thermal_baseline_minimum_valid_visits"
     )
+    use_gas_simulation = LaunchConfiguration("use_gas_simulation")
+    gas_scenario_path = LaunchConfiguration("gas_scenario_path")
 
     robot_description = ParameterValue(
         Command(
@@ -168,7 +173,18 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "thermal_baseline_minimum_valid_visits",
-                default_value="10",
+                default_value="8",
+            ),
+            DeclareLaunchArgument(
+                "use_gas_simulation",
+                default_value="true",
+                description="Run the VOC/CO/CO2 battery-venting simulator",
+            ),
+            DeclareLaunchArgument(
+                "gas_scenario_path",
+                default_value=str(
+                    gas_monitor_share / "config" / "demo_gas_scenario.json"
+                ),
             ),
             SetEnvironmentVariable(
                 "IGN_GAZEBO_RESOURCE_PATH",
@@ -243,6 +259,8 @@ def generate_launch_description() -> LaunchDescription:
                     "/depth_camera/image/points@sensor_msgs/msg/PointCloud2"
                     "[gz.msgs.PointCloudPacked",
                     "/thermal_camera/image@sensor_msgs/msg/Image[gz.msgs.Image",
+                    "/hazard_guard/incident/battery/temperature"
+                    "@std_msgs/msg/Float64]gz.msgs.Double",
                     # No thermal camera_info here on purpose. Fortress fills it
                     # from the default camera (fx 277, centre 160x120 for a
                     # 160x120 / 57 deg sensor), so thermal_camera_info.py
@@ -296,6 +314,9 @@ def generate_launch_description() -> LaunchDescription:
                         "sensor_frame": TMC160B.sensor_frame,
                         "publish_rate_hz": 2.0,
                         "heat_source_profile": heat_source_profile,
+                        "incident_status_topic": (
+                            "/hazard_guard/incident/battery/status"
+                        ),
                         "use_sim_time": use_sim_time,
                     }
                 ],
@@ -328,6 +349,16 @@ def generate_launch_description() -> LaunchDescription:
                     ),
                 }.items(),
                 condition=IfCondition(use_thermal_pipeline),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(gas_monitor_share / "launch" / "gas_simulation.launch.py")
+                ),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "scenario_path": gas_scenario_path,
+                }.items(),
+                condition=IfCondition(use_gas_simulation),
             ),
             TimerAction(
                 period=3.0,

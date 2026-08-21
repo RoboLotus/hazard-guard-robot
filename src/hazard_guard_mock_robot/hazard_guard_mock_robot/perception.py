@@ -7,6 +7,24 @@ from typing import Any
 from hazard_guard_sensor_config import TMC160B
 
 
+def equipment_id_from_heat_source(source: dict[str, Any]) -> str | None:
+    source_name = str(source.get("source") or "")
+    if not source_name.startswith("gazebo:"):
+        return None
+    equipment_id = source_name.split(":", 1)[1].strip()
+    return equipment_id or None
+
+
+def heat_source_temperature(
+    source: dict[str, Any],
+    incident_temperatures_c: dict[str, float],
+) -> float:
+    equipment_id = equipment_id_from_heat_source(source)
+    if equipment_id and equipment_id in incident_temperatures_c:
+        return float(incident_temperatures_c[equipment_id])
+    return float(source["temperature_c"])
+
+
 def normalize_angle(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Add a stationary factory worker and surface heat to the demo world.
+"""Add a worker, surface heat, and a battery incident to the demo world.
 
 The source world and heat profile are never modified. A generated runtime
 world receives configured equipment heat sources, low-cost transient surface
-zones, and one stationary factory worker with body heat. Thermal zones reuse
-real equipment OBJ submeshes, so the thermal
-camera sees heated machinery surfaces instead of floating diffusion spheres.
+zones, a discarded power-bank proxy, and one stationary factory worker with
+body heat. Thermal zones reuse real equipment OBJ submeshes, so the thermal
+camera sees heated objects and machinery surfaces instead of diffusion spheres.
 """
 
 from __future__ import annotations
@@ -32,6 +32,8 @@ EQUIPMENT_MESH_SCALE = 0.07474982
 # A 0.15% expansion prevents z-fighting while remaining within 3 mm of the
 # original equipment surface at the largest model extents.
 THERMAL_OVERLAY_SCALE = EQUIPMENT_MESH_SCALE * 1.0015
+BATTERY_BODY_SIZE = (0.090, 0.045, 0.018)
+BATTERY_Z_OFFSET_M = 0.018
 
 # Each temperature zone reuses submeshes from the existing factory equipment.
 # The core is held at the configured source temperature. The three surrounding
@@ -214,6 +216,70 @@ def person_model() -> str:
     </model>"""
 
 
+def incident_model_pose(source: dict[str, object]) -> tuple[float, ...]:
+    return (
+        float(source["x"]),
+        float(source["y"]),
+        float(source["z"]) + BATTERY_Z_OFFSET_M,
+        0.08,
+        -0.06,
+        float(source.get("incident_model_yaw_rad", 0.35)),
+    )
+
+
+def lithium_battery_model(source: dict[str, object]) -> str:
+    """Create a recognizable power-bank proxy at the battery incident source."""
+
+    model_name = str(source.get("incident_model") or "").strip()
+    if not model_name:
+        return ""
+    pose = " ".join(f"{value:.6f}" for value in incident_model_pose(source))
+    temperature_k = float(source["temperature_c"]) + 273.15
+    body_x, body_y, body_z = BATTERY_BODY_SIZE
+    return f"""
+    <model name="{model_name}">
+      <static>true</static>
+      <pose>{pose}</pose>
+      <link name="battery_link">
+        <collision name="body_collision">
+          <geometry><box><size>{body_x:.3f} {body_y:.3f} {body_z:.3f}</size></box></geometry>
+        </collision>
+        <visual name="body_visual">
+          <geometry><box><size>{body_x:.3f} {body_y:.3f} {body_z:.3f}</size></box></geometry>
+          <material>
+            <ambient>0.035 0.045 0.055 1</ambient>
+            <diffuse>0.055 0.070 0.085 1</diffuse>
+            <specular>0.25 0.25 0.25 1</specular>
+          </material>{thermal_plugin(temperature_k)}
+        </visual>
+        <visual name="top_label_visual">
+          <pose>0 0 {body_z / 2.0 + 0.0006:.4f} 0 0 0</pose>
+          <geometry><box><size>0.050 0.026 0.001</size></box></geometry>
+          <material>
+            <ambient>0.72 0.74 0.76 1</ambient>
+            <diffuse>0.82 0.84 0.86 1</diffuse>
+          </material>{thermal_plugin(temperature_k)}
+        </visual>
+        <visual name="usb_port_visual">
+          <pose>{body_x / 2.0 + 0.0007:.4f} 0 0 0 1.570796 0</pose>
+          <geometry><box><size>0.012 0.006 0.001</size></box></geometry>
+          <material>
+            <ambient>0.01 0.01 0.01 1</ambient>
+            <diffuse>0.015 0.015 0.015 1</diffuse>
+          </material>{thermal_plugin(temperature_k)}
+        </visual>
+        <visual name="warning_band_visual">
+          <pose>-0.020 0 {body_z / 2.0 + 0.0012:.4f} 0 0 0</pose>
+          <geometry><box><size>0.012 0.028 0.0015</size></box></geometry>
+          <material>
+            <ambient>0.95 0.55 0.02 1</ambient>
+            <diffuse>1.0 0.62 0.03 1</diffuse>
+          </material>{thermal_plugin(temperature_k)}
+        </visual>
+      </link>
+    </model>"""
+
+
 def transfer_controller(sources: list[dict[str, object]]) -> str:
     layers = []
     for source in sources:
@@ -221,6 +287,39 @@ def transfer_controller(sources: list[dict[str, object]]) -> str:
         source_temperature_k = float(source["temperature_c"]) + 273.15
         decay_length = max(0.16, radius * 3.5)
         pose = " ".join(f"{value:.6f}" for value in EQUIPMENT_MODEL_POSE)
+        temperature_topic = str(source.get("temperature_topic") or "").strip()
+        topic_xml = (
+            f"\n          <temperature_topic>{temperature_topic}</temperature_topic>"
+            if temperature_topic
+            else ""
+        )
+        incident_model = str(source.get("incident_model") or "").strip()
+        if incident_model:
+            incident_pose = " ".join(
+                f"{value:.6f}" for value in incident_model_pose(source)
+            )
+            layers.append(
+                f"""
+        <layer>
+          <model>{incident_model}</model>
+          <distance>0.0</distance>
+          <source_temperature>{source_temperature_k:.2f}</source_temperature>
+          <decay_length>{decay_length:.5f}</decay_length>
+          <pose>{incident_pose}</pose>
+          <always_visible>true</always_visible>{topic_xml}
+        </layer>"""
+            )
+        layers.append(
+            f"""
+        <layer>
+          <model>{source['detection_id']}_surface_core</model>
+          <distance>0.0</distance>
+          <source_temperature>{source_temperature_k:.2f}</source_temperature>
+          <decay_length>{decay_length:.5f}</decay_length>
+          <pose>{pose}</pose>
+          <always_visible>true</always_visible>{topic_xml}
+        </layer>"""
+        )
         for layer_index, multiplier in enumerate(
             DIFFUSION_DISTANCE_MULTIPLIERS, start=1
         ):
@@ -232,7 +331,7 @@ def transfer_controller(sources: list[dict[str, object]]) -> str:
           <distance>{distance:.5f}</distance>
           <source_temperature>{source_temperature_k:.2f}</source_temperature>
           <decay_length>{decay_length:.5f}</decay_length>
-          <pose>{pose}</pose>
+          <pose>{pose}</pose>{topic_xml}
         </layer>"""
             )
     return f"""
@@ -259,6 +358,9 @@ def additions(profile: dict[str, object]) -> str:
     ]
     for source in sources:
         radius = float(source["radius_m"])
+        incident_model = lithium_battery_model(source)
+        if incident_model:
+            parts.append(incident_model)
         parts.append(equipment_core(source))
         for layer_index, multiplier in enumerate(
             DIFFUSION_DISTANCE_MULTIPLIERS, start=1

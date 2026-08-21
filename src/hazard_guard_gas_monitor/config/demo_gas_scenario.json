@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "frame_id": "odom",
+  "source": {
+    "id": "battery_venting_bunker",
+    "name": "폐기물 적치 구역 배터리 벤팅",
+    "equipment_id": "bunker_waste_pile",
+    "x": -1.70464,
+    "y": -0.718916,
+    "visual_model_id": "discarded_lithium_power_bank",
+    "dispersion_length_m": 1.45,
+    "wind_x_mps": 0.08,
+    "wind_y_mps": 0.02
+  },
+  "ambient": {
+    "voc_index": 100.0,
+    "co_ppm": 0.3,
+    "co2_ppm": 450.0
+  },
+  "timeline": [
+    {
+      "phase": "normal",
+      "start_sec": 0.0,
+      "voc_delta": 0.0,
+      "co_delta_ppm": 0.0,
+      "co2_delta_ppm": 0.0,
+      "surface_temperature_c": 25.0
+    },
+    {
+      "phase": "voc_venting",
+      "start_sec": 15.0,
+      "voc_delta": 210.0,
+      "co_delta_ppm": 0.0,
+      "co2_delta_ppm": 20.0,
+      "surface_temperature_c": 29.0
+    },
+    {
+      "phase": "heating",
+      "start_sec": 55.0,
+      "voc_delta": 280.0,
+      "co_delta_ppm": 9.0,
+      "co2_delta_ppm": 220.0,
+      "surface_temperature_c": 58.0
+    },
+    {
+      "phase": "combustion",
+      "start_sec": 95.0,
+      "voc_delta": 340.0,
+      "co_delta_ppm": 40.0,
+      "co2_delta_ppm": 1300.0,
+      "surface_temperature_c": 105.0
+    }
+  ],
+  "sensor": {
+    "voc_time_constant_sec": 3.5,
+    "co_time_constant_sec": 24.0,
+    "co2_time_constant_sec": 55.0,
+    "fan_time_constant_multiplier": 0.55,
+    "warmup_sec": 5.0,
+    "noise_seed": 41,
+    "voc_noise_std": 1.2,
+    "co_noise_std_ppm": 0.05,
+    "co2_noise_std_ppm": 3.0,
+    "thermal_time_constant_sec": 10.0
+  },
+  "decision": {
+    "voc_watch_delta": 25.0,
+    "voc_persistent_samples": 3,
+    "voc_clear_delta": 10.0,
+    "clear_samples": 5,
+    "investigation_delay_sec": 8.0,
+    "co_warning_delta_ppm": 5.0,
+    "co_critical_delta_ppm": 20.0,
+    "thermal_confirmation_max_age_sec": 15.0
+  }
+}

@@ -10,6 +10,7 @@
 
   <depend>ignition-gazebo6</depend>
   <depend>ignition-plugin1</depend>
+  <depend>ignition-transport11</depend>
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>
@@ -19,6 +20,7 @@
   <exec_depend>hazard_guard_safety_supervisor</exec_depend>
   <exec_depend>hazard_guard_thermal_analysis</exec_depend>
   <exec_depend>hazard_guard_mission_manager</exec_depend>
+  <exec_depend>hazard_guard_gas_monitor</exec_depend>
   <exec_depend>hazard_guard_mock_robot</exec_depend>
   <exec_depend>hazard_guard_performance_monitor</exec_depend>
   <exec_depend>launch</exec_depend>

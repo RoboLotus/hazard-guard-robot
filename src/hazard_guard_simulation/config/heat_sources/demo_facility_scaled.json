@@ -35,9 +35,12 @@
       "x": -1.70464,
       "y": -0.718916,
       "z": 0.12355,
-      "temperature_c": 71.3,
+      "temperature_c": 25.0,
       "radius_m": 0.074,
-      "source": "gazebo:bunker_waste_pile"
+      "source": "gazebo:bunker_waste_pile",
+      "temperature_topic": "/hazard_guard/incident/battery/temperature",
+      "incident_model": "discarded_lithium_power_bank",
+      "incident_model_yaw_rad": 0.35
     }
   ]
 }

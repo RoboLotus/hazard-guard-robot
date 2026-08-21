@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -14,9 +15,13 @@
 #include <ignition/gazebo/components/Model.hh>
 #include <ignition/gazebo/components/Name.hh>
 #include <ignition/gazebo/components/Pose.hh>
+#include <ignition/gazebo/components/Temperature.hh>
 #include <ignition/gazebo/components/Visual.hh>
+#include <ignition/math/Temperature.hh>
+#include <ignition/msgs/double.pb.h>
 #include <ignition/math/Pose3.hh>
 #include <ignition/plugin/Register.hh>
+#include <ignition/transport/Node.hh>
 
 namespace hazard_guard_simulation
 {
@@ -36,6 +41,8 @@ private:
     ignition::gazebo::Entity entity{ignition::gazebo::kNullEntity};
     std::vector<ignition::gazebo::Entity> thermalEntities;
     bool visible{false};
+    bool alwaysVisible{false};
+    bool dynamicTemperature{false};
   };
 
 public:
@@ -75,7 +82,25 @@ public:
       layer.decayLength = std::max(
         1e-4, elem->Get<double>("decay_length", layer.decayLength).first);
       layer.visiblePose = elem->Get<ignition::math::Pose3d>("pose");
+      layer.alwaysVisible = elem->Get<bool>(
+        "always_visible", false).first;
+      layer.visible = layer.alwaysVisible;
+      if (elem->HasElement("temperature_topic"))
+      {
+        const auto topic = elem->Get<std::string>("temperature_topic");
+        layer.dynamicTemperature = !topic.empty();
+        if (this->temperatureTopic.empty())
+          this->temperatureTopic = topic;
+      }
       this->layers.push_back(layer);
+    }
+
+    if (!this->temperatureTopic.empty())
+    {
+      this->transportNode.Subscribe(
+        this->temperatureTopic,
+        &HeatTransferSystem::OnTemperature,
+        this);
     }
   }
 
@@ -112,16 +137,43 @@ public:
       }
 
       const double temperature = this->LayerTemperature(layer, now);
+      this->SetLayerTemperature(layer, temperature, ecm);
       if (!layer.visible &&
         temperature >= this->ambientTemperature + this->minimumVisibleRise)
       {
         this->SetLayerPose(layer, layer.visiblePose, ecm);
         layer.visible = true;
       }
+      else if (layer.dynamicTemperature && !layer.alwaysVisible &&
+        layer.visible &&
+        temperature < this->ambientTemperature + this->minimumVisibleRise)
+      {
+        this->SetLayerPose(
+          layer, ignition::math::Pose3d(0, 0, -10, 0, 0, 0), ecm);
+        layer.visible = false;
+      }
     }
   }
 
 private:
+  void OnTemperature(const ignition::msgs::Double & message)
+  {
+    if (!std::isfinite(message.data()) || message.data() < 0.0)
+      return;
+    std::lock_guard<std::mutex> lock(this->temperatureMutex);
+    this->dynamicSourceTemperature = message.data();
+    this->hasDynamicSourceTemperature = true;
+  }
+
+  double SourceTemperature(const Layer & layer) const
+  {
+    if (!layer.dynamicTemperature)
+      return layer.sourceTemperature;
+    std::lock_guard<std::mutex> lock(this->temperatureMutex);
+    return this->hasDynamicSourceTemperature ?
+      this->dynamicSourceTemperature : layer.sourceTemperature;
+  }
+
   double LayerTemperature(const Layer & layer, const double now) const
   {
     // Low-cost constant-source diffusion approximation. Heat arrival follows
@@ -133,7 +185,7 @@ private:
       return this->ambientTemperature;
 
     const double sourceRise = std::max(
-      0.0, layer.sourceTemperature - this->ambientTemperature);
+      0.0, this->SourceTemperature(layer) - this->ambientTemperature);
     const double steadyRise =
       sourceRise * std::exp(-layer.distance / layer.decayLength);
     const double localResponseTime = this->responseTime + 0.35 * arrivalTime;
@@ -183,6 +235,33 @@ private:
       ignition::gazebo::ComponentState::OneTimeChange);
   }
 
+  void SetLayerTemperature(
+    Layer & layer,
+    const double temperature,
+    ignition::gazebo::EntityComponentManager & ecm)
+  {
+    for (const auto entity : layer.thermalEntities)
+    {
+      const ignition::math::Temperature value(temperature);
+      auto component =
+        ecm.Component<ignition::gazebo::components::Temperature>(entity);
+      if (component)
+      {
+        *component = ignition::gazebo::components::Temperature(value);
+        ecm.SetChanged(
+          entity,
+          ignition::gazebo::components::Temperature::typeId,
+          ignition::gazebo::ComponentState::OneTimeChange);
+      }
+      else
+      {
+        ecm.CreateComponent(
+          entity,
+          ignition::gazebo::components::Temperature(value));
+      }
+    }
+  }
+
   void ResetLayer(
     Layer & layer,
     ignition::gazebo::EntityComponentManager & ecm)
@@ -190,9 +269,12 @@ private:
     if (layer.entity != ignition::gazebo::kNullEntity)
     {
       this->SetLayerPose(
-        layer, ignition::math::Pose3d(0, 0, -10, 0, 0, 0), ecm);
+        layer,
+        layer.alwaysVisible ? layer.visiblePose :
+        ignition::math::Pose3d(0, 0, -10, 0, 0, 0),
+        ecm);
     }
-    layer.visible = false;
+    layer.visible = layer.alwaysVisible;
   }
 
   double ambientTemperature{293.15};
@@ -202,6 +284,11 @@ private:
   double minimumVisibleRise{0.35};
   double lastTime{0.0};
   double lastUpdateTime{-1.0};
+  ignition::transport::Node transportNode;
+  std::string temperatureTopic;
+  mutable std::mutex temperatureMutex;
+  double dynamicSourceTemperature{293.15};
+  bool hasDynamicSourceTemperature{false};
   std::vector<Layer> layers;
 };
 }  // namespace hazard_guard_simulation

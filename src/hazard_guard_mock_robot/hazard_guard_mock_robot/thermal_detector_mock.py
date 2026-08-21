@@ -8,10 +8,16 @@ import rclpy
 from hazard_guard_interfaces.msg import HazardDetection
 from hazard_guard_sensor_config import TMC160B
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
+from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 
-from .perception import transform_planar_point, visible_heat_sources
+from .perception import (
+    heat_source_temperature,
+    transform_planar_point,
+    visible_heat_sources,
+)
 
 
 class ThermalDetectorMock(Node):
@@ -53,7 +59,7 @@ class ThermalDetectorMock(Node):
             "x": -1.5098,
             "y": -0.718,
             "z": 0.2548,
-            "temperature_c": 71.3,
+            "temperature_c": 25.0,
             "radius_m": 0.074,
             "source": "gazebo:bunker_waste_pile",
         },
@@ -75,10 +81,15 @@ class ThermalDetectorMock(Node):
         self.declare_parameter("publish_rate_hz", 2.0)
         self.declare_parameter("heat_source_frame", "odom")
         self.declare_parameter("heat_source_profile", "")
+        self.declare_parameter(
+            "incident_status_topic",
+            "/hazard_guard/incident/battery/status",
+        )
         self._heat_sources = self._load_heat_sources(
             str(self.get_parameter("heat_source_profile").value)
         )
         self._tracked_sources: dict[str, dict] = {}
+        self._incident_temperatures_c: dict[str, float] = {}
         self._publisher = self.create_publisher(
             HazardDetection,
             "/hazard_guard/thermal_detections",
@@ -86,6 +97,17 @@ class ThermalDetectorMock(Node):
         )
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
+        incident_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            String,
+            str(self.get_parameter("incident_status_topic").value),
+            self._on_incident_status,
+            incident_qos,
+        )
         publish_rate = max(
             0.2,
             float(self.get_parameter("publish_rate_hz").value),
@@ -101,6 +123,17 @@ class ThermalDetectorMock(Node):
             "visualization boundary, "
             "not a hardware range claim."
         )
+
+    def _on_incident_status(self, message: String) -> None:
+        try:
+            payload = json.loads(message.data)
+            equipment_id = str(payload["equipment_id"]).strip()
+            temperature_c = float(payload["surface_temperature_c"])
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
+        if not equipment_id or not math.isfinite(temperature_c):
+            return
+        self._incident_temperatures_c[equipment_id] = temperature_c
 
     def _load_heat_sources(self, profile_value: str) -> list[dict]:
         if not profile_value:
@@ -202,7 +235,10 @@ class ThermalDetectorMock(Node):
             message.x = map_x
             message.y = map_y
             message.z = map_z
-            message.temperature_c = float(source["temperature_c"])
+            message.temperature_c = heat_source_temperature(
+                source,
+                self._incident_temperatures_c,
+            )
             message.confidence = float(source["confidence"])
             message.radius_m = float(source["radius_m"])
             message.source = source["source"]

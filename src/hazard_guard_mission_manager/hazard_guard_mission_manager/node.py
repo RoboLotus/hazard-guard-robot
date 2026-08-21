@@ -18,7 +18,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 
 from .alignment import (
@@ -93,6 +93,11 @@ class HazardGuardMissionManager(Node):
         self.declare_parameter("pre_rotation_retries", 1)
         self.declare_parameter("server_wait_timeout_sec", 8.0)
         self.declare_parameter("safety_supervision_enabled", False)
+        self.declare_parameter("gas_supervision_enabled", True)
+        self.declare_parameter(
+            "gas_navigation_pause_topic",
+            "/hazard_guard/gas/navigation_pause",
+        )
         self.declare_parameter(
             "person_safety_topic",
             "/hazard_guard/person/safety_state",
@@ -157,10 +162,18 @@ class HazardGuardMissionManager(Node):
                 self.get_parameter("safety_supervision_enabled").value
             )
         )
+        self._gas_pause = threading.Event()
         self._safety_subscription = self.create_subscription(
             PersonSafetyState,
             str(self.get_parameter("person_safety_topic").value),
             self._on_person_safety,
+            10,
+            callback_group=self._callback_group,
+        )
+        self._gas_pause_subscription = self.create_subscription(
+            Bool,
+            str(self.get_parameter("gas_navigation_pause_topic").value),
+            self._on_gas_navigation_pause,
             10,
             callback_group=self._callback_group,
         )
@@ -180,7 +193,7 @@ class HazardGuardMissionManager(Node):
                 self.get_parameter("server_wait_timeout_sec").value
             ),
             check_canceled=self._raise_if_canceled,
-            safety_is_paused=self._safety.is_paused,
+            safety_is_paused=self._is_navigation_paused,
         )
         self._mission_state.publish()
         self.get_logger().info(
@@ -203,6 +216,32 @@ class HazardGuardMissionManager(Node):
                         f"{message.reason}"
                     ).strip(),
                 )
+
+    def _on_gas_navigation_pause(self, message: Bool) -> None:
+        if not bool(self.get_parameter("gas_supervision_enabled").value):
+            return
+        was_paused = self._gas_pause.is_set()
+        if message.data:
+            self._gas_pause.set()
+        else:
+            self._gas_pause.clear()
+        if not message.data:
+            return
+        with self._state_lock:
+            active = self._mission_active
+        if active:
+            self._nav.cancel_active_for_safety()
+            if not was_paused:
+                self._update_state(
+                    status="gas_investigation_paused",
+                    message=(
+                        "가스 이상을 정지 상태에서 재측정하기 위해 "
+                        "순찰을 일시정지했습니다."
+                    ),
+                )
+
+    def _is_navigation_paused(self) -> bool:
+        return self._safety.is_paused() or self._gas_pause.is_set()
 
     def _goal_callback(self, request: RunPatrol.Goal) -> GoalResponse:
         with self._state_lock:
@@ -663,7 +702,7 @@ class HazardGuardMissionManager(Node):
                     slice_seconds = min(0.1, remaining)
                     started = time.monotonic()
                     time.sleep(slice_seconds)
-                    if not self._safety.is_paused():
+                    if not self._is_navigation_paused():
                         remaining -= time.monotonic() - started
                 self._set_thermal_focus(None)
             completed = index + 1
@@ -881,23 +920,32 @@ class HazardGuardMissionManager(Node):
 
     def _wait_for_safety_clear(self, goal_handle: Any) -> None:
         announced = False
-        while self._safety.is_paused():
+        while self._is_navigation_paused():
             self._raise_if_canceled(goal_handle)
             if not announced:
-                _state, reason = self._safety.snapshot()
-                self._update_state(
-                    status="safety_paused",
-                    message=(
-                        "사람 안전 구역이 확보될 때까지 대기합니다. "
-                        f"{reason}"
-                    ).strip(),
-                )
+                if self._gas_pause.is_set():
+                    self._update_state(
+                        status="gas_investigation_paused",
+                        message=(
+                            "VOC·CO 재측정이 끝나고 가스 상태가 "
+                            "해제될 때까지 정지합니다."
+                        ),
+                    )
+                else:
+                    _state, reason = self._safety.snapshot()
+                    self._update_state(
+                        status="safety_paused",
+                        message=(
+                            "사람 안전 구역이 확보될 때까지 대기합니다. "
+                            f"{reason}"
+                        ).strip(),
+                    )
                 announced = True
             time.sleep(0.05)
         if announced:
             self._update_state(
                 status="executing",
-                message="안전 구역이 확보되어 현재 목적지를 다시 계획합니다.",
+                message="안전 조건이 확보되어 현재 목적지를 다시 계획합니다.",
             )
 
     def _wait_for_scheduled_start(
