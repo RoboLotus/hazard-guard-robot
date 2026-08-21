@@ -17,9 +17,11 @@ import time
 import cv2
 import numpy as np
 import rclpy
+from geometry_msgs.msg import TransformStamped
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
+from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 import yaml
 
 try:
@@ -105,6 +107,46 @@ def calibrated_camera_info(path: Path, frame_id: str) -> CameraInfo:
     return message
 
 
+def calibrated_extrinsic(path: Path, expected_child: str) -> TransformStamped:
+    """Load the physical RGB-parent to thermal-child static transform YAML."""
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError(f"thermal extrinsic must be a mapping: {path}")
+    parent = str(document.get("parent_frame_id", "")).strip()
+    child = str(document.get("child_frame_id", "")).strip()
+    if not parent or not child:
+        raise ValueError(f"parent_frame_id and child_frame_id are required: {path}")
+    if child != expected_child:
+        raise ValueError(
+            f"extrinsic child frame {child!r} does not match configured "
+            f"frame_id {expected_child!r}"
+        )
+    translation = document.get("translation")
+    rotation = document.get("rotation_xyzw")
+    if not isinstance(translation, dict) or not isinstance(rotation, dict):
+        raise ValueError(f"translation and rotation_xyzw are required: {path}")
+
+    message = TransformStamped()
+    message.header.frame_id = parent
+    message.child_frame_id = child
+    message.transform.translation.x = float(translation["x"])
+    message.transform.translation.y = float(translation["y"])
+    message.transform.translation.z = float(translation["z"])
+    message.transform.rotation.x = float(rotation["x"])
+    message.transform.rotation.y = float(rotation["y"])
+    message.transform.rotation.z = float(rotation["z"])
+    message.transform.rotation.w = float(rotation["w"])
+    norm = math.sqrt(
+        message.transform.rotation.x ** 2
+        + message.transform.rotation.y ** 2
+        + message.transform.rotation.z ** 2
+        + message.transform.rotation.w ** 2
+    )
+    if not math.isfinite(norm) or abs(norm - 1.0) > 1.0e-3:
+        raise ValueError(f"extrinsic quaternion is not normalized: {path}")
+    return message
+
+
 def image_message(pixels: np.ndarray, encoding: str, frame_id: str, stamp) -> Image:
     pixels = np.ascontiguousarray(pixels)
     message = Image()
@@ -163,6 +205,7 @@ class ThermalCameraPublisher(Node):
         self.declare_parameter("publish_rate_hz", 9.0)
         self.declare_parameter("horizontal_fov_deg", 57.0)
         self.declare_parameter("calibration_file", "")
+        self.declare_parameter("extrinsic_file", "")
         self.declare_parameter("min_temp_c", 10.0)
         self.declare_parameter("max_temp_c", 60.0)
         self.declare_parameter("color_scale_mode", "sdk")
@@ -178,6 +221,8 @@ class ThermalCameraPublisher(Node):
         self._width = int(self.get_parameter("width").value)
         self._height = int(self.get_parameter("height").value)
         self._camera_info = self._make_camera_info()
+        self._static_broadcaster = StaticTransformBroadcaster(self)
+        self._publish_extrinsic()
 
         self._raw_publisher = self.create_publisher(
             Image, "/thermal_camera/image_raw", qos_profile_sensor_data
@@ -204,15 +249,19 @@ class ThermalCameraPublisher(Node):
         value = str(self.get_parameter("calibration_file").value).strip()
         if value:
             path = Path(value).expanduser().resolve()
-            message = calibrated_camera_info(path, self._frame_id)
-            if (message.width, message.height) != (self._width, self._height):
-                raise ValueError(
-                    "calibration resolution does not match requested camera "
-                    f"resolution: {(message.width, message.height)} != "
-                    f"{(self._width, self._height)}"
-                )
-            self.get_logger().info(f"Loaded thermal calibration: {path}")
-            return message
+            if path.is_file():
+                message = calibrated_camera_info(path, self._frame_id)
+                if (message.width, message.height) != (self._width, self._height):
+                    raise ValueError(
+                        "calibration resolution does not match requested camera "
+                        f"resolution: {(message.width, message.height)} != "
+                        f"{(self._width, self._height)}"
+                    )
+                self.get_logger().info(f"Loaded thermal calibration: {path}")
+                return message
+            self.get_logger().warning(
+                f"Thermal calibration file does not exist yet: {path}"
+            )
         self.get_logger().warning(
             "No physical thermal calibration file was supplied; CameraInfo "
             "uses the provisional 57-degree FOV and zero distortion"
@@ -222,6 +271,28 @@ class ThermalCameraPublisher(Node):
             self._height,
             self._frame_id,
             float(self.get_parameter("horizontal_fov_deg").value),
+        )
+
+    def _publish_extrinsic(self) -> None:
+        value = str(self.get_parameter("extrinsic_file").value).strip()
+        if not value:
+            self.get_logger().warning(
+                "No physical thermal extrinsic file was supplied; thermal "
+                "frame is not attached to the RGB-D TF tree"
+            )
+            return
+        path = Path(value).expanduser().resolve()
+        if not path.is_file():
+            self.get_logger().warning(
+                f"Thermal extrinsic file does not exist yet: {path}"
+            )
+            return
+        message = calibrated_extrinsic(path, self._frame_id)
+        message.header.stamp = self.get_clock().now().to_msg()
+        self._static_broadcaster.sendTransform(message)
+        self.get_logger().info(
+            f"Loaded thermal extrinsic: {message.header.frame_id} -> "
+            f"{message.child_frame_id} ({path})"
         )
 
     def _connect(self) -> bool:

@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "thermal_camera_publisher.py"
@@ -79,3 +80,26 @@ def test_sdk_rgb_bitmap_is_converted_to_bgr() -> None:
 
     assert image.shape == (1, 2, 3)
     assert image.tolist() == [[[30, 20, 10], [60, 50, 40]]]
+
+
+def test_physical_extrinsic_yaml_builds_rgb_parent_thermal_child(tmp_path) -> None:
+    path = tmp_path / "extrinsic.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "parent_frame_id": "ascamera_hp60c_color_0",
+                "child_frame_id": "thermal_camera_optical_frame",
+                "translation": {"x": 0.0, "y": 0.068, "z": 0.0},
+                "rotation_xyzw": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    message = MODULE.calibrated_extrinsic(
+        path, "thermal_camera_optical_frame"
+    )
+
+    assert message.header.frame_id == "ascamera_hp60c_color_0"
+    assert message.child_frame_id == "thermal_camera_optical_frame"
+    assert message.transform.translation.y == 0.068

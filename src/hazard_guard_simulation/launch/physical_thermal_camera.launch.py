@@ -1,5 +1,7 @@
 """Launch the physical ThermoEye camera and an optional color viewer."""
 
+from pathlib import Path
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
@@ -9,10 +11,18 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
+    calibration_root = Path("~/.local/share/hazard_guard/calibration").expanduser()
     return LaunchDescription(
         [
             DeclareLaunchArgument("show_gui", default_value="false"),
-            DeclareLaunchArgument("calibration_file", default_value=""),
+            DeclareLaunchArgument(
+                "calibration_file",
+                default_value=str(calibration_root / "thermal_intrinsics.yaml"),
+            ),
+            DeclareLaunchArgument(
+                "extrinsic_file",
+                default_value=str(calibration_root / "thermal_rgb_extrinsic.yaml"),
+            ),
             DeclareLaunchArgument("frame_id", default_value="thermal_camera_optical_frame"),
             DeclareLaunchArgument("min_temp_c", default_value="10.0"),
             DeclareLaunchArgument("max_temp_c", default_value="60.0"),
@@ -28,6 +38,7 @@ def generate_launch_description() -> LaunchDescription:
                 parameters=[
                     {
                         "calibration_file": LaunchConfiguration("calibration_file"),
+                        "extrinsic_file": LaunchConfiguration("extrinsic_file"),
                         "frame_id": LaunchConfiguration("frame_id"),
                         "min_temp_c": ParameterValue(
                             LaunchConfiguration("min_temp_c"), value_type=float
