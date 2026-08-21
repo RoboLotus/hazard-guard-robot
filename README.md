@@ -624,6 +624,33 @@ xacro ... thermal_mount_y:=0.073 thermal_mount_yaw:=0.035   # 5 mm, 2° 틀기
 
 ### 카메라 스트림 보기
 
+실물 ThermoEye TMC160F는 공식 TmSDK ARM64 패키지와 Python 바인딩을 설치한
+뒤 다음 launch로 실행합니다. `show_gui:=true`이면 TmSDK의 Inferno 컬러맵,
+noise filtering, `to_bitmap()` 변환을 사용한 영상을 `rqt_image_view`에 바로
+표시합니다. 이 컬러 영상은 표시용이며 원시 온도 단위는 바꾸지 않습니다.
+
+```bash
+ros2 launch hazard_guard_simulation physical_thermal_camera.launch.py \
+  show_gui:=true
+```
+
+기본 `color_scale_mode:=sdk`는 제조사 SDK 예제와 같은 렌더링 경로입니다.
+서로 다른 시점에도 같은 색이 같은 절대온도를 뜻해야 하는 기록·비교 용도에는
+`color_scale_mode:=fixed min_temp_c:=10.0 max_temp_c:=60.0`을 사용합니다.
+
+실물 퍼블리셔의 ROS 인터페이스는 다음과 같습니다.
+
+| 토픽 | 인코딩 | 내용 |
+|---|---|---|
+| `/thermal_camera/image_sensor_raw` | `16UC1` | TmSDK Y16 원본 |
+| `/thermal_camera/image_raw` | `mono16` | Kelvin × 100 표준 입력 |
+| `/thermal_camera/image_color` | `bgr8` | TmSDK Inferno(기본) 또는 수동 범위 컬러 영상 |
+| `/thermal_camera/camera_info` | `CameraInfo` | 열화상 내부파라미터 |
+
+`calibration_file`을 지정하지 않으면 `camera_info`는 57° FOV와 무왜곡을 사용한
+임시값입니다. 실물 내부파라미터 캘리브레이션 후 표준 ROS camera YAML 경로를
+`calibration_file:=...`로 전달해야 합니다.
+
 시뮬레이션이 떠 있는 상태에서 창을 띄웁니다. 기본은 열화상과 뎁스 2개이고,
 `show_rgb:=true` 로 RGB도 함께 볼 수 있습니다.
 
