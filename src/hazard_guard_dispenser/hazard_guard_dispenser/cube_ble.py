@@ -25,6 +25,7 @@ except ImportError:
 SERVICE_UUID = "7f4a0001-9c2b-4d3e-8a1f-6b0c5d2e9f31"
 COMMAND_UUID = "7f4a0002-9c2b-4d3e-8a1f-6b0c5d2e9f31"
 REPORT_UUID  = "7f4a0003-9c2b-4d3e-8a1f-6b0c5d2e9f31"
+BATTERY_UUID = "7f4a0004-9c2b-4d3e-8a1f-6b0c5d2e9f31"
 
 CMD_ARM    = b"A"
 CMD_CANCEL = b"C"
@@ -33,11 +34,13 @@ RPT_NONE       = 0
 RPT_DROPPED    = 1
 RPT_SHAKEN_OFF = 2
 RPT_AUTO_OFF   = 3
+RPT_LOW_BATT   = 4
 
 RPT_NAME = {
     RPT_DROPPED:    "DROPPED (떨어짐)",
     RPT_SHAKEN_OFF: "SHAKEN_OFF (흔들어서 끔)",
     RPT_AUTO_OFF:   "AUTO_OFF (자동 소등)",
+    RPT_LOW_BATT:   "LOW_BATT (배터리 부족 소등)",
 }
 
 
@@ -55,6 +58,7 @@ class CubeLink:
         self._lock = threading.Lock()
         self._running = False
 
+        self._battery = {}
         self._drop_event = threading.Event()
         self._drop_addr = None
         self.on_cube_off = None
@@ -188,6 +192,14 @@ class CubeLink:
             await client.start_notify(
                 REPORT_UUID,
                 lambda _s, data, addr=dev.address: self._on_report(addr, data))
+            try:
+                await client.start_notify(
+                    BATTERY_UUID,
+                    lambda _s, data, addr=dev.address: self._on_battery(addr, data))
+                raw = await client.read_gatt_char(BATTERY_UUID)
+                self._on_battery(dev.address, raw)
+            except Exception:
+                self._warn(f"{dev.address}: 배터리 특성 없음 (구버전 펌웨어)")
             with self._lock:
                 self._clients[dev.address] = client
             self._info(f"큐브 연결됨: {dev.address} "
@@ -224,6 +236,36 @@ class CubeLink:
                     self.on_cube_off(address, code)
                 except Exception as e:
                     self._error(f"소등 콜백 오류: {e}")
+
+    def _on_battery(self, address, data):
+        """큐브가 보낸 배터리 값. 전압을 10배한 1바이트."""
+        if not data:
+            return
+        volts = data[0] / 10.0
+        prev = self._battery.get(address)
+        self._battery[address] = volts
+        if prev is None or abs(volts - prev) >= 0.1:
+            self._info(f"배터리 {address}: {volts:.1f}V ({self._pct(volts)}%)")
+        if volts < 10.5:
+            self._warn(f"배터리 부족 {address}: {volts:.1f}V. 충전 필요")
+
+    @staticmethod
+    def _pct(volts):
+        pct = (volts - 9.0) / (12.6 - 9.0) * 100.0
+        return int(max(0, min(100, pct)) + 0.5)
+
+    def battery_levels(self):
+        """{주소: (전압, 잔량%)} 형태로 반환."""
+        return {address: (volts, self._pct(volts))
+                for address, volts in self._battery.items()}
+
+    def lowest_battery(self):
+        """가장 낮은 큐브의 (주소, 전압, 잔량%). 값이 없으면 None."""
+        if not self._battery:
+            return None
+        address = min(self._battery, key=self._battery.get)
+        volts = self._battery[address]
+        return address, volts, self._pct(volts)
 
     async def _cancel_others(self, winner):
         with self._lock:

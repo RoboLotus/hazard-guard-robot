@@ -81,6 +81,7 @@ class DispenserNode(Node):
         self.declare_parameter("arm_lead_time", 0.3)
         self.declare_parameter("arm_repeat", 2)
         self.declare_parameter("drop_report_timeout", 2.5)
+        self.declare_parameter("battery_report_sec", 60.0)
         self.declare_parameter(
             "request_ledger_path",
             os.getenv(
@@ -145,8 +146,12 @@ class DispenserNode(Node):
 
         self.pub = self.create_publisher(
             String, "hazard_guard/dispenser/status", 10)
+        self.batt_pub = self.create_publisher(
+            String, "hazard_guard/dispenser/battery", 10)
         self.result_pub = self.create_publisher(
             String, "hazard_guard/dispenser/result", 10)
+        if self.cube_link:
+            self.create_timer(self._p("battery_report_sec"), self._publish_battery)
         try:
             from hazard_guard_interfaces.srv import DispenserRequestStatus
 
@@ -220,6 +225,8 @@ class DispenserNode(Node):
             self.get_logger().info("챔버 대기 위치로 복귀")
         elif cmd == "status":
             self._publish_status()
+        elif cmd == "battery":
+            self._publish_battery()
         elif cmd.startswith("angle:"):
             if not allow_maintenance_command(
                 cmd, self._p("allow_maintenance_manual_commands")
@@ -238,6 +245,23 @@ class DispenserNode(Node):
 
     def _on_cube_off(self, address, code):
         self.get_logger().info(f"큐브 소등 확인: {address}")
+
+    def _publish_battery(self):
+        if not self.cube_link:
+            return
+        levels = self.cube_link.battery_levels()
+        if not levels:
+            return
+        parts = [f"{address[-5:]}={volts:.1f}V/{pct}%"
+                 for address, (volts, pct) in levels.items()]
+        msg = String()
+        msg.data = " ".join(parts)
+        self.batt_pub.publish(msg)
+
+        low = self.cube_link.lowest_battery()
+        if low and low[1] < 10.5:
+            self.get_logger().warn(
+                f"큐브 배터리 부족: {low[0]} {low[1]:.1f}V ({low[2]}%)")
 
     def _on_odom(self, message):
         now = time.monotonic()
