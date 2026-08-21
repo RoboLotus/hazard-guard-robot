@@ -44,6 +44,7 @@ def test_physical_speed_profile_is_consistent_and_keeps_safe_acceleration():
     smoother = params["velocity_smoother"]["ros__parameters"]
 
     assert follow_path["max_vel_x"] == 0.14
+    assert follow_path["min_vel_x"] == 0.0
     assert follow_path["max_vel_y"] == 0.12
     assert follow_path["max_vel_theta"] == 0.42
     assert follow_path["max_speed_xy"] == 0.14
@@ -90,4 +91,69 @@ def test_physical_mission_alignment_uses_relaxed_sampled_policy():
     assert mission["pose_sample_count"] == 5
     assert mission["pose_min_valid_samples"] == 3
     assert mission["pose_sample_interval_sec"] == 0.15
+    assert mission["forward_approach_min_distance_m"] == 0.15
+    assert mission["pre_rotation_yaw_tolerance_rad"] == 0.10
+    assert mission["pre_rotation_timeout_sec"] == 30.0
+    assert mission["pre_rotation_retries"] == 1
+    assert mission["thermal_service_timeout_sec"] == 5.0
     assert "parameters=[nav2_params_file]" in source
+
+
+def test_person_safety_defaults_on_and_gates_only_motor_facing_cmd_vel():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert 'DeclareLaunchArgument(\n                "use_person_safety"' in source
+    assert '"use_person_safety",\n                default_value="true"' in source
+    assert 'DeclareLaunchArgument("person_device", default_value="0")' in source
+    assert '"physical_m1_bringup.launch.py"' in source
+    assert '"motor_cmd_vel_topic": "/cmd_vel_safe"' in source
+    assert 'condition=UnlessCondition(use_person_safety)' in source
+    assert 'condition=IfCondition(use_person_safety)' in source
+    assert '"hazard_guard_person_detection"' in source
+    assert '"hazard_guard_safety_supervisor"' in source
+    assert 'name="safety_supervision_enabled"' in source
+
+
+def test_physical_person_detection_uses_hp60c_rgb_and_depth_topics():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert "/ascamera_hp60c/camera_publisher/rgb0/image" in source
+    assert "/ascamera_hp60c/camera_publisher/depth0/image_raw" in source
+    assert '"start_person_camera"' in source
+    assert '"person_depth_registration_verified"' in source
+    assert '"person_confidence"' in source
+    assert '"person_image_size"' in source
+    assert '"person_inference_rate_hz"' in source
+    assert '"confidence": person_confidence' in source
+    assert '"image_size": person_image_size' in source
+    assert '"inference_rate_hz": person_inference_rate_hz' in source
+
+
+def test_physical_thermal_policy_forwards_local_baseline_collection():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    for argument in (
+        "thermal_baseline_path",
+        "thermal_baseline_collection_path",
+        "thermal_baseline_minimum_valid_visits",
+        "thermal_air_temperature_topic",
+        "thermal_oil_temperature_topic",
+        "thermal_sensor_timeout_sec",
+    ):
+        assert f'"{argument}"' in source
+    assert '"simulated": "false"' in source
+    assert '"required_frame_id": "map"' in source
+
+
+def test_only_physical_motor_driver_consumes_gated_velocity() -> None:
+    source = (PACKAGE / "launch" / "physical_m1_bringup.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'executable="Mcnamu_driver_M1"' in source
+    assert 'remappings=[("cmd_vel", motor_cmd_vel_topic)]' in source
+    assert 'Node(package="yahboomcar_ctrl", executable="yahboom_joy_M1")' in source
+    assert 'get_package_share_directory("ydlidar_ros2_driver")' in source
+    assert '"ydlidar_launch.py"' in source
+    assert "sllidar_c1_launch.py" not in source
+    assert "SetRemap" not in source
