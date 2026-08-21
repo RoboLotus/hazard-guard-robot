@@ -62,6 +62,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_thermal_cloud
     test/test_thermal_cloud.py
   )
+  ament_add_pytest_test(test_thermal_camera_publisher
+    test/test_thermal_camera_publisher.py
+  )
   ament_add_pytest_test(test_rtabmap_real_launch
     test/test_rtabmap_real_launch.py
   )
