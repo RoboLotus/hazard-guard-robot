@@ -19,7 +19,7 @@
     "history_window_visits": 8,
     "trend_window_visits": 3,
     "minimum_step_c": 0.5,
-    "minimum_total_rise_c": 2.0,
+    "minimum_total_rise_c": 1.0,
     "default_adaptive_delta_c": 10.0,
     "environment_reference_enabled": true,
     "minimum_environment_points": 40

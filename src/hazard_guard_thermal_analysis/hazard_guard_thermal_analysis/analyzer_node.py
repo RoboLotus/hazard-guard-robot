@@ -37,7 +37,7 @@ class ThermalVoxelAnalyzer(Node):
         self.declare_parameter("roi_config", "")
         self.declare_parameter("baseline_path", "")
         self.declare_parameter("baseline_collection_path", "")
-        self.declare_parameter("baseline_minimum_valid_visits", 10)
+        self.declare_parameter("baseline_minimum_valid_visits", 8)
         self.declare_parameter("history_path", "")
         self.declare_parameter("air_temperature_topic", "")
         self.declare_parameter("oil_temperature_topic", "")

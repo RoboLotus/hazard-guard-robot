@@ -8,7 +8,7 @@ def config() -> TrendConfig:
         history_window_visits=8,
         min_trend_visits=3,
         minimum_step_c=0.5,
-        minimum_rise_c=2.0,
+        minimum_rise_c=1.0,
         default_adaptive_delta_c=10.0,
     )
 
@@ -87,6 +87,15 @@ def test_trend_only_requests_recheck_without_baseline() -> None:
     assert current["adaptive"] is False
     assert current["status"] == "watch"
     assert current["reason"] == "trend_only_recheck"
+
+
+def test_one_degree_total_rise_is_a_trend_at_the_configured_boundary() -> None:
+    history = [visit(30.0, 0.0), visit(30.5, 60.0)]
+    current = decision(evaluate_visit(visit(31.0, 120.0), history, config()))
+    assert current["trend"] is True
+    assert current["total_rise_c"] == 1.0
+    assert current["minimum_rise_threshold_c"] == 1.0
+    assert current["status"] == "watch"
 
 
 def test_adaptive_only_requests_recheck() -> None:

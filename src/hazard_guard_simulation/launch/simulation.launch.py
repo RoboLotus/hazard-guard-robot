@@ -168,7 +168,7 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "thermal_baseline_minimum_valid_visits",
-                default_value="10",
+                default_value="8",
             ),
             SetEnvironmentVariable(
                 "IGN_GAZEBO_RESOURCE_PATH",
