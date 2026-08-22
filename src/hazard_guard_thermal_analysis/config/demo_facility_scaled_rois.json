@@ -31,9 +31,9 @@
       "name": "폐기물 적치 구역",
       "min": [-1.95, -0.95, 0.02],
       "max": [-1.45, -0.45, 0.35],
-      "critical_temperature_c": 49.0,
+      "critical_temperature_c": 60.0,
       "adaptive_delta_c": 10.0,
-      "threshold_basis": "UK Environment Agency permit EPR/KP3031YD/A001: 49 C action trigger and +10 C adjacent hotspot investigation"
+      "threshold_basis": "Waste-facility thermal response: London Energy acts at 60 C and TAV Ludwigslust alarms at 65 C; 60 C also covers a -5 C TMC160B measurement error at the 65 C action point"
     },
     {
       "id": "primary_shredder_motor",

@@ -104,7 +104,7 @@ def test_facility_schema3_loads_sourced_thresholds_and_simple_rule() -> None:
     assert config.min_points_per_roi_for_p95 == 40
     assert config.recommended_points_per_roi_for_p95 == 100
     assert (config.min_hot_cluster_pixels, config.min_adjacent_hot_voxels) == (9, 2)
-    assert waste.critical_temperature_c == 49.0
+    assert waste.critical_temperature_c == 60.0
     assert motor.critical_temperature_c == 110.0
     assert pump.critical_temperature_c == 105.0
     assert tank.critical_temperature_c == 82.0
