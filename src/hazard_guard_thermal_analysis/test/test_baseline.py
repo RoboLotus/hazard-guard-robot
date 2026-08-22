@@ -5,7 +5,7 @@ import pytest
 from hazard_guard_thermal_analysis.baseline import load_baselines
 
 
-def baseline_document(*, sample_count=10, schema_version=2):
+def baseline_document(*, sample_count=8, schema_version=2):
     return {
         "schema_version": schema_version,
         "equipment": {
@@ -22,12 +22,12 @@ def baseline_document(*, sample_count=10, schema_version=2):
     }
 
 
-def test_simple_baseline_requires_ten_patrols(tmp_path):
+def test_simple_baseline_requires_eight_patrols(tmp_path):
     path = tmp_path / "short.json"
     path.write_text(
-        json.dumps(baseline_document(sample_count=9)), encoding="utf-8"
+        json.dumps(baseline_document(sample_count=7)), encoding="utf-8"
     )
-    with pytest.raises(ValueError, match="at least 10"):
+    with pytest.raises(ValueError, match="at least 8"):
         load_baselines(path)
 
 
@@ -36,7 +36,7 @@ def test_valid_simple_baseline_loads_without_sigma(tmp_path):
     path.write_text(json.dumps(baseline_document()), encoding="utf-8")
     baseline = load_baselines(path)["motor"].equipment
     assert baseline.temperature_c == 35.0
-    assert baseline.sample_count == 10
+    assert baseline.sample_count == 8
     assert baseline.environment_delta_c == 15.0
     assert baseline.sigma_normal_c == 0.0
     assert baseline.state == "provisional"

@@ -78,12 +78,12 @@ class BaselineCollector:
         baseline_path: str | Path,
         equipment_ids: Sequence[str],
         *,
-        minimum_valid_visits: int = 10,
+        minimum_valid_visits: int = 8,
         minimum_environment_points: int = 40,
         stability_recovery_visits: int = 3,
     ) -> None:
-        if minimum_valid_visits < 2:
-            raise ValueError("minimum_valid_visits must be at least two")
+        if minimum_valid_visits < 8:
+            raise ValueError("minimum_valid_visits must be at least eight")
         if minimum_environment_points < 1:
             raise ValueError("minimum_environment_points must be positive")
         if stability_recovery_visits < 1:
