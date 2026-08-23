@@ -39,6 +39,7 @@ from .request_ledger import (
     IdempotencyConflictError,
     RequestLedger,
     RequestLedgerError,
+    TERMINAL_STATES,
 )
 from .command_policy import (
     allow_legacy_drop,
@@ -47,6 +48,7 @@ from .command_policy import (
 )
 from .battery_policy import BatteryPolicy
 from .approval_auth import valid_command_authorization
+from .actuation_gate import ActuationGate
 from .servo_profile import ServoProfile
 from .person_safety import PersonSafetyLatch
 
@@ -188,7 +190,7 @@ class DispenserNode(Node):
         self.current_angle = self._p("angle_home")
         self.drop_count = 0
         self._motion_lock = threading.Lock()
-        self._action_cancel_requests = set()
+        self._actuation_gate = ActuationGate()
         self._last_odom_monotonic = None
         self._stopped_since_monotonic = None
         self.request_ledger = None
@@ -309,20 +311,32 @@ class DispenserNode(Node):
 
     def _dispense_cancel_callback(self, goal_handle):
         request_id = str(goal_handle.request.request_id).strip()
-        try:
-            record = (
-                self.request_ledger.get(request_id)
-                if self.request_ledger
-                else None
+
+        def eligible() -> bool:
+            try:
+                record = (
+                    self.request_ledger.get(request_id)
+                    if self.request_ledger
+                    else None
+                )
+            except RequestLedgerError as exc:
+                self.get_logger().error(f"Action 취소 원장 조회 실패: {exc}")
+                return False
+            if record is None:
+                return True
+            return (
+                not bool(record.get("actuation_started"))
+                and str(record.get("state") or "") not in TERMINAL_STATES
             )
-        except RequestLedgerError as exc:
-            self.get_logger().error(f"Action 취소 원장 조회 실패: {exc}")
+
+        if not self._actuation_gate.request_cancel(
+            request_id,
+            eligible=eligible,
+        ):
+            self.get_logger().warning(
+                "서보 동작이 시작됐거나 요청이 종료되어 Action 취소를 거부합니다"
+            )
             return CancelResponse.REJECT
-        if record and bool(record.get("actuation_started")):
-            self.get_logger().warning("서보 동작이 시작되어 Action 취소를 거부합니다")
-            return CancelResponse.REJECT
-        with self.lock:
-            self._action_cancel_requests.add(request_id)
         return CancelResponse.ACCEPT
 
     def _dispense_action_result(self, record):
@@ -354,6 +368,7 @@ class DispenserNode(Node):
                 goal_handle.succeed()
             else:
                 goal_handle.abort()
+            self._actuation_gate.finish(request_id)
             return self._dispense_action_result(immediate)
         deadline = time.monotonic() + max(
             1.0, float(self._p("action_result_timeout_sec"))
@@ -382,8 +397,7 @@ class DispenserNode(Node):
                         goal_handle.succeed()
                     else:
                         goal_handle.abort()
-                    with self.lock:
-                        self._action_cancel_requests.discard(request_id)
+                    self._actuation_gate.finish(request_id)
                     return self._dispense_action_result(record)
             time.sleep(0.05)
         record = self.request_ledger.get(request_id) if self.request_ledger else None
@@ -778,9 +792,7 @@ class DispenserNode(Node):
                     self.cube_link.cancel_all()
                 return
             time.sleep(self._p("arm_lead_time"))
-            with self.lock:
-                canceled = request_id in self._action_cancel_requests
-            if canceled:
+            if self._actuation_gate.cancel_requested(request_id):
                 if self.cube_link:
                     self.cube_link.cancel_all()
                 final_record = self.request_ledger.transition(
@@ -829,10 +841,24 @@ class DispenserNode(Node):
                 if self.cube_link:
                     self.cube_link.cancel_all()
                 return
+            if not self._actuation_gate.claim_actuation(
+                request_id,
+                mark_started=lambda: self.request_ledger.transition(
+                    request_id,
+                    "dispensing",
+                    actuation_started=True,
+                ),
+            ):
+                if self.cube_link:
+                    self.cube_link.cancel_all()
+                final_record = self.request_ledger.transition(
+                    request_id,
+                    "canceled",
+                    result_detail="action_canceled_before_actuation",
+                    actuation_started=False,
+                )
+                return
             actuation_started = True
-            self.request_ledger.transition(
-                request_id, "dispensing", actuation_started=True
-            )
             self._go_to(self._p("angle_dump"), safety_guard=True)
 
             # 2) 낙하 보고 대기
@@ -895,6 +921,7 @@ class DispenserNode(Node):
                 pass
             self._publish(f"error:{e}")
         finally:
+            self._actuation_gate.finish(request_id)
             with self.lock:
                 self.busy = False
             if final_record is not None:
