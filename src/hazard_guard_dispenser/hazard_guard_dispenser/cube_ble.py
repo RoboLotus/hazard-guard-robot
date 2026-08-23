@@ -66,6 +66,7 @@ class CubeLink:
         self._unavailable = set()
         self._drop_event = threading.Event()
         self._drop_addr = None
+        self._arm_invalidated = threading.Event()
         self.on_cube_off = None
         self.on_status_change = None
 
@@ -101,6 +102,7 @@ class CubeLink:
         """배출 직전 호출. 반환값 = 신호가 전달된 큐브 수."""
         self._drop_event.clear()
         self._drop_addr = None
+        self._arm_invalidated.clear()
 
         if not BLEAK_AVAILABLE or not self._loop:
             self._warn("BLE 사용 불가. ARM 미발송")
@@ -128,6 +130,9 @@ class CubeLink:
         if self._drop_event.wait(timeout):
             return self._drop_addr
         return None
+
+    def arm_is_valid(self):
+        return not self._arm_invalidated.is_set()
 
     def cancel_all(self):
         if not BLEAK_AVAILABLE or not self._loop:
@@ -217,7 +222,6 @@ class CubeLink:
                 self._warn(f"{dev.address}: 배터리 특성 없음 (구버전 펌웨어)")
             with self._lock:
                 self._clients[dev.address] = client
-                self._unavailable.discard(dev.address)
             self._info(f"큐브 연결됨: {dev.address} "
                        f"({self.connected_count()}/{self.expected})")
             self._notify_status_change()
@@ -250,6 +254,7 @@ class CubeLink:
                     self._cancel_others(address), self._loop)
         elif code in (RPT_SHAKEN_OFF, RPT_AUTO_OFF, RPT_LOW_BATT):
             if code == RPT_LOW_BATT:
+                self._arm_invalidated.set()
                 with self._lock:
                     self._unavailable.add(address)
                 if self._loop is not None:
@@ -407,22 +412,27 @@ class CubeLink:
     async def _send_all(
         self, payload, repeat, interval, allowed_addresses=None
     ):
-        with self._lock:
-            targets = [
-                client
-                for address, client in self._clients.items()
-                if client.is_connected
-                and address not in self._unavailable
-                and (
-                    allowed_addresses is None
-                    or address in allowed_addresses
-                )
-            ]
-        if not targets:
-            self._error("연결된 큐브 없음")
-            return 0
         ok = 0
         for i in range(repeat):
+            with self._lock:
+                targets = [
+                    client
+                    for address, client in self._clients.items()
+                    if client.is_connected
+                    and (
+                        payload != CMD_ARM
+                        or address not in self._unavailable
+                    )
+                    and (
+                        allowed_addresses is None
+                        or address in allowed_addresses
+                    )
+                ]
+            if payload == CMD_ARM and self._arm_invalidated.is_set():
+                break
+            if not targets:
+                self._error("전송 가능한 큐브 없음")
+                return 0
             results = await asyncio.gather(
                 *[self._write_one(c, payload) for c in targets],
                 return_exceptions=True)

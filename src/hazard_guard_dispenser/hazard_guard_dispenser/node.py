@@ -17,6 +17,7 @@ Jetson ─BLE─ 비콘 큐브 ×N
 """
 
 import json
+import math
 import os
 import threading
 import time
@@ -130,9 +131,11 @@ class DispenserNode(Node):
             valid_min_voltage=float(self._p("battery_valid_min_voltage")),
             valid_max_voltage=float(self._p("battery_valid_max_voltage")),
         )
-        if float(self._p("battery_report_sec")) <= 0:
+        battery_report_sec = float(self._p("battery_report_sec"))
+        battery_stale_sec = float(self._p("battery_stale_sec"))
+        if not math.isfinite(battery_report_sec) or battery_report_sec <= 0:
             raise ValueError("battery_report_sec는 0보다 커야 합니다")
-        if float(self._p("battery_stale_sec")) <= 0:
+        if not math.isfinite(battery_stale_sec) or battery_stale_sec <= 0:
             raise ValueError("battery_stale_sec는 0보다 커야 합니다")
         if int(self._p("arm_repeat")) < 1:
             raise ValueError("arm_repeat는 1 이상이어야 합니다")
@@ -556,6 +559,20 @@ class DispenserNode(Node):
                     self.cube_link.cancel_all()
                 return
             time.sleep(self._p("arm_lead_time"))
+            if self.cube_link and not self.cube_link.arm_is_valid():
+                self.get_logger().error(
+                    "ARM 이후 저전압 보고가 발생해 물리 배출을 중단합니다"
+                )
+                final_record = self.request_ledger.transition(
+                    request_id,
+                    "rejected_no_confirmation",
+                    result_detail="arm_invalidated_by_low_battery",
+                    connected_cubes=self.cube_link.connected_count(),
+                    actuation_started=False,
+                )
+                self.cube_link.cancel_all()
+                self._publish("rejected_no_confirmation")
+                return
 
             # 1) 기울임
             self.get_logger().info("  1) 챔버 기울임")
