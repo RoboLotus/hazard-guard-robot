@@ -56,7 +56,8 @@ def main():
             "with Ctrl+C, then run this viewer again."
         )
 
-    camera.begin_acquisition()
+    # query_frame() is TmSDK's polling mode. begin_acquisition() is only for
+    # callback mode and must not run at the same time.
     camera.set_temp_unit(TempUnit.CELSIUS)
     camera.set_color_map(ColormapTypes.Inferno)
     camera.set_noise_filtering(True)
@@ -146,10 +147,7 @@ def main():
                 break
     finally:
         cv2.destroyAllWindows()
-        try:
-            camera.end_acquisition()
-        finally:
-            camera.close()
+        camera.close()
 
 
 if __name__ == "__main__":

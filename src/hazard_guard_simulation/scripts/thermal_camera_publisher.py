@@ -323,7 +323,9 @@ class ThermalCameraPublisher(Node):
                 raise RuntimeError(
                     f"failed to open {selected.name} on {selected.com_port}"
                 )
-            self._camera.begin_acquisition()
+            # QueryFrame is the SDK's polling acquisition mode.  Do not call
+            # BeginAcquisition here: TmSDK 2.1 reserves it for callback mode,
+            # and running both modes makes the polling capture time out.
             self._camera.set_color_map(ColormapTypes.Inferno)
             self._camera.set_noise_filtering(
                 bool(self.get_parameter("sdk_noise_filtering").value)
@@ -341,10 +343,6 @@ class ThermalCameraPublisher(Node):
 
     def _disconnect(self) -> None:
         if self._connected:
-            try:
-                self._camera.end_acquisition()
-            except Exception:
-                pass
             try:
                 self._camera.close()
             except Exception:
