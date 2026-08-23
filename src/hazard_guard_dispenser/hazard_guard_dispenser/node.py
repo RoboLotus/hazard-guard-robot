@@ -26,6 +26,7 @@ import re
 
 import rclpy
 from nav_msgs.msg import Odometry
+from hazard_guard_interfaces.msg import PersonSafetyState
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
@@ -41,7 +42,9 @@ from .command_policy import (
     physical_drop_block_reason,
 )
 from .battery_policy import BatteryPolicy
+from .approval_auth import valid_command_authorization
 from .servo_profile import ServoProfile
+from .person_safety import PersonSafetyLatch
 
 
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
@@ -113,6 +116,11 @@ class DispenserNode(Node):
         self.declare_parameter("stop_linear_mps", 0.02)
         self.declare_parameter("stop_angular_rps", 0.05)
         self.declare_parameter("stop_hold_sec", 0.5)
+        self.declare_parameter(
+            "person_safety_topic", "/hazard_guard/person/safety_state"
+        )
+        self.declare_parameter("person_safety_timeout_sec", 1.0)
+        self.declare_parameter("require_person_safety_clear", True)
 
         self.servo_id = self._p("servo_id")
         self.servo_profile = ServoProfile(
@@ -131,6 +139,24 @@ class DispenserNode(Node):
             valid_min_voltage=float(self._p("battery_valid_min_voltage")),
             valid_max_voltage=float(self._p("battery_valid_max_voltage")),
         )
+        require_person_safety_clear = bool(
+            self._p("require_person_safety_clear")
+        )
+        if bool(self._p("enable_physical_drop")) and not require_person_safety_clear:
+            raise ValueError(
+                "실물 배출에서는 require_person_safety_clear를 끌 수 없습니다"
+            )
+        self.person_safety = PersonSafetyLatch(
+            required=require_person_safety_clear,
+            timeout_sec=float(self._p("person_safety_timeout_sec")),
+        )
+        self._approval_secret = os.getenv(
+            "HAZARD_GUARD_DISPENSER_APPROVAL_SECRET", ""
+        ).strip()
+        if bool(self._p("enable_physical_drop")) and not self._approval_secret:
+            raise ValueError(
+                "실물 배출에는 HAZARD_GUARD_DISPENSER_APPROVAL_SECRET가 필요합니다"
+            )
         battery_report_sec = float(self._p("battery_report_sec"))
         battery_stale_sec = float(self._p("battery_stale_sec"))
         if not math.isfinite(battery_report_sec) or battery_report_sec <= 0:
@@ -217,6 +243,12 @@ class DispenserNode(Node):
             self._on_odom,
             10,
         )
+        self.create_subscription(
+            PersonSafetyState,
+            str(self._p("person_safety_topic")),
+            self._on_person_safety,
+            10,
+        )
 
         if self._p("home_on_startup") and self.hardware_ready:
             self._go_to(self._p("angle_home"), smooth=False)
@@ -251,13 +283,25 @@ class DispenserNode(Node):
             if detection_id is not None and not REQUEST_ID_PATTERN.fullmatch(detection_id):
                 self.get_logger().warn("유효하지 않은 detection_id 배출 요청을 거부했습니다")
                 return
+            if not valid_command_authorization(
+                self._approval_secret,
+                request_id=request_id,
+                detection_id=detection_id,
+                authorization=str(payload.get("authorization") or ""),
+            ):
+                self.get_logger().error(
+                    "관리자 승인 서명이 없거나 올바르지 않아 배출을 거부했습니다"
+                )
+                return
             self._request_drop(request_id, detection_id)
             return
 
         cmd = raw.lower()
 
         if cmd == "drop":
-            if not allow_legacy_drop(self._p("allow_legacy_unkeyed_commands")):
+            if bool(self._p("enable_physical_drop")) or not allow_legacy_drop(
+                self._p("allow_legacy_unkeyed_commands")
+            ):
                 self.get_logger().warn("멱등 키 없는 legacy drop 명령을 거부했습니다")
                 return
             self.get_logger().warn("legacy drop 명령: 개발 전용 멱등성 우회")
@@ -444,6 +488,25 @@ class DispenserNode(Node):
             return False
         return now - stopped_since >= float(self._p("stop_hold_sec"))
 
+    def _on_person_safety(self, message):
+        self.person_safety.update(
+            state=int(message.state),
+            detector_stale=bool(message.detector_stale),
+        )
+        if self.busy and self.person_safety.block_reason() is not None:
+            if self.cube_link:
+                self.cube_link.cancel_all()
+
+    def _physical_safety_block_reason(self):
+        person_reason = self.person_safety.block_reason()
+        if person_reason is not None:
+            return person_reason
+        return physical_drop_block_reason(
+            enabled=bool(self._p("enable_physical_drop")),
+            hardware_available=self.hardware_ready,
+            motion_stopped=self._motion_is_stably_stopped(),
+        )
+
     # ---------------- 배출 ----------------
     def _request_drop(self, request_id, detection_id):
         with self.lock:
@@ -487,11 +550,7 @@ class DispenserNode(Node):
             if not created:
                 self._publish_result({**record, "duplicate": True})
                 return
-            block_reason = physical_drop_block_reason(
-                enabled=bool(self._p("enable_physical_drop")),
-                hardware_available=self.hardware_ready,
-                motion_stopped=self._motion_is_stably_stopped(),
-            )
+            block_reason = self._physical_safety_block_reason()
             if block_reason is not None:
                 state = (
                     "hardware_unavailable"
@@ -526,18 +585,24 @@ class DispenserNode(Node):
 
             # 0) ARM — 반드시 기울이기 "전에"
             armed = 0
+            safety_reason = self._physical_safety_block_reason()
+            if safety_reason is not None:
+                final_record = self.request_ledger.transition(
+                    request_id,
+                    "safety_interlock",
+                    result_detail=safety_reason,
+                    actuation_started=False,
+                )
+                return
             if self.cube_link:
                 self.get_logger().info("  0) 큐브에 ARM 발송")
                 armed = self.cube_link.arm_all(
                     repeat=self._p("arm_repeat"),
                     allowed_addresses=self._eligible_cube_addresses(),
                 )
-            block_reason = physical_drop_block_reason(
-                enabled=True,
-                hardware_available=self.hardware_ready,
-                motion_stopped=self._motion_is_stably_stopped(),
-                armed_count=armed,
-            )
+            block_reason = self._physical_safety_block_reason()
+            if block_reason is None and armed < 1:
+                block_reason = "no_ble_confirmation_channel"
             if block_reason is not None:
                 state = (
                     "rejected_no_confirmation"
@@ -559,6 +624,17 @@ class DispenserNode(Node):
                     self.cube_link.cancel_all()
                 return
             time.sleep(self._p("arm_lead_time"))
+            safety_reason = self._physical_safety_block_reason()
+            if safety_reason is not None:
+                final_record = self.request_ledger.transition(
+                    request_id,
+                    "safety_interlock",
+                    result_detail=safety_reason,
+                    actuation_started=False,
+                )
+                if self.cube_link:
+                    self.cube_link.cancel_all()
+                return
             if self.cube_link and not self.cube_link.begin_actuation():
                 self.get_logger().error(
                     "ARM 이후 저전압 보고가 발생해 물리 배출을 중단합니다"
@@ -576,11 +652,22 @@ class DispenserNode(Node):
 
             # 1) 기울임
             self.get_logger().info("  1) 챔버 기울임")
+            safety_reason = self._physical_safety_block_reason()
+            if safety_reason is not None:
+                final_record = self.request_ledger.transition(
+                    request_id,
+                    "safety_interlock",
+                    result_detail=safety_reason,
+                    actuation_started=False,
+                )
+                if self.cube_link:
+                    self.cube_link.cancel_all()
+                return
             actuation_started = True
             self.request_ledger.transition(
                 request_id, "dispensing", actuation_started=True
             )
-            self._go_to(self._p("angle_dump"))
+            self._go_to(self._p("angle_dump"), safety_guard=True)
 
             # 2) 낙하 보고 대기
             dropped_by = None
@@ -651,7 +738,7 @@ class DispenserNode(Node):
             self._publish_status()
 
     # ---------------- 서보 ----------------
-    def _go_to(self, target, smooth=True):
+    def _go_to(self, target, smooth=True, safety_guard=False):
         if not self.hardware_ready or self.bot is None:
             raise RuntimeError("Rosmaster 하드웨어가 준비되지 않았습니다")
         target = self.servo_profile.validate_target(int(target))
@@ -670,6 +757,12 @@ class DispenserNode(Node):
 
         angle = self.current_angle
         while angle != target:
+            if safety_guard:
+                safety_reason = self._physical_safety_block_reason()
+                if safety_reason is not None:
+                    raise RuntimeError(
+                        f"physical safety changed during actuation: {safety_reason}"
+                    )
             move = min(step, abs(target - angle))
             angle += move * direction
             self.bot.set_pwm_servo(self.servo_id, angle)
@@ -693,8 +786,10 @@ class DispenserNode(Node):
 
     def _on_request_status(self, request, response):
         request_id = str(request.request_id).strip()
+        expected_detection_id = str(request.detection_id).strip()
         if self.request_ledger is None or not REQUEST_ID_PATTERN.fullmatch(request_id):
             response.found = False
+            response.fingerprint_matches = False
             response.record_json = ""
             return response
         try:
@@ -702,9 +797,15 @@ class DispenserNode(Node):
         except RequestLedgerError as exc:
             self.get_logger().error(f"요청 원장 조회 실패: {exc}")
             response.found = False
+            response.fingerprint_matches = False
             response.record_json = ""
             return response
         response.found = record is not None
+        response.fingerprint_matches = bool(
+            record is not None
+            and str(record.get("detection_id") or "")
+            == expected_detection_id
+        )
         response.record_json = (
             json.dumps(record, ensure_ascii=False, separators=(",", ":"))
             if record is not None else ""

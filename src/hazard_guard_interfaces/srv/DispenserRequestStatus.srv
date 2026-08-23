@@ -1,4 +1,6 @@
 string request_id
+string detection_id
 ---
 bool found
+bool fingerprint_matches
 string record_json

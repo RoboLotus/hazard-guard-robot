@@ -62,7 +62,7 @@ def test_thermal_service_completes_before_returning():
     response = SimpleNamespace(success=True, message="recorded")
     client = FakeClient(FakeFuture(response))
 
-    assert manager._call_thermal_service(client, "cycle 1") is True
+    assert manager._call_thermal_service(client, "cycle 1") is response
     assert client.calls == 1
     assert manager._thermal_sequence_faulted is False
 
@@ -72,11 +72,11 @@ def test_thermal_timeout_disables_later_calls_for_the_mission():
     future = FakeFuture(complete=False)
     client = FakeClient(future)
 
-    assert manager._call_thermal_service(client, "cycle 1") is False
+    assert manager._call_thermal_service(client, "cycle 1") is None
     assert future.cancelled is True
     assert manager._thermal_sequence_faulted is True
 
-    assert manager._call_thermal_service(client, "cycle 2") is False
+    assert manager._call_thermal_service(client, "cycle 2") is None
     assert client.calls == 1
 
 
@@ -84,6 +84,6 @@ def test_inactive_optional_service_does_not_fault_the_mission():
     manager = make_manager()
     client = FakeClient(FakeFuture(), ready=False)
 
-    assert manager._call_thermal_service(client, "cycle 1") is False
+    assert manager._call_thermal_service(client, "cycle 1") is None
     assert manager._thermal_sequence_faulted is False
     assert client.calls == 0

@@ -2,6 +2,7 @@ string incident_id
 string request_id
 string decision
 string operator_id
+string authorization
 ---
 bool accepted
 string incident_id

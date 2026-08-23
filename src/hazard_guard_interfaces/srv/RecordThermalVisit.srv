@@ -1,0 +1,5 @@
+string correlation_id
+---
+bool success
+string message
+int64 visit_index

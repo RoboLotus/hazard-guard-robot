@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/BagRecorderControl.srv"
   "srv/DispenserRequestStatus.srv"
   "srv/HazardDecision.srv"
+  "srv/RecordThermalVisit.srv"
   DEPENDENCIES builtin_interfaces std_msgs
 )
 

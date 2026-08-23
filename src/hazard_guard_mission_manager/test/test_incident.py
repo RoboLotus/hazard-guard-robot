@@ -1,6 +1,7 @@
 import unittest
 
 from hazard_guard_mission_manager.incident import (
+    DECISION_ACKNOWLEDGE_FIELD_CHECK,
     DECISION_COMPLETE_MONITORING,
     DECISION_DROP_THEN_MONITOR,
     IncidentApprovalLatch,
@@ -174,6 +175,60 @@ class IncidentApprovalLatchTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             latch.mark_dispense_succeeded(dispenser_request_id="  ")
+
+    def test_progress_does_not_return_to_approval(self):
+        latch = IncidentApprovalLatch()
+        latch.open({"incident_id": "thermal-pump"})
+        latch.decide(
+            incident_id="thermal-pump",
+            request_id="decision-1",
+            decision=DECISION_DROP_THEN_MONITOR,
+            operator_id="operator",
+        )
+        for state in ("dispensing", "waiting", "homing"):
+            record = latch.mark_dispense_progress(
+                dispenser_request_id="decision-1",
+                state=state,
+            )
+            self.assertEqual(record["state"], "dispensing")
+            self.assertEqual(record["dispenser_progress"], state)
+
+    def test_cancel_does_not_overwrite_resolved_incident(self):
+        latch = IncidentApprovalLatch()
+        latch.open({"incident_id": "thermal-pump"})
+        latch.decide(
+            incident_id="thermal-pump",
+            request_id="decision-1",
+            decision="resume",
+            operator_id="operator",
+        )
+        latch.resolve_resume()
+        self.assertIsNone(latch.cancel("mission complete"))
+        self.assertEqual(latch.snapshot()["state"], "resolved")
+
+    def test_field_check_requires_explicit_acknowledgement(self):
+        latch = IncidentApprovalLatch()
+        latch.open({"incident_id": "thermal-pump"})
+        latch.decide(
+            incident_id="thermal-pump",
+            request_id="decision-1",
+            decision=DECISION_DROP_THEN_MONITOR,
+            operator_id="operator",
+        )
+        latch.mark_dispense_failed(
+            dispenser_request_id="decision-1",
+            result="jam_suspected",
+            actuation_started=True,
+        )
+        self.assertTrue(latch.is_paused())
+        record, created = latch.decide(
+            incident_id="thermal-pump",
+            request_id="field-check-1",
+            decision=DECISION_ACKNOWLEDGE_FIELD_CHECK,
+            operator_id="operator",
+        )
+        self.assertTrue(created)
+        self.assertEqual(record["state"], "resuming")
 
 
 if __name__ == "__main__":
