@@ -69,11 +69,28 @@ def generate_launch_description() -> LaunchDescription:
     use_performance_monitor = LaunchConfiguration("use_performance_monitor")
     performance_storage_path = LaunchConfiguration("performance_storage_path")
     enable_rgbd_mapping = LaunchConfiguration("enable_rgbd_mapping")
+    enable_thermal_pipeline = LaunchConfiguration("enable_thermal_pipeline")
+    enable_frozen_thermal_map = LaunchConfiguration(
+        "enable_frozen_thermal_map"
+    )
+    start_thermal_pipeline = IfCondition(
+        PythonExpression(
+            [
+                "'true' if '",
+                enable_thermal_pipeline,
+                "'.lower() == 'true' or '",
+                enable_frozen_thermal_map,
+                "'.lower() == 'true' else 'false'",
+            ]
+        )
+    )
     start_hp60c_camera = IfCondition(
         PythonExpression(
             [
                 "'true' if '",
                 enable_rgbd_mapping,
+                "'.lower() == 'true' or '",
+                enable_frozen_thermal_map,
                 "'.lower() == 'true' or ('",
                 use_person_safety,
                 "'.lower() == 'true' and '",
@@ -135,6 +152,14 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="/tmp/hazard_guard_physical_rgbd.db",
             ),
             DeclareLaunchArgument(
+                "rtabmap_reset_database",
+                default_value="false",
+                description=(
+                    "Reset only rtabmap_database_path when starting the "
+                    "optional RGB-D capture"
+                ),
+            ),
+            DeclareLaunchArgument(
                 "rtabmap_storage_path",
                 default_value="/tmp",
             ),
@@ -149,6 +174,31 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "enable_thermal_pipeline", default_value="false"
+            ),
+            DeclareLaunchArgument(
+                "enable_frozen_thermal_map",
+                default_value="false",
+                description=(
+                    "Accumulate thermal attributes only on an existing fixed "
+                    "PLY map. This also starts the live thermal-depth pipeline."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_map_cloud_path",
+                default_value="",
+                description="Fixed RTAB-Map PLY used as immutable geometry",
+            ),
+            DeclareLaunchArgument(
+                "thermal_map_state_path",
+                default_value="",
+                description=(
+                    "Atomic NPZ checkpoint for the cumulative thermal layer"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_map_session_id",
+                default_value="",
+                description="Owning map session identifier for status routing",
             ),
             DeclareLaunchArgument("thermal_roi_config", default_value=""),
             DeclareLaunchArgument(
@@ -232,6 +282,9 @@ def generate_launch_description() -> LaunchDescription:
                     "database_path": LaunchConfiguration(
                         "rtabmap_database_path"
                     ),
+                    "reset_database": LaunchConfiguration(
+                        "rtabmap_reset_database"
+                    ),
                     "storage_path": LaunchConfiguration(
                         "rtabmap_storage_path"
                     ),
@@ -276,9 +329,7 @@ def generate_launch_description() -> LaunchDescription:
                 "hazard_guard_simulation",
                 "physical_thermal_camera.launch.py",
                 {"show_gui": "false"},
-                condition=IfCondition(
-                    LaunchConfiguration("enable_thermal_pipeline")
-                ),
+                condition=start_thermal_pipeline,
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -382,9 +433,46 @@ def generate_launch_description() -> LaunchDescription:
                     "fusion_color_min_c": "10.0",
                     "fusion_color_max_c": "60.0",
                 },
-                condition=IfCondition(
-                    LaunchConfiguration("enable_thermal_pipeline")
-                ),
+                condition=start_thermal_pipeline,
+            ),
+            Node(
+                package="hazard_guard_thermal_analysis",
+                executable="frozen_thermal_map",
+                name="hazard_guard_frozen_thermal_map",
+                output="screen",
+                condition=IfCondition(enable_frozen_thermal_map),
+                parameters=[
+                    {
+                        "use_sim_time": False,
+                        "map_cloud_path": LaunchConfiguration(
+                            "thermal_map_cloud_path"
+                        ),
+                        "thermal_state_path": LaunchConfiguration(
+                            "thermal_map_state_path"
+                        ),
+                        "session_id": LaunchConfiguration(
+                            "thermal_map_session_id"
+                        ),
+                        "map_frame": "map",
+                        "base_frame": "base_footprint",
+                        "sensor_frame": "thermal_camera_optical_frame",
+                        "geometry_voxel_size_m": 0.03,
+                        "maximum_geometry_voxels": 250000,
+                        "maximum_source_vertices": 1000000,
+                        "maximum_published_voxels": 100000,
+                        "association_radius_m": 0.08,
+                        "maximum_surface_range_residual_m": 0.05,
+                        "minimum_match_ratio": 0.30,
+                        "keyframe_translation_m": 0.10,
+                        "keyframe_rotation_deg": 6.0,
+                        "stationary_refresh_interval_sec": 5.0,
+                        "rejected_frame_retry_sec": 2.0,
+                        "localization_stable_samples": 3,
+                        "localization_stable_translation_m": 0.05,
+                        "localization_stable_rotation_deg": 3.0,
+                        "enable_local_alignment": False,
+                    }
+                ],
             ),
             TimerAction(
                 period=5.0,

@@ -448,6 +448,12 @@ RTAB-Map 자체의 `/rtabmap/cloud_map`은 이 구성에서 Z=0인 장애물 점
 각 점은 X/Y/Z와 RGB를 포함하며 WebUI 백엔드가 이를 다운샘플링해 브라우저로
 전송합니다. RViz는 이 데이터를 보는 도구일 뿐 WebUI의 데이터 원본은 아닙니다.
 
+실물 2차 RGB-D 수집의 `rtabmap_reset_database` 기본값은 `false`입니다. 수동
+launch는 사용자가 지정한 기존 DB를 자동 삭제하지 않습니다. WebUI는 전용
+`rgbd-map.db`를 선택하고 이전 파일을 복구 가능한 위치로 격리한 뒤에만
+`rtabmap_reset_database:=true`를 명시합니다. 직접 실행할 때도 전용 DB임을
+확인하고 백업한 경우에만 이 값을 `true`로 설정하십시오.
+
 실제 로봇 전환 시 RTAB-Map 알고리즘 코드를 다시 만들 필요는 없지만,
 Gazebo 카메라 토픽 대신 실제 RGB·Depth·CameraInfo·Odometry·TF를 연결해야
 합니다. 특히 RGB 카메라와 Depth 카메라의 내부 파라미터 및 센서와

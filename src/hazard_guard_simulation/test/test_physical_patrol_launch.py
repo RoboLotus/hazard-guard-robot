@@ -150,6 +150,44 @@ def test_physical_thermal_policy_forwards_local_baseline_collection():
     assert '"required_frame_id": "map"' in source
 
 
+def test_optional_rgbd_capture_preserves_database_unless_explicitly_reset():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert '"rtabmap_reset_database",\n                default_value="false"' in source
+    assert '"reset_database": LaunchConfiguration(' in source
+    assert '"rtabmap_reset_database"' in source
+
+
+def test_frozen_thermal_map_is_opt_in_and_uses_fixed_map_session_paths():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert '"enable_frozen_thermal_map"' in source
+    assert '"enable_frozen_thermal_map",\n                default_value="false"' in source
+    assert '"thermal_map_cloud_path"' in source
+    assert '"thermal_map_state_path"' in source
+    assert '"thermal_map_session_id"' in source
+    assert 'executable="frozen_thermal_map"' in source
+    assert 'condition=IfCondition(enable_frozen_thermal_map)' in source
+    assert '"map_cloud_path": LaunchConfiguration(' in source
+    assert '"thermal_map_cloud_path"' in source
+    assert '"thermal_state_path": LaunchConfiguration(' in source
+    assert '"thermal_map_state_path"' in source
+    assert '"session_id": LaunchConfiguration(' in source
+    assert '"thermal_map_session_id"' in source
+    assert '"geometry_voxel_size_m": 0.03' in source
+    assert '"maximum_geometry_voxels": 250000' in source
+    assert '"maximum_source_vertices": 1000000' in source
+    assert '"association_radius_m": 0.08' in source
+    assert '"maximum_surface_range_residual_m": 0.05' in source
+    assert '"minimum_match_ratio": 0.30' in source
+    assert '"keyframe_translation_m": 0.10' in source
+    assert '"keyframe_rotation_deg": 6.0' in source
+    assert '"stationary_refresh_interval_sec": 5.0' in source
+    assert '"rejected_frame_retry_sec": 2.0' in source
+    assert '"localization_stable_samples": 3' in source
+    assert '"enable_local_alignment": False' in source
+
+
 def test_only_physical_motor_driver_consumes_gated_velocity() -> None:
     source = (PACKAGE / "launch" / "physical_m1_bringup.launch.py").read_text(
         encoding="utf-8"
