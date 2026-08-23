@@ -272,6 +272,14 @@ def generate_launch_description() -> LaunchDescription:
                 {"use_sim_time": "false"},
                 condition=IfCondition(use_person_safety),
             ),
+            include(
+                "hazard_guard_simulation",
+                "physical_thermal_camera.launch.py",
+                {"show_gui": "false"},
+                condition=IfCondition(
+                    LaunchConfiguration("enable_thermal_pipeline")
+                ),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(nav2_share / "launch" / "bringup_launch.py")

@@ -132,6 +132,8 @@ def test_physical_person_detection_uses_hp60c_rgb_and_depth_topics():
 def test_physical_thermal_policy_forwards_local_baseline_collection():
     source = LAUNCH.read_text(encoding="utf-8")
 
+    assert '"physical_thermal_camera.launch.py"' in source
+    assert '{"show_gui": "false"}' in source
     for argument in (
         "thermal_baseline_path",
         "thermal_baseline_collection_path",
