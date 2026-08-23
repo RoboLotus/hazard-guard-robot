@@ -15,8 +15,10 @@
   (2026-08-21 팀원 실측 반영, 실제 디스펜서 조립 완료 후 재검증 필요)
 - BLE 프로토콜: 비콘 큐브에 ARM/CANCEL을 전송하고 낙하 보고를 수신
 
-현재 코드는 물리 순찰 launch 및 mission manager에는 아직 연결하지 않았다.
-운영 승인 흐름이 완성되기 전까지 `enable_physical_drop=false`가 기본이며,
+현재 코드는 `physical_patrol.launch.py`와 mission manager에 선택적으로 연결된다.
+`use_dispenser`, `enable_hazard_approval`, `enable_physical_drop`은 모두 기본값이
+`false`다. 운영 승인 흐름을 명시적으로 켜기 전까지
+`enable_physical_drop=false`가 유지되며,
 명시적으로 활성화해도 Rosmaster 하드웨어와 BLE ARM 성공 큐브가 최소 1개
 확인되지 않으면 서보를 움직이지 않는다. 또한 `/odom`의 선속도와 각속도가
 각각 기본 `0.02 m/s`, `0.05 rad/s` 이하로 0.5초간 유지되어야 한다. odom이
@@ -27,12 +29,17 @@
 
 ## ROS 인터페이스
 
-현재 구현은 다음 문자열 토픽을 사용한다.
+현재 구현은 다음 ROS 인터페이스를 사용한다. 문자열 명령은 JSON envelope로
+제한되고 request ID와 HMAC 승인값이 필수다.
 
 | 방향 | 이름 | 형식 | 값 |
 | --- | --- | --- | --- |
-| 구독 | `/hazard_guard/dispenser/command` | `std_msgs/String` | `drop`, `home`, `status`, `angle:NN` |
+| 구독 | `/hazard_guard/dispenser/command` | `std_msgs/String` | 서명된 `drop` JSON, 정비 명령 |
 | 발행 | `/hazard_guard/dispenser/status` | `std_msgs/String` | `ready`, `busy`, `dropped`, `jam_suspected`, `error:...` |
+| 발행 | `/hazard_guard/dispenser/result` | `std_msgs/String` | request ID별 진행·최종 결과 JSON |
+| 발행 | `/hazard_guard/dispenser/battery` | `std_msgs/String` | BLE 비콘별 전압·상태 JSON |
+| 서비스 | `/hazard_guard/dispenser/request_status` | `DispenserRequestStatus` | SQLite 원장 결과와 detection ID 일치 확인 |
+| 서비스 | `/hazard_guard/incidents/decision` | `HazardDecision` | 서명된 관리자 결정 처리 |
 
 실행 예:
 
@@ -53,12 +60,52 @@ ros2 launch hazard_guard_dispenser dispenser.launch.py
 시험에서만 명시한다. 일반 `ros2 run`은 코드 안전 기본값인 30도를 사용하므로
 실물 디스펜서 운용 명령으로 사용하지 않는다.
 
-수동 배출 예:
+실물 통합 시험에서는 세 프로세스가 같은 승인 비밀값을 사용한다. 이 값은
+저장소나 shell history에 기록하지 말고 Jetson의 권한 제한 환경 파일로
+주입한다.
+
+먼저 권한이 제한된 파일을 만들고 편집기에서 값을 입력한다. 실제 비밀값을
+명령행 인자에 직접 쓰지 않는다.
 
 ```bash
-ros2 topic pub --once /hazard_guard/dispenser/command \
-  std_msgs/msg/String "{data: 'drop'}"
+sudo install -d -m 755 /etc/hazard-guard
+sudo install -o "$USER" -g "$(id -gn)" -m 600 /dev/null \
+  /etc/hazard-guard/dispenser.env
+sudoedit /etc/hazard-guard/dispenser.env
+# 편집기 안에서 다음 한 줄을 작성:
+# HAZARD_GUARD_DISPENSER_APPROVAL_SECRET=<외부에서 생성한 32바이트 이상 비밀값>
+set -a
+source /etc/hazard-guard/dispenser.env
+set +a
+
+ros2 launch hazard_guard_simulation physical_patrol.launch.py \
+  map:=/absolute/path/facility.yaml \
+  use_person_safety:=true \
+  enable_thermal_pipeline:=true \
+  thermal_roi_config:=/absolute/path/facility_rois.json \
+  use_dispenser:=true \
+  enable_hazard_approval:=true \
+  enable_physical_drop:=false
 ```
+
+마지막 인자를 `true`로 바꾸는 것은 정지·사람 안전·BLE·전원·기구 검증을
+모두 통과한 실물 시험에서만 허용한다. 일반 사용자가 `ros2 topic pub`으로
+배출하는 흐름은 제공하지 않는다.
+RGB-depth 픽셀 정합을 실물로 확인한 경우에만
+`person_depth_registration_verified:=true`를 launch 인자에 추가한다.
+
+## 위험 승인 상태 흐름
+
+1. 열화상 분석기는 mission/cycle별 correlation ID가 일치하는 결과만 전달한다.
+2. `warning` 또는 `critical`이면 Nav2 goal을 취소하고 `approval_required`로
+   정지한다.
+3. FastAPI가 관리자 확인을 기록하고 HMAC이 포함된 결정을 보낸다.
+4. `resume`, `drop_then_resume`, `drop_then_monitor` 중 하나를 수행한다.
+5. 배출 결과는 결과 토픽만 믿지 않고 디스펜서 SQLite 원장에서 다시 조회한다.
+6. `jam_suspected`, 원장 불일치, 확인 시간 초과는 재배출하지 않고 현장 확인
+   상태로 유지한다.
+7. 감시 중 정상화돼도 자동 재개하지 않으며 관리자가 별도로 감시 완료를
+   확인해야 한다.
 
 ## 런타임 의존성
 
@@ -66,8 +113,11 @@ ros2 topic pub --once /hazard_guard/dispenser/command \
 
 - ROS 2 Humble
 - `rclpy`
+- `hazard_guard_interfaces`
+- `nav_msgs`
 - `std_msgs`
 - `ament_python`
+- `launch`, `launch_ros`
 
 ### Python 및 시스템 의존성
 
@@ -126,12 +176,12 @@ serial:
 서보 단독 시험은 운영 노드의 안전 경로를 우회하지 않고 별도 하드웨어 정비
 도구에서 수행한다.
 
-### 4. 문자열 명령과 결과 상관관계 부재
+### 4. 문자열 전송 포맷 유지
 
-자유 형식 문자열 토픽은 요청별 응답, 중복 요청 식별, 취소와 진행 피드백을
-제공하지 않는다. 수 초 걸리는 배출 동작에는 전용 Action이 적합하며, 최소
-구현으로는 `Trigger` 서비스를 사용할 수 있다. 수동 `angle:NN`은 운영
-환경에서 기본 차단해야 한다.
+현재 전송은 `std_msgs/String` JSON이지만 request ID, detection ID, HMAC,
+SQLite 멱등 원장과 상태 조회 서비스로 상관관계를 보완했다. 향후에는 이 JSON
+계약을 ROS Action으로 옮기면 타입 안정성과 취소 피드백을 더 강화할 수 있다.
+수동 `angle:NN`은 운영 환경에서 기본 차단된다.
 
 ### 5. 상태 메시지가 곧바로 덮임
 
@@ -151,11 +201,11 @@ serial:
 없다. 펌웨어 소스를 추가하거나 별도 저장소 URL, 버전, UUID 및 프로토콜을
 문서화해야 한다.
 
-### 8. 자동 시작 및 순찰 연동 없음
+### 8. 자동 시작 및 순찰 연동
 
-현재 디스펜서 노드는 `physical_patrol.launch.py`, mission manager 또는
-systemd에 연결되지 않았다. 의도하지 않은 물리 동작을 피하기 위해 검증 전까지
-launch 기본값은 비활성화로 유지한다.
+`physical_patrol.launch.py`에서 선택 실행할 수 있고 mission manager가 위험
+승인 및 결과 상태를 관리한다. 의도하지 않은 물리 동작을 피하기 위해 세 launch
+옵션은 계속 기본 비활성화로 유지한다.
 
 ## 개발 체크리스트
 
@@ -163,7 +213,7 @@ launch 기본값은 비활성화로 유지한다.
 
 - [x] 기존 `dispenser_ws` 소스를 `hazard_guard_dispenser` 독립 패키지로 반입
 - [x] 현재 의존성과 하드웨어 연결 기록
-- [ ] `package.xml`에 실제 런타임 의존성 표현
+- [x] `package.xml`에 ROS 런타임 의존성 표현
 - [ ] Jammy용 `bleak` 설치 방식을 고정하고 설치 검증 절차 추가
 - [ ] `Rosmaster_Lib` 설치 출처, 라이선스, 버전과 체크섬 기록
 - [ ] 저장소만으로 재현 가능한 하드웨어 설치 스크립트 또는 이미지 절차 작성
@@ -181,48 +231,49 @@ launch 기본값은 비활성화로 유지한다.
 - [ ] 취소 시 안전한 home 복귀 및 타임아웃 추가
 - [ ] 파라미터 범위 검증 (`step_deg > 0`, 각도와 시간 제한)
 - [ ] BLE 연결/재연결/종료 시 thread와 event loop 정리 검증
-- [ ] 상태 전이와 요청 ID를 포함하는 명시적 모델 추가
+- [x] 상태 전이와 요청 ID를 포함하는 명시적 모델 추가
 
 ### C. ROS API
 
 - [ ] `hazard_guard_interfaces`에 배출 Action 또는 Service 설계
 - [ ] 문자열 `drop` 명령을 타입이 있는 API로 교체
-- [ ] 진행 상태: arming, dispensing, waiting, homing
-- [ ] 결과 상태: succeeded, arm_failed, jam_suspected, hardware_error, canceled
-- [ ] 수동 각도 명령을 개발 모드에서만 허용
+- [x] 진행 상태: accepted, dispensing, waiting, homing
+- [ ] ARM 전송 단계를 별도 `arming` 진행 상태로 발행
+- [x] 결과 상태: succeeded, jam_suspected, hardware_error, canceled 등
+- [x] 수동 각도 명령을 개발 모드에서만 허용
 - [ ] 상태 QoS와 마지막 결과 보존 정책 정의
 
 ### D. 물리 로봇 통합
 
 - [ ] Rosmaster 직렬 포트 단일 소유 구조 결정
 - [ ] 주행 중 `cmd_vel`과 서보 패킷 동시 부하 시험
-- [ ] `physical_patrol.launch.py`에 `use_dispenser:=false` 선택 옵션 추가
-- [ ] 디스펜서 파라미터 YAML과 launch 파일 추가
+- [x] `physical_patrol.launch.py`에 `use_dispenser:=false` 선택 옵션 추가
+- [x] 디스펜서 파라미터 YAML과 launch 파일 추가
 - [ ] 시작 시 무조건 home으로 움직이는 현재 동작의 안전성 검토
-- [ ] 로봇 정지 확인 후에만 배출하도록 연동
-- [ ] 사람 안전 상태가 CLEAR일 때만 자동 배출 허용
+- [x] 로봇 정지 확인 후에만 배출하도록 연동
+- [x] 사람 안전 상태가 최신 CLEAR일 때만 승인 배출 허용
 - [ ] 비상 정지·순찰 취소·프로세스 종료 시 동작 정의
 
 ### E. 임무 및 열화상 연동
 
-- [ ] 어떤 위험 등급에서 큐브를 배출할지 정책 정의
-- [ ] `/hazard_guard/thermal_detections`와 배출 결정 계층 연결
-- [ ] 같은 `detection_id`에 대한 중복 배출 방지
+- [x] warning/critical에서 관리자 승인 대기 정책 정의
+- [x] correlation이 확인된 열화상 추세와 배출 결정 계층 연결
+- [x] 같은 `detection_id`에 대한 중복 배출 방지
 - [ ] 큐브 재고와 누적 배출 수 관리
-- [ ] mission manager 상태와 배출 결과 연결
-- [ ] 자동 배출은 수동 API의 물리 검증 완료 후 별도 변경으로 구현
+- [x] mission manager 상태와 배출 결과 연결
+- [x] 위험 탐지 자동 배출을 금지하고 관리자 승인만 허용
 
 ### F. 테스트
 
-- [ ] 하드웨어와 BLE 가짜 구현을 사용한 단위 테스트 기반 마련
+- [x] 하드웨어와 BLE 없이 검증 가능한 순수 정책 테스트 기반 마련
 - [ ] 정상 배출 및 home 복귀 테스트
-- [ ] 동시 `drop` 요청 거부 테스트
+- [x] 동시·중복 `drop` 요청 멱등 처리 테스트
 - [x] BLE ARM 실패 시 fail-closed 순수 정책 테스트
 - [ ] 낙하 보고 타임아웃 및 걸림 상태 테스트
 - [ ] 하드웨어 전송 예외 테스트
 - [ ] 종료 및 취소 중 home 복귀 테스트
 - [ ] 잘못된 각도·시간·step 파라미터 테스트
-- [ ] `use_dispenser` true/false launch 테스트
+- [x] `use_dispenser` true/false launch 계약 테스트
 - [ ] 실제 M1 정지 상태 단독 배출 시험
 - [ ] 실제 M1 주행 명령과 디스펜서 동시 스트레스 시험
 - [ ] 전원 재인가, USB 재연결, BLE 재연결 복구 시험
