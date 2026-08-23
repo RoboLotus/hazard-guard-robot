@@ -5,6 +5,7 @@ from sensor_msgs.msg import Image, PointCloud2, PointField
 from std_msgs.msg import Header
 
 from hazard_guard_thermal_analysis.cloud import (
+    create_frozen_thermal_cloud,
     create_thermal_cloud,
     decode_scalar_array,
     decode_scalar_image,
@@ -77,3 +78,31 @@ def test_reader_remains_compatible_with_old_five_field_cloud() -> None:
     assert restored.temperature_c == pytest.approx(40.0)
     assert restored.pixel_u == -1.0
     assert restored.pixel_v == -1.0
+
+
+def test_frozen_thermal_cloud_is_compact_and_uses_fixed_surface_fields() -> None:
+    header = Header()
+    header.frame_id = "map"
+    cloud = create_frozen_thermal_cloud(
+        header,
+        [[1.0, 2.0, 3.0]],
+        [42.0],
+        [0.75],
+    )
+    assert cloud.header.frame_id == "map"
+    assert cloud.point_step == 24
+    assert [field.name for field in cloud.fields] == [
+        "x",
+        "y",
+        "z",
+        "rgb",
+        "temperature_c",
+        "confidence",
+    ]
+    x, y, z, rgb, temperature, confidence = struct.unpack(
+        "<fffIff", bytes(cloud.data)
+    )
+    assert (x, y, z) == pytest.approx((1.0, 2.0, 3.0))
+    assert rgb == temperature_rgb(42.0, 10.0, 60.0)
+    assert temperature == pytest.approx(42.0)
+    assert confidence == pytest.approx(0.75)

@@ -23,6 +23,35 @@ THERMAL_POINT_FIELDS = (
 )
 THERMAL_POINT_STEP = 32
 
+FROZEN_THERMAL_POINT_DTYPE = np.dtype(
+    [
+        ("x", "<f4"),
+        ("y", "<f4"),
+        ("z", "<f4"),
+        ("rgb", "<u4"),
+        ("temperature_c", "<f4"),
+        ("confidence", "<f4"),
+    ]
+)
+FROZEN_THERMAL_POINT_FIELDS = (
+    PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+    PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+    PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+    PointField(name="rgb", offset=12, datatype=PointField.UINT32, count=1),
+    PointField(
+        name="temperature_c",
+        offset=16,
+        datatype=PointField.FLOAT32,
+        count=1,
+    ),
+    PointField(
+        name="confidence",
+        offset=20,
+        datatype=PointField.FLOAT32,
+        count=1,
+    ),
+)
+
 
 def temperature_rgb(temperature_c: float, low_c: float, high_c: float) -> int:
     """Return an opaque browser/PCL-compatible 0x00RRGGBB heat-map colour."""
@@ -34,6 +63,67 @@ def temperature_rgb(temperature_c: float, low_c: float, high_c: float) -> int:
     green = min(1.0, max(0.0, 1.5 - abs(4.0 * value - 2.0)))
     blue = min(1.0, max(0.0, 1.5 - abs(4.0 * value - 1.0)))
     return (round(red * 255) << 16) | (round(green * 255) << 8) | round(blue * 255)
+
+
+def temperature_rgb_array(
+    temperatures_c: np.ndarray,
+    low_c: float,
+    high_c: float,
+) -> np.ndarray:
+    """Vectorised equivalent of :func:`temperature_rgb`."""
+    values = np.asarray(temperatures_c, dtype=np.float32)
+    span = max(float(high_c) - float(low_c), 1.0e-6)
+    scaled = np.clip((values - float(low_c)) / span, 0.0, 1.0)
+    red = np.clip(1.5 - np.abs(4.0 * scaled - 3.0), 0.0, 1.0)
+    green = np.clip(1.5 - np.abs(4.0 * scaled - 2.0), 0.0, 1.0)
+    blue = np.clip(1.5 - np.abs(4.0 * scaled - 1.0), 0.0, 1.0)
+    red_u8 = np.rint(red * 255.0).astype(np.uint32)
+    green_u8 = np.rint(green * 255.0).astype(np.uint32)
+    blue_u8 = np.rint(blue * 255.0).astype(np.uint32)
+    return (red_u8 << 16) | (green_u8 << 8) | blue_u8
+
+
+def create_frozen_thermal_cloud(
+    header: Header,
+    coordinates: np.ndarray,
+    temperatures_c: np.ndarray,
+    confidences: np.ndarray,
+    *,
+    color_min_c: float = 10.0,
+    color_max_c: float = 60.0,
+) -> PointCloud2:
+    """Create the compact cumulative fixed-surface PointCloud2 contract."""
+    points = np.asarray(coordinates, dtype=np.float32)
+    temperatures = np.asarray(temperatures_c, dtype=np.float32).reshape(-1)
+    confidence = np.asarray(confidences, dtype=np.float32).reshape(-1)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError("coordinates must have shape (N, 3)")
+    if temperatures.shape[0] != points.shape[0] or confidence.shape[0] != points.shape[0]:
+        raise ValueError("coordinates, temperatures and confidences must match")
+
+    records = np.empty(points.shape[0], dtype=FROZEN_THERMAL_POINT_DTYPE)
+    records["x"] = points[:, 0]
+    records["y"] = points[:, 1]
+    records["z"] = points[:, 2]
+    records["rgb"] = temperature_rgb_array(
+        temperatures,
+        color_min_c,
+        color_max_c,
+    )
+    records["temperature_c"] = temperatures
+    records["confidence"] = np.clip(confidence, 0.0, 1.0)
+
+    message = PointCloud2()
+    message.header = header
+    message.height = 1
+    message.width = int(records.shape[0])
+    message.fields = list(FROZEN_THERMAL_POINT_FIELDS)
+    message.is_bigendian = False
+    message.point_step = FROZEN_THERMAL_POINT_DTYPE.itemsize
+    message.row_step = int(records.nbytes)
+    message.data = records.tobytes(order="C")
+    message.is_dense = True
+    return message
 
 
 def decode_scalar_image(
