@@ -67,6 +67,7 @@ class CubeLink:
         self._drop_event = threading.Event()
         self._drop_addr = None
         self._arm_invalidated = threading.Event()
+        self._arm_state = "idle"
         self.on_cube_off = None
         self.on_status_change = None
 
@@ -103,6 +104,8 @@ class CubeLink:
         self._drop_event.clear()
         self._drop_addr = None
         self._arm_invalidated.clear()
+        with self._lock:
+            self._arm_state = "arming"
 
         if not BLEAK_AVAILABLE or not self._loop:
             self._warn("BLE 사용 불가. ARM 미발송")
@@ -119,6 +122,9 @@ class CubeLink:
         )
         try:
             n = fut.result(timeout=3.0)
+            with self._lock:
+                if n > 0 and not self._arm_invalidated.is_set():
+                    self._arm_state = "armed"
             self._info(f"ARM 발송 완료: {n}대")
             return n
         except Exception as e:
@@ -132,9 +138,30 @@ class CubeLink:
         return None
 
     def arm_is_valid(self):
-        return not self._arm_invalidated.is_set()
+        with self._lock:
+            return (
+                not self._arm_invalidated.is_set()
+                and self._arm_state == "armed"
+            )
 
-    def cancel_all(self):
+    def begin_actuation(self):
+        """Atomically claim the armed generation before moving the servo."""
+        with self._lock:
+            if self._arm_invalidated.is_set() or self._arm_state != "armed":
+                return False
+            self._arm_state = "actuating"
+            return True
+
+    def finish_actuation(self):
+        with self._lock:
+            self._arm_state = "idle"
+
+    def cancel_all(self, invalidate_arm=True):
+        if invalidate_arm:
+            self._arm_invalidated.set()
+            with self._lock:
+                if self._arm_state != "actuating":
+                    self._arm_state = "invalidated"
         if not BLEAK_AVAILABLE or not self._loop:
             return 0
         fut = asyncio.run_coroutine_threadsafe(
@@ -257,6 +284,8 @@ class CubeLink:
                 self._arm_invalidated.set()
                 with self._lock:
                     self._unavailable.add(address)
+                    if self._arm_state != "actuating":
+                        self._arm_state = "invalidated"
                 if self._loop is not None:
                     asyncio.run_coroutine_threadsafe(
                         self._send_all(CMD_CANCEL, 1, 0), self._loop

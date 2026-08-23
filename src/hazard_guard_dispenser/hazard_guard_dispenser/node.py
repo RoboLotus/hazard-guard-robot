@@ -559,7 +559,7 @@ class DispenserNode(Node):
                     self.cube_link.cancel_all()
                 return
             time.sleep(self._p("arm_lead_time"))
-            if self.cube_link and not self.cube_link.arm_is_valid():
+            if self.cube_link and not self.cube_link.begin_actuation():
                 self.get_logger().error(
                     "ARM 이후 저전압 보고가 발생해 물리 배출을 중단합니다"
                 )
@@ -646,6 +646,8 @@ class DispenserNode(Node):
                 self.busy = False
             if final_record is not None:
                 self._publish_result(final_record)
+            if self.cube_link:
+                self.cube_link.finish_actuation()
             self._publish_status()
 
     # ---------------- 서보 ----------------
