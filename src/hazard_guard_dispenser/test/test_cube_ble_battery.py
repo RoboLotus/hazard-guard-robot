@@ -60,6 +60,22 @@ class CubeBatteryTests(unittest.TestCase):
         self.assertFalse(snapshot[0]["stale"])
         self.assertGreater(snapshot[0]["updated_at_unix_ms"], 0)
 
+    def test_connected_legacy_cube_is_visible_without_battery_reading(self):
+        link = CubeLink()
+        address = "AA:00:00:00:00:01"
+        link._clients[address] = _Client(connected=True)
+
+        snapshot = link.status_snapshot(stale_after=60.0)
+
+        self.assertEqual(snapshot["connected"], 1)
+        self.assertEqual(len(snapshot["beacons"]), 1)
+        record = snapshot["beacons"][0]
+        self.assertEqual(record["address"], address)
+        self.assertTrue(record["connected"])
+        self.assertFalse(record["battery_supported"])
+        self.assertIsNone(record["voltage"])
+        self.assertIsNone(record["updated_at_unix_ms"])
+
 
 if __name__ == "__main__":
     unittest.main()
