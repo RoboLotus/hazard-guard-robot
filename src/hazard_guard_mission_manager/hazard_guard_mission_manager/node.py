@@ -8,7 +8,7 @@ from typing import Any
 
 import rclpy
 from hazard_guard_interfaces.action import RunPatrol
-from hazard_guard_interfaces.msg import PersonSafetyState
+from hazard_guard_interfaces.msg import HazardIncident, PersonSafetyState
 from rclpy.action import (
     ActionServer,
     CancelResponse,
@@ -39,6 +39,8 @@ from .geometry import (
     heading_change_required,
     pose_errors,
 )
+from .incident import IncidentApprovalLatch, IncidentConflictError
+from .incident_detection import thermal_observations
 from .navigation import Nav2Adapter
 from .schedule import (
     PatrolSchedule,
@@ -63,6 +65,10 @@ class HazardGuardMissionManager(Node):
         "dwelling",
         "scheduled",
         "waiting",
+        "approval_required",
+        "dispensing",
+        "monitoring",
+        "admin_release_required",
     }
 
     def __init__(self) -> None:
@@ -106,6 +112,14 @@ class HazardGuardMissionManager(Node):
             "/hazard_guard/thermal/record_visit",
         )
         self.declare_parameter("thermal_service_timeout_sec", 5.0)
+        self.declare_parameter("hazard_approval_enabled", False)
+        self.declare_parameter(
+            "hazard_hold_severities", ["warning", "critical"]
+        )
+        self.declare_parameter(
+            "thermal_trend_topic", "/hazard_guard/thermal/trend"
+        )
+        self.declare_parameter("hazard_evaluation_timeout_sec", 2.0)
 
         self._callback_group = ReentrantCallbackGroup()
         status_qos = QoSProfile(
@@ -126,6 +140,11 @@ class HazardGuardMissionManager(Node):
         )
         self._thermal_inspection_publisher = self.create_publisher(
             String, "/hazard_guard/thermal/inspection_control", 10
+        )
+        self._incident_publisher = self.create_publisher(
+            HazardIncident,
+            "/hazard_guard/incidents/status",
+            status_qos,
         )
         self._thermal_start_client = self.create_client(
             Trigger,
@@ -152,15 +171,29 @@ class HazardGuardMissionManager(Node):
         self._cancel_requested = threading.Event()
         self._active_schedule: PatrolSchedule | None = None
         self._thermal_sequence_faulted = False
+        self._thermal_trend_condition = threading.Condition()
+        self._thermal_trend_sequence = 0
         self._safety = SafetyPauseLatch(
             enabled=bool(
                 self.get_parameter("safety_supervision_enabled").value
             )
         )
+        self._incident = IncidentApprovalLatch()
+        self._hazard_hold_severities = {
+            str(value).lower()
+            for value in self.get_parameter("hazard_hold_severities").value
+        }
         self._safety_subscription = self.create_subscription(
             PersonSafetyState,
             str(self.get_parameter("person_safety_topic").value),
             self._on_person_safety,
+            10,
+            callback_group=self._callback_group,
+        )
+        self._thermal_trend_subscription = self.create_subscription(
+            String,
+            str(self.get_parameter("thermal_trend_topic").value),
+            self._on_thermal_trend,
             10,
             callback_group=self._callback_group,
         )
@@ -180,7 +213,7 @@ class HazardGuardMissionManager(Node):
                 self.get_parameter("server_wait_timeout_sec").value
             ),
             check_canceled=self._raise_if_canceled,
-            safety_is_paused=self._safety.is_paused,
+            safety_is_paused=self._operational_is_paused,
         )
         self._mission_state.publish()
         self.get_logger().info(
@@ -204,8 +237,92 @@ class HazardGuardMissionManager(Node):
                     ).strip(),
                 )
 
+    def _operational_is_paused(self) -> bool:
+        return self._safety.is_paused() or self._incident.is_paused()
+
+    def _on_thermal_trend(self, message: String) -> None:
+        if not bool(self.get_parameter("hazard_approval_enabled").value):
+            return
+        try:
+            payload = json.loads(message.data)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            self.get_logger().warning("열화상 추세 JSON을 해석하지 못했습니다")
+            return
+        with self._thermal_trend_condition:
+            self._thermal_trend_sequence += 1
+            self._thermal_trend_condition.notify_all()
+        with self._state_lock:
+            active = self._mission_active
+        if not active:
+            return
+        mission_id = self._mission_state.snapshot().get("mission_id")
+        observations = thermal_observations(payload, mission_id=mission_id)
+        current = self._incident.snapshot()
+        if current is not None and current.get("state") in {
+            "monitoring",
+            "admin_release_required",
+        }:
+            for observation in observations:
+                if observation["equipment_id"] != current.get("equipment_id"):
+                    continue
+                if observation["severity"] == "normal" and current["state"] == "monitoring":
+                    updated = self._incident.mark_monitoring_normalized(
+                        "위험 상태가 정상화됐지만 관리자 확인 전까지 순찰을 재개하지 않습니다."
+                    )
+                    self._publish_incident(updated)
+                    self._update_state(
+                        status="admin_release_required",
+                        message=updated["message"],
+                        incident=updated,
+                    )
+                return
+        for observation in observations:
+            if observation["severity"] not in self._hazard_hold_severities:
+                continue
+            try:
+                incident, created = self._incident.open(observation)
+            except IncidentConflictError as exc:
+                self.get_logger().warning(str(exc))
+                return
+            if not created:
+                return
+            self._nav.cancel_active_for_safety()
+            self._publish_incident(incident)
+            self._update_state(
+                status="approval_required",
+                message="위험 이벤트가 감지되어 관리자 승인을 기다립니다.",
+                incident=incident,
+            )
+            return
+
+    def _publish_incident(self, incident: dict[str, Any]) -> None:
+        message = HazardIncident()
+        message.stamp = self.get_clock().now().to_msg()
+        for name in (
+            "incident_id",
+            "detection_id",
+            "mission_id",
+            "equipment_id",
+            "source",
+            "severity",
+            "state",
+            "decision",
+            "frame_id",
+            "message",
+        ):
+            setattr(message, name, str(incident.get(name) or ""))
+        for name in ("x", "y", "z", "temperature_c", "confidence"):
+            setattr(message, name, float(incident.get(name) or 0.0))
+        message.simulated = bool(incident.get("simulated", False))
+        self._incident_publisher.publish(message)
+
     def _goal_callback(self, request: RunPatrol.Goal) -> GoalResponse:
         with self._state_lock:
+            if self._incident.is_paused():
+                self.get_logger().warning(
+                    "Rejected patrol: hazard approval is still pending"
+                )
+                return GoalResponse.REJECT
             if self._mission_active:
                 self.get_logger().warning(
                     "Rejected patrol: another mission is active"
@@ -247,6 +364,9 @@ class HazardGuardMissionManager(Node):
     def _request_cancel(self) -> None:
         self._cancel_requested.set()
         self._nav.cancel_active()
+        incident = self._incident.cancel("순찰 임무가 취소되었습니다.")
+        if incident is not None:
+            self._publish_incident(incident)
         self._update_state(
             status="canceling",
             accepted=False,
@@ -414,7 +534,17 @@ class HazardGuardMissionManager(Node):
                         ),
                     )
 
-                self._record_thermal_visit(f"cycle {current_cycle}")
+                with self._thermal_trend_condition:
+                    previous_trend_sequence = self._thermal_trend_sequence
+                recorded = self._record_thermal_visit(f"cycle {current_cycle}")
+                if recorded and bool(
+                    self.get_parameter("hazard_approval_enabled").value
+                ):
+                    self._wait_for_thermal_evaluation(
+                        goal_handle,
+                        previous_trend_sequence,
+                    )
+                    self._wait_for_safety_clear(goal_handle)
 
                 completed_cycles += 1
                 self._update_state(
@@ -663,7 +793,7 @@ class HazardGuardMissionManager(Node):
                     slice_seconds = min(0.1, remaining)
                     started = time.monotonic()
                     time.sleep(slice_seconds)
-                    if not self._safety.is_paused():
+                    if not self._operational_is_paused():
                         remaining -= time.monotonic() - started
                 self._set_thermal_focus(None)
             completed = index + 1
@@ -881,17 +1011,28 @@ class HazardGuardMissionManager(Node):
 
     def _wait_for_safety_clear(self, goal_handle: Any) -> None:
         announced = False
-        while self._safety.is_paused():
+        while self._operational_is_paused():
             self._raise_if_canceled(goal_handle)
             if not announced:
-                _state, reason = self._safety.snapshot()
-                self._update_state(
-                    status="safety_paused",
-                    message=(
-                        "사람 안전 구역이 확보될 때까지 대기합니다. "
-                        f"{reason}"
-                    ).strip(),
-                )
+                incident = self._incident.snapshot()
+                if incident is not None and self._incident.is_paused():
+                    self._update_state(
+                        status=str(incident["state"]),
+                        message=str(
+                            incident.get("message")
+                            or "위험 이벤트 관리자 승인을 기다립니다."
+                        ),
+                        incident=incident,
+                    )
+                else:
+                    _state, reason = self._safety.snapshot()
+                    self._update_state(
+                        status="safety_paused",
+                        message=(
+                            "사람 안전 구역이 확보될 때까지 대기합니다. "
+                            f"{reason}"
+                        ).strip(),
+                    )
                 announced = True
             time.sleep(0.05)
         if announced:
@@ -899,6 +1040,28 @@ class HazardGuardMissionManager(Node):
                 status="executing",
                 message="안전 구역이 확보되어 현재 목적지를 다시 계획합니다.",
             )
+
+    def _wait_for_thermal_evaluation(
+        self,
+        goal_handle: Any,
+        previous_sequence: int,
+    ) -> None:
+        timeout = float(
+            self.get_parameter("hazard_evaluation_timeout_sec").value
+        )
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._thermal_trend_condition:
+            while self._thermal_trend_sequence <= previous_sequence:
+                self._raise_if_canceled(goal_handle)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self.get_logger().warning(
+                        "열화상 위험 판정 결과 대기 시간이 초과됐습니다"
+                    )
+                    return
+                self._thermal_trend_condition.wait(
+                    timeout=min(0.1, remaining)
+                )
 
     def _wait_for_scheduled_start(
         self,
