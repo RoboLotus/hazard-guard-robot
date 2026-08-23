@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import threading
 import time
+import uuid
 from typing import Any
 
 import rclpy
 from hazard_guard_interfaces.action import RunPatrol
 from hazard_guard_interfaces.msg import HazardIncident, PersonSafetyState
-from hazard_guard_interfaces.srv import HazardDecision
+from hazard_guard_interfaces.srv import (
+    DispenserRequestStatus,
+    HazardDecision,
+    RecordThermalVisit,
+)
 from rclpy.action import (
     ActionServer,
     CancelResponse,
@@ -42,12 +48,19 @@ from .geometry import (
 )
 from .incident import IncidentApprovalLatch, IncidentConflictError
 from .incident import (
+    DECISION_ACKNOWLEDGE_FIELD_CHECK,
     DECISION_COMPLETE_MONITORING,
     DECISION_DROP_THEN_MONITOR,
     DECISION_DROP_THEN_RESUME,
     DECISION_RESUME,
+    PROGRESS_DISPENSER_STATES,
+    TERMINAL_DISPENSER_STATES,
 )
-from .incident_detection import thermal_observations
+from .incident_detection import thermal_observations, thermal_visit_index
+from .dispenser_auth import (
+    command_authorization,
+    valid_decision_authorization,
+)
 from .navigation import Nav2Adapter
 from .schedule import (
     PatrolSchedule,
@@ -116,7 +129,7 @@ class HazardGuardMissionManager(Node):
         )
         self.declare_parameter(
             "thermal_record_service",
-            "/hazard_guard/thermal/record_visit",
+            "/hazard_guard/thermal/record_visit_correlated",
         )
         self.declare_parameter("thermal_service_timeout_sec", 5.0)
         self.declare_parameter("hazard_approval_enabled", False)
@@ -133,6 +146,18 @@ class HazardGuardMissionManager(Node):
         self.declare_parameter(
             "dispenser_result_topic", "/hazard_guard/dispenser/result"
         )
+        self.declare_parameter("dispenser_verification_timeout_sec", 30.0)
+
+        self._dispenser_approval_secret = os.getenv(
+            "HAZARD_GUARD_DISPENSER_APPROVAL_SECRET", ""
+        ).strip()
+        if (
+            bool(self.get_parameter("hazard_approval_enabled").value)
+            and not self._dispenser_approval_secret
+        ):
+            raise ValueError(
+                "위험 승인 흐름에는 HAZARD_GUARD_DISPENSER_APPROVAL_SECRET가 필요합니다"
+            )
 
         self._callback_group = ReentrantCallbackGroup()
         status_qos = QoSProfile(
@@ -171,6 +196,11 @@ class HazardGuardMissionManager(Node):
             10,
             callback_group=self._callback_group,
         )
+        self._dispenser_request_status_client = self.create_client(
+            DispenserRequestStatus,
+            "/hazard_guard/dispenser/request_status",
+            callback_group=self._callback_group,
+        )
         self._incident_decision_service = self.create_service(
             HazardDecision,
             "/hazard_guard/incidents/decision",
@@ -183,7 +213,7 @@ class HazardGuardMissionManager(Node):
             callback_group=self._callback_group,
         )
         self._thermal_record_client = self.create_client(
-            Trigger,
+            RecordThermalVisit,
             str(self.get_parameter("thermal_record_service").value),
             callback_group=self._callback_group,
         )
@@ -203,7 +233,9 @@ class HazardGuardMissionManager(Node):
         self._active_schedule: PatrolSchedule | None = None
         self._thermal_sequence_faulted = False
         self._thermal_trend_condition = threading.Condition()
-        self._thermal_trend_sequence = 0
+        self._expected_thermal_correlations: set[str] = set()
+        self._thermal_completed_correlations: set[str] = set()
+        self._pending_dispenser_verifications: dict[str, dict[str, Any]] = {}
         self._safety = SafetyPauseLatch(
             enabled=bool(
                 self.get_parameter("safety_supervision_enabled").value
@@ -226,6 +258,11 @@ class HazardGuardMissionManager(Node):
             str(self.get_parameter("thermal_trend_topic").value),
             self._on_thermal_trend,
             10,
+            callback_group=self._callback_group,
+        )
+        self._dispenser_verification_timer = self.create_timer(
+            0.5,
+            self._poll_pending_dispenser_results,
             callback_group=self._callback_group,
         )
         self._mission_state = MissionStateStore(self._publish_state_payload)
@@ -279,52 +316,83 @@ class HazardGuardMissionManager(Node):
         except (TypeError, ValueError, json.JSONDecodeError):
             self.get_logger().warning("열화상 추세 JSON을 해석하지 못했습니다")
             return
-        with self._thermal_trend_condition:
-            self._thermal_trend_sequence += 1
-            self._thermal_trend_condition.notify_all()
+        if not isinstance(payload, dict):
+            self.get_logger().warning("열화상 추세 결과가 JSON 객체가 아닙니다")
+            return
         with self._state_lock:
-            active = self._mission_active
-        if not active:
-            return
-        mission_id = self._mission_state.snapshot().get("mission_id")
-        observations = thermal_observations(payload, mission_id=mission_id)
-        current = self._incident.snapshot()
-        if current is not None and current.get("state") in {
-            "monitoring",
-            "admin_release_required",
-        }:
-            for observation in observations:
-                if observation["equipment_id"] != current.get("equipment_id"):
-                    continue
-                if observation["severity"] == "normal" and current["state"] == "monitoring":
-                    updated = self._incident.mark_monitoring_normalized(
-                        "위험 상태가 정상화됐지만 관리자 확인 전까지 순찰을 재개하지 않습니다."
-                    )
-                    self._publish_incident(updated)
-                    self._update_state(
-                        status="admin_release_required",
-                        message=updated["message"],
-                        incident=updated,
-                    )
+            if not self._mission_active:
                 return
-        for observation in observations:
-            if observation["severity"] not in self._hazard_hold_severities:
-                continue
+            mission_id = self._mission_state.snapshot().get("mission_id")
+            correlation_id = str(payload.get("correlation_id") or "").strip()
+            with self._thermal_trend_condition:
+                expected = correlation_id in self._expected_thermal_correlations
+            if not expected:
+                self.get_logger().warning(
+                    "현재 순찰 기록과 일치하지 않는 열화상 결과를 무시했습니다"
+                )
+                return
             try:
-                incident, created = self._incident.open(observation)
-            except IncidentConflictError as exc:
-                self.get_logger().warning(str(exc))
+                thermal_visit_index(payload)
+                observations = thermal_observations(
+                    payload,
+                    mission_id=mission_id,
+                )
+            except ValueError as exc:
+                self.get_logger().warning(f"열화상 추세 결과 거부: {exc}")
                 return
-            if not created:
+            if not observations:
+                self.get_logger().warning(
+                    "열화상 추세 결과에 유효한 설비 관측이 없습니다"
+                )
                 return
-            self._nav.cancel_active_for_safety()
-            self._publish_incident(incident)
-            self._update_state(
-                status="approval_required",
-                message="위험 이벤트가 감지되어 관리자 승인을 기다립니다.",
-                incident=incident,
-            )
-            return
+            with self._thermal_trend_condition:
+                self._thermal_completed_correlations.add(correlation_id)
+                self._thermal_trend_condition.notify_all()
+            current = self._incident.snapshot()
+            if current is not None and current.get("state") in {
+                "monitoring",
+                "admin_release_required",
+            }:
+                for observation in observations:
+                    if observation["equipment_id"] != current.get("equipment_id"):
+                        continue
+                    if (
+                        observation["severity"] == "normal"
+                        and current["state"] == "monitoring"
+                    ):
+                        try:
+                            updated = self._incident.mark_monitoring_normalized(
+                                "위험 상태가 정상화됐지만 관리자 확인 전까지 순찰을 재개하지 않습니다."
+                            )
+                        except IncidentConflictError:
+                            # A concurrent administrator decision already moved
+                            # the incident forward; this sensor result is stale.
+                            return
+                        self._publish_incident(updated)
+                        self._update_state(
+                            status="admin_release_required",
+                            message=updated["message"],
+                            incident=updated,
+                        )
+                    return
+            for observation in observations:
+                if observation["severity"] not in self._hazard_hold_severities:
+                    continue
+                try:
+                    incident, created = self._incident.open(observation)
+                except IncidentConflictError as exc:
+                    self.get_logger().warning(str(exc))
+                    return
+                if not created:
+                    return
+                self._nav.cancel_active_for_safety()
+                self._publish_incident(incident)
+                self._update_state(
+                    status="approval_required",
+                    message="위험 이벤트가 감지되어 관리자 승인을 기다립니다.",
+                    incident=incident,
+                )
+                return
 
     def _publish_incident(self, incident: dict[str, Any]) -> None:
         message = HazardIncident()
@@ -370,48 +438,119 @@ class HazardGuardMissionManager(Node):
         request: HazardDecision.Request,
         response: HazardDecision.Response,
     ) -> HazardDecision.Response:
+        incident_id = str(request.incident_id).strip()
         decision = str(request.decision).strip()
         request_id = str(request.request_id).strip()
-        try:
-            if decision in {
-                DECISION_DROP_THEN_RESUME,
-                DECISION_DROP_THEN_MONITOR,
-            } and self._safety.is_paused():
-                raise IncidentConflictError(
-                    "사람 안전 상태가 CLEAR가 아니므로 비콘을 배출할 수 없습니다"
+        operator_id = str(request.operator_id).strip()
+        with self._state_lock:
+            try:
+                if not valid_decision_authorization(
+                    self._dispenser_approval_secret,
+                    incident_id=incident_id,
+                    request_id=request_id,
+                    decision=decision,
+                    operator_id=operator_id,
+                    authorization=str(request.authorization),
+                ):
+                    raise IncidentConflictError(
+                        "관리자 결정 승인값이 없거나 올바르지 않습니다"
+                    )
+                if decision in {
+                    DECISION_DROP_THEN_RESUME,
+                    DECISION_DROP_THEN_MONITOR,
+                } and self._safety.is_paused():
+                    raise IncidentConflictError(
+                        "사람 안전 상태가 CLEAR가 아니므로 비콘을 배출할 수 없습니다"
+                    )
+                if (
+                    decision
+                    in {DECISION_DROP_THEN_RESUME, DECISION_DROP_THEN_MONITOR}
+                    and self._mission_active
+                    and self._cancel_requested.is_set()
+                ):
+                    raise IncidentConflictError(
+                        "순찰 취소 처리 중입니다. 취소 완료 후 배출을 다시 확인해 주세요"
+                    )
+                record, created = self._incident.decide(
+                    incident_id=incident_id,
+                    request_id=request_id,
+                    decision=decision,
+                    operator_id=operator_id,
                 )
-            record, created = self._incident.decide(
-                incident_id=str(request.incident_id),
-                request_id=request_id,
-                decision=decision,
-                operator_id=str(request.operator_id),
-            )
-        except (ValueError, IncidentConflictError) as exc:
-            return self._decision_response(
-                response,
-                accepted=False,
-                record=self._incident.snapshot(),
-                request_id=request_id,
-                decision=decision,
-                message=str(exc),
-            )
+            except (ValueError, IncidentConflictError) as exc:
+                return self._decision_response(
+                    response,
+                    accepted=False,
+                    record=self._incident.snapshot(),
+                    request_id=request_id,
+                    decision=decision,
+                    message=str(exc),
+                )
 
-        if not created:
-            return self._decision_response(
-                response,
-                accepted=True,
-                record=record,
-                request_id=request_id,
-                decision=decision,
-                message="이미 처리된 관리자 결정입니다.",
-            )
+            if not created:
+                current = self._incident.snapshot()
+                can_republish = (
+                    decision
+                    in {DECISION_DROP_THEN_RESUME, DECISION_DROP_THEN_MONITOR}
+                    and current is not None
+                    and current.get("incident_id") == incident_id
+                    and current.get("request_id") == request_id
+                    and current.get("decision") == decision
+                    and current.get("state") == "dispensing"
+                )
+                if can_republish:
+                    self._publish_dispenser_drop(current, request_id)
+                return self._decision_response(
+                    response,
+                    accepted=True,
+                    record=current or record,
+                    request_id=request_id,
+                    decision=decision,
+                    message="이미 처리된 관리자 결정입니다.",
+                )
 
-        if decision in {DECISION_RESUME, DECISION_COMPLETE_MONITORING}:
-            record = self._incident.resolve_resume()
+            if decision in {
+                DECISION_RESUME,
+                DECISION_COMPLETE_MONITORING,
+                DECISION_ACKNOWLEDGE_FIELD_CHECK,
+            }:
+                try:
+                    record = self._incident.resolve_resume()
+                except IncidentConflictError as exc:
+                    return self._decision_response(
+                        response,
+                        accepted=False,
+                        record=self._incident.snapshot(),
+                        request_id=request_id,
+                        decision=decision,
+                        message=str(exc),
+                    )
+                mission_active = self._mission_active
+                mission_message = (
+                    "관리자 확인에 따라 순찰을 재개합니다."
+                    if mission_active
+                    else "관리자 확인을 기록했습니다. 활성 순찰 임무는 없습니다."
+                )
+                self._publish_incident(record)
+                self._update_state(
+                    status="executing" if mission_active else "idle",
+                    message=mission_message,
+                    incident=record,
+                )
+                return self._decision_response(
+                    response,
+                    accepted=True,
+                    record=record,
+                    request_id=request_id,
+                    decision=decision,
+                    message=mission_message,
+                )
+
+            self._publish_dispenser_drop(record, request_id)
             self._publish_incident(record)
             self._update_state(
-                status="executing",
-                message="관리자 확인에 따라 순찰을 재개합니다.",
+                status="dispensing",
+                message="관리자 승인에 따라 비콘 배출 결과를 기다립니다.",
                 incident=record,
             )
             return self._decision_response(
@@ -420,35 +559,51 @@ class HazardGuardMissionManager(Node):
                 record=record,
                 request_id=request_id,
                 decision=decision,
-                message="순찰 재개를 승인했습니다.",
+                message="비콘 배출 요청을 전송했습니다.",
             )
 
+    def _publish_dispenser_drop(
+        self,
+        record: dict[str, Any],
+        request_id: str,
+    ) -> None:
+        detection_id = str(record.get("detection_id") or "") or None
+        if bool(self.get_parameter("hazard_approval_enabled").value):
+            timeout = max(
+                1.0,
+                float(
+                    self.get_parameter(
+                        "dispenser_verification_timeout_sec"
+                    ).value
+                ),
+            )
+            self._pending_dispenser_verifications.setdefault(
+                request_id,
+                {
+                    "detection_id": detection_id or "",
+                    "deadline": time.monotonic() + timeout,
+                    "attempts": 0,
+                    "in_flight": False,
+                    "future": None,
+                },
+            )
         dispenser_message = String()
         dispenser_message.data = json.dumps(
             {
                 "command": "drop",
                 "request_id": request_id,
-                "detection_id": record.get("detection_id"),
+                "detection_id": detection_id,
+                "authorization": command_authorization(
+                    self._dispenser_approval_secret,
+                    request_id=request_id,
+                    detection_id=detection_id,
+                ),
             },
             ensure_ascii=False,
             separators=(",", ":"),
             allow_nan=False,
         )
         self._dispenser_command_publisher.publish(dispenser_message)
-        self._publish_incident(record)
-        self._update_state(
-            status="dispensing",
-            message="관리자 승인에 따라 비콘 배출 결과를 기다립니다.",
-            incident=record,
-        )
-        return self._decision_response(
-            response,
-            accepted=True,
-            record=record,
-            request_id=request_id,
-            decision=decision,
-            message="비콘 배출 요청을 전송했습니다.",
-        )
 
     def _on_dispenser_result(self, message: String) -> None:
         try:
@@ -457,6 +612,145 @@ class HazardGuardMissionManager(Node):
             return
         if not isinstance(result, dict):
             return
+        if bool(self.get_parameter("hazard_approval_enabled").value):
+            request_id = str(result.get("request_id") or "")
+            with self._state_lock:
+                current = self._incident.snapshot()
+                if (
+                    not request_id
+                    or current is None
+                    or current.get("state") != "dispensing"
+                    or current.get("request_id") != request_id
+                ):
+                    return
+                timeout = max(
+                    1.0,
+                    float(
+                        self.get_parameter(
+                            "dispenser_verification_timeout_sec"
+                        ).value
+                    ),
+                )
+                self._pending_dispenser_verifications.setdefault(
+                    request_id,
+                    {
+                        "detection_id": str(
+                            current.get("detection_id") or ""
+                        ),
+                        "deadline": time.monotonic() + timeout,
+                        "attempts": 0,
+                        "in_flight": False,
+                        "future": None,
+                    },
+                )
+            self._poll_pending_dispenser_results()
+            return
+        with self._state_lock:
+            self._apply_dispenser_result(result)
+
+    def _poll_pending_dispenser_results(self) -> None:
+        now = time.monotonic()
+        timed_out: list[str] = []
+        with self._state_lock:
+            for request_id, pending in list(
+                self._pending_dispenser_verifications.items()
+            ):
+                if now >= float(pending["deadline"]):
+                    future = pending.get("future")
+                    if future is not None:
+                        future.cancel()
+                    timed_out.append(request_id)
+                    self._pending_dispenser_verifications.pop(
+                        request_id, None
+                    )
+                    continue
+                if pending["in_flight"]:
+                    continue
+                if not self._dispenser_request_status_client.service_is_ready():
+                    continue
+                request = DispenserRequestStatus.Request()
+                request.request_id = request_id
+                request.detection_id = str(pending["detection_id"])
+                try:
+                    future = self._dispenser_request_status_client.call_async(
+                        request
+                    )
+                except Exception as exc:
+                    pending["attempts"] += 1
+                    self.get_logger().warning(
+                        f"디스펜서 원장 조회 시작 실패: {exc}"
+                    )
+                    continue
+                pending["attempts"] += 1
+                pending["in_flight"] = True
+                pending["future"] = future
+                future.add_done_callback(
+                    lambda completed, rid=request_id: (
+                        self._on_verified_dispenser_result(rid, completed)
+                    )
+                )
+        for request_id in timed_out:
+            self.get_logger().error(
+                f"디스펜서 원장 확인 시간 초과: {request_id}"
+            )
+            with self._state_lock:
+                self._apply_dispenser_result(
+                    {
+                        "request_id": request_id,
+                        "state": "hardware_error",
+                        "result_detail": "request_ledger_verification_timeout",
+                        "actuation_started": True,
+                    }
+                )
+
+    def _on_verified_dispenser_result(
+        self,
+        request_id: str,
+        future: Any,
+    ) -> None:
+        try:
+            response = future.result()
+            if not response.found:
+                raise ValueError("요청 원장에 배출 결과가 없습니다")
+            if not response.fingerprint_matches:
+                with self._state_lock:
+                    self._pending_dispenser_verifications.pop(
+                        request_id, None
+                    )
+                    self._apply_dispenser_result(
+                        {
+                            "request_id": request_id,
+                            "state": "idempotency_conflict",
+                            "result_detail": "ledger_detection_id_mismatch",
+                            "actuation_started": True,
+                        }
+                    )
+                return
+            record = json.loads(response.record_json)
+            if not isinstance(record, dict):
+                raise ValueError("요청 원장 결과가 객체가 아닙니다")
+            if str(record.get("request_id") or "") != request_id:
+                raise ValueError("요청 원장 request_id가 일치하지 않습니다")
+        except Exception as exc:
+            with self._state_lock:
+                pending = self._pending_dispenser_verifications.get(request_id)
+                if pending is not None:
+                    pending["in_flight"] = False
+                    pending["future"] = None
+            self.get_logger().warning(f"디스펜서 원장 결과 검증 재시도: {exc}")
+            return
+        with self._state_lock:
+            self._apply_dispenser_result(record)
+            pending = self._pending_dispenser_verifications.get(request_id)
+            if pending is None:
+                return
+            if str(record.get("state") or "") in PROGRESS_DISPENSER_STATES:
+                pending["in_flight"] = False
+                pending["future"] = None
+            else:
+                self._pending_dispenser_verifications.pop(request_id, None)
+
+    def _apply_dispenser_result(self, result: dict[str, Any]) -> None:
         current = self._incident.snapshot()
         if current is None or current.get("state") != "dispensing":
             return
@@ -466,6 +760,23 @@ class HazardGuardMissionManager(Node):
         result_state = str(result.get("state") or "hardware_error")
         detail = str(result.get("result_detail") or "")
         try:
+            if result_state in PROGRESS_DISPENSER_STATES:
+                actuation_value = result.get("actuation_started")
+                actuation_started = (
+                    actuation_value if isinstance(actuation_value, bool) else None
+                )
+                updated = self._incident.mark_dispense_progress(
+                    dispenser_request_id=request_id,
+                    state=result_state,
+                    actuation_started=actuation_started,
+                )
+                self._publish_incident(updated)
+                self._update_state(
+                    status="dispensing",
+                    message=f"비콘 배출 진행 중: {result_state}",
+                    incident=updated,
+                )
+                return
             if result_state == "succeeded":
                 updated = self._incident.mark_dispense_succeeded(
                     dispenser_request_id=request_id,
@@ -473,19 +784,32 @@ class HazardGuardMissionManager(Node):
                 )
                 if updated["state"] == "resuming":
                     updated = self._incident.resolve_resume()
-                    mission_status = "executing"
-                    mission_message = "비콘 배출을 확인하고 순찰을 재개합니다."
+                    mission_status = (
+                        "executing" if self._mission_active else "idle"
+                    )
+                    mission_message = (
+                        "비콘 배출을 확인하고 순찰을 재개합니다."
+                        if self._mission_active
+                        else "비콘 배출을 확인했습니다. 활성 순찰 임무는 없습니다."
+                    )
                 else:
                     mission_status = "monitoring"
                     mission_message = (
                         "비콘 설치 지점 감시 중입니다. 관리자 확인 전에는 재개하지 않습니다."
                     )
             else:
+                known_terminal = result_state in TERMINAL_DISPENSER_STATES
+                actuation_value = result.get("actuation_started")
+                actuation_started = (
+                    actuation_value
+                    if known_terminal and isinstance(actuation_value, bool)
+                    else True
+                )
                 updated = self._incident.mark_dispense_failed(
                     dispenser_request_id=request_id,
-                    result=result_state,
+                    result=(result_state if known_terminal else "hardware_error"),
                     result_detail=detail,
-                    actuation_started=bool(result.get("actuation_started", False)),
+                    actuation_started=actuation_started,
                 )
                 mission_status = str(updated["state"])
                 mission_message = (
@@ -550,16 +874,21 @@ class HazardGuardMissionManager(Node):
         return response
 
     def _request_cancel(self) -> None:
-        self._cancel_requested.set()
+        with self._state_lock:
+            self._cancel_requested.set()
+            incident = self._incident.snapshot()
+            message = (
+                "순찰 중단을 요청했습니다. 활성 위험 이벤트는 관리자 확인 전까지 유지됩니다."
+                if incident is not None and self._incident.is_paused()
+                else "순찰 중단을 요청했습니다."
+            )
+            self._update_state(
+                status="canceling",
+                accepted=False,
+                message=message,
+                incident=incident,
+            )
         self._nav.cancel_active()
-        incident = self._incident.cancel("순찰 임무가 취소되었습니다.")
-        if incident is not None:
-            self._publish_incident(incident)
-        self._update_state(
-            status="canceling",
-            accepted=False,
-            message="순찰 중단을 요청했습니다.",
-        )
 
     def _execute(self, goal_handle: Any) -> RunPatrol.Result:
         request = goal_handle.request
@@ -614,6 +943,9 @@ class HazardGuardMissionManager(Node):
         completed_cycles = 0
         total_distance = 0.0
         self._thermal_sequence_faulted = False
+        with self._thermal_trend_condition:
+            self._expected_thermal_correlations.clear()
+            self._thermal_completed_correlations.clear()
         try:
             self._wait_for_scheduled_start(goal_handle, schedule)
             self._nav.assert_ready()
@@ -698,7 +1030,16 @@ class HazardGuardMissionManager(Node):
                     message=self._cycle_message(current_cycle, schedule),
                 )
 
-                self._start_thermal_visit(f"cycle {current_cycle}")
+                thermal_required = bool(
+                    self.get_parameter("hazard_approval_enabled").value
+                )
+                thermal_started = self._start_thermal_visit(
+                    f"cycle {current_cycle}"
+                )
+                if thermal_required and not thermal_started:
+                    raise MissionFailure(
+                        "열화상 방문 수집을 시작하지 못해 순찰을 중단합니다"
+                    )
 
                 completed = self._run_cycle(
                     goal_handle,
@@ -722,17 +1063,44 @@ class HazardGuardMissionManager(Node):
                         ),
                     )
 
+                correlation_id = (
+                    f"{request.mission_id}:cycle-{current_cycle}:"
+                    f"{uuid.uuid4().hex}"
+                )
                 with self._thermal_trend_condition:
-                    previous_trend_sequence = self._thermal_trend_sequence
-                recorded = self._record_thermal_visit(f"cycle {current_cycle}")
-                if recorded and bool(
-                    self.get_parameter("hazard_approval_enabled").value
-                ):
-                    self._wait_for_thermal_evaluation(
-                        goal_handle,
-                        previous_trend_sequence,
+                    self._expected_thermal_correlations.add(correlation_id)
+                recorded_visit_index = self._record_thermal_visit(
+                    f"cycle {current_cycle}",
+                    correlation_id,
+                )
+                if recorded_visit_index is None and thermal_required:
+                    with self._thermal_trend_condition:
+                        self._expected_thermal_correlations.discard(
+                            correlation_id
+                        )
+                    raise MissionFailure(
+                        "열화상 방문 기록을 저장하지 못해 순찰을 중단합니다"
                     )
-                    self._wait_for_safety_clear(goal_handle)
+                if recorded_visit_index is not None and thermal_required:
+                    try:
+                        self._wait_for_thermal_evaluation(
+                            goal_handle,
+                            correlation_id,
+                        )
+                        self._wait_for_safety_clear(goal_handle)
+                    finally:
+                        with self._thermal_trend_condition:
+                            self._expected_thermal_correlations.discard(
+                                correlation_id
+                            )
+                            self._thermal_completed_correlations.discard(
+                                correlation_id
+                            )
+                else:
+                    with self._thermal_trend_condition:
+                        self._expected_thermal_correlations.discard(
+                            correlation_id
+                        )
 
                 completed_cycles += 1
                 self._update_state(
@@ -748,6 +1116,7 @@ class HazardGuardMissionManager(Node):
                     completed_cycles,
                 )
 
+            self._seal_successful_mission(goal_handle)
             goal_handle.succeed()
             self._update_state(
                 status="completed",
@@ -767,6 +1136,7 @@ class HazardGuardMissionManager(Node):
                 total_distance,
             )
         except MissionScheduleEnded:
+            self._close_mission_callback_gate()
             goal_handle.succeed()
             message = (
                 "예약 종료 시각이 되어 순찰을 종료했습니다. "
@@ -789,6 +1159,7 @@ class HazardGuardMissionManager(Node):
                 total_distance,
             )
         except MissionCanceled:
+            self._close_mission_callback_gate()
             goal_handle.canceled()
             self._update_state(
                 status="canceled",
@@ -805,6 +1176,7 @@ class HazardGuardMissionManager(Node):
                 total_distance,
             )
         except MissionFailure as exc:
+            self._close_mission_callback_gate()
             goal_handle.abort()
             current_index = self._mission_state.snapshot().get("current_index")
             if isinstance(current_index, int):
@@ -824,6 +1196,7 @@ class HazardGuardMissionManager(Node):
                 total_distance,
             )
         except Exception as exc:
+            self._close_mission_callback_gate()
             goal_handle.abort()
             self.get_logger().error(f"Unexpected mission error: {exc}")
             self._update_state(
@@ -858,16 +1231,21 @@ class HazardGuardMissionManager(Node):
         message.data = json.dumps(payload, separators=(",", ":"))
         self._thermal_inspection_publisher.publish(message)
 
-    def _call_thermal_service(self, client: Any, label: str) -> bool:
+    def _call_thermal_service(
+        self,
+        client: Any,
+        label: str,
+        request: Any | None = None,
+    ) -> Any | None:
         """Complete one thermal visit transition before the next can start."""
 
         if self._thermal_sequence_faulted:
-            return False
+            return None
         if not client.service_is_ready():
             self.get_logger().info(f"{label}: thermal service is not active")
-            return False
+            return None
 
-        future = client.call_async(Trigger.Request())
+        future = client.call_async(request or Trigger.Request())
         completed = threading.Event()
         future.add_done_callback(lambda _future: completed.set())
         timeout = max(
@@ -881,18 +1259,18 @@ class HazardGuardMissionManager(Node):
                 f"{label}: thermal service timed out after {timeout:g}s; "
                 "thermal visit sequencing is disabled for this mission"
             )
-            return False
+            return None
         try:
             response = future.result()
         except Exception as exc:
             self._thermal_sequence_faulted = True
             self.get_logger().warning(f"{label}: thermal service failed: {exc}")
-            return False
+            return None
         if not response.success:
             self.get_logger().warning(f"{label}: {response.message}")
-            return False
+            return None
         self.get_logger().info(f"{label}: {response.message}")
-        return True
+        return response
 
     def _start_thermal_visit(self, cycle_name: str) -> bool:
         """Reset the thermal accumulator once before a patrol cycle."""
@@ -900,15 +1278,31 @@ class HazardGuardMissionManager(Node):
         return self._call_thermal_service(
             self._thermal_start_client,
             f"{cycle_name}: thermal visit start",
-        )
+        ) is not None
 
-    def _record_thermal_visit(self, cycle_name: str) -> bool:
+    def _record_thermal_visit(
+        self,
+        cycle_name: str,
+        correlation_id: str,
+    ) -> int | None:
         """Persist a completed visit before another patrol cycle can start."""
 
-        return self._call_thermal_service(
+        request = RecordThermalVisit.Request()
+        request.correlation_id = correlation_id
+        response = self._call_thermal_service(
             self._thermal_record_client,
             f"{cycle_name}: thermal visit record",
+            request,
         )
+        if response is None:
+            return None
+        visit_index = int(response.visit_index)
+        if visit_index < 1:
+            self.get_logger().error(
+                f"{cycle_name}: thermal record response has invalid visit_index"
+            )
+            return None
+        return visit_index
 
     def _run_cycle(
         self,
@@ -1198,32 +1592,43 @@ class HazardGuardMissionManager(Node):
                 continue
 
     def _wait_for_safety_clear(self, goal_handle: Any) -> None:
-        announced = False
+        announced: tuple[str, str] | None = None
         while self._operational_is_paused():
-            self._raise_if_canceled(goal_handle)
-            if not announced:
-                incident = self._incident.snapshot()
-                if incident is not None and self._incident.is_paused():
+            incident = self._incident.snapshot()
+            if incident is not None and self._incident.is_paused():
+                self._raise_if_user_canceled(goal_handle)
+                pause = (
+                    str(incident["state"]),
+                    str(
+                        incident.get("message")
+                        or "위험 이벤트 관리자 승인을 기다립니다."
+                    ),
+                )
+            else:
+                self._raise_if_canceled(goal_handle)
+                _state, reason = self._safety.snapshot()
+                pause = (
+                    "safety_paused",
+                    (
+                        "사람 안전 구역이 확보될 때까지 대기합니다. "
+                        f"{reason}"
+                    ).strip(),
+                )
+            if pause != announced:
+                if pause[0] == "safety_paused":
                     self._update_state(
-                        status=str(incident["state"]),
-                        message=str(
-                            incident.get("message")
-                            or "위험 이벤트 관리자 승인을 기다립니다."
-                        ),
-                        incident=incident,
+                        status=pause[0],
+                        message=pause[1],
                     )
                 else:
-                    _state, reason = self._safety.snapshot()
                     self._update_state(
-                        status="safety_paused",
-                        message=(
-                            "사람 안전 구역이 확보될 때까지 대기합니다. "
-                            f"{reason}"
-                        ).strip(),
+                        status=pause[0],
+                        message=pause[1],
+                        incident=incident,
                     )
-                announced = True
+                announced = pause
             time.sleep(0.05)
-        if announced:
+        if announced is not None:
             self._update_state(
                 status="executing",
                 message="안전 구역이 확보되어 현재 목적지를 다시 계획합니다.",
@@ -1232,24 +1637,44 @@ class HazardGuardMissionManager(Node):
     def _wait_for_thermal_evaluation(
         self,
         goal_handle: Any,
-        previous_sequence: int,
+        expected_correlation_id: str,
     ) -> None:
         timeout = float(
             self.get_parameter("hazard_evaluation_timeout_sec").value
         )
         deadline = time.monotonic() + max(0.0, timeout)
         with self._thermal_trend_condition:
-            while self._thermal_trend_sequence <= previous_sequence:
+            while (
+                expected_correlation_id
+                not in self._thermal_completed_correlations
+            ):
                 self._raise_if_canceled(goal_handle)
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     self.get_logger().warning(
                         "열화상 위험 판정 결과 대기 시간이 초과됐습니다"
                     )
-                    return
+                    raise MissionFailure(
+                        "열화상 위험 판정 결과를 확인하지 못해 순찰을 중단합니다"
+                    )
                 self._thermal_trend_condition.wait(
                     timeout=min(0.1, remaining)
                 )
+
+    def _seal_successful_mission(self, goal_handle: Any) -> None:
+        """Atomically stop accepting incident callbacks or wait for approval."""
+
+        while True:
+            self._wait_for_safety_clear(goal_handle)
+            with self._state_lock:
+                if self._incident.is_paused():
+                    continue
+                self._mission_active = False
+                return
+
+    def _close_mission_callback_gate(self) -> None:
+        with self._state_lock:
+            self._mission_active = False
 
     def _wait_for_scheduled_start(
         self,
@@ -1436,11 +1861,14 @@ class HazardGuardMissionManager(Node):
         raise MissionFailure("최종 방향 정렬에 실패했습니다.")
 
     def _raise_if_canceled(self, goal_handle: Any) -> None:
-        if self._cancel_requested.is_set() or goal_handle.is_cancel_requested:
-            raise MissionCanceled()
+        self._raise_if_user_canceled(goal_handle)
         schedule = self._active_schedule
         if schedule is not None and schedule.deadline_reached():
             raise MissionScheduleEnded()
+
+    def _raise_if_user_canceled(self, goal_handle: Any) -> None:
+        if self._cancel_requested.is_set() or goal_handle.is_cancel_requested:
+            raise MissionCanceled()
 
     def _replace_state(self, state: dict[str, Any]) -> None:
         self._mission_state.replace(state)

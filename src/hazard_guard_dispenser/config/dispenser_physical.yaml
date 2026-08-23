@@ -21,3 +21,6 @@ dispenser_node:
     enable_physical_drop: false
     home_on_startup: false
     home_on_shutdown: false
+    require_person_safety_clear: true
+    person_safety_topic: /hazard_guard/person/safety_state
+    person_safety_timeout_sec: 1.0

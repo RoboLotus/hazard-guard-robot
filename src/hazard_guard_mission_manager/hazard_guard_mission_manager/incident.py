@@ -10,12 +10,14 @@ DECISION_RESUME = "resume"
 DECISION_DROP_THEN_RESUME = "drop_then_resume"
 DECISION_DROP_THEN_MONITOR = "drop_then_monitor"
 DECISION_COMPLETE_MONITORING = "complete_monitoring"
+DECISION_ACKNOWLEDGE_FIELD_CHECK = "acknowledge_field_check"
 
 DECISIONS = {
     DECISION_RESUME,
     DECISION_DROP_THEN_RESUME,
     DECISION_DROP_THEN_MONITOR,
     DECISION_COMPLETE_MONITORING,
+    DECISION_ACKNOWLEDGE_FIELD_CHECK,
 }
 
 TERMINAL_DISPENSER_STATES = {
@@ -25,7 +27,18 @@ TERMINAL_DISPENSER_STATES = {
     "canceled",
     "safety_interlock",
     "rejected_no_confirmation",
+    "hardware_unavailable",
+    "rejected_busy",
+    "recovery_required",
+    "command_completed_unverified",
     "idempotency_conflict",
+}
+PROGRESS_DISPENSER_STATES = {
+    "accepted",
+    "arming",
+    "dispensing",
+    "waiting",
+    "homing",
 }
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
 
@@ -114,6 +127,10 @@ class IncidentApprovalLatch:
                 if state not in {"monitoring", "admin_release_required"}:
                     raise IncidentConflictError("감시 중인 이벤트가 아닙니다")
                 next_state = "resuming"
+            elif decision == DECISION_ACKNOWLEDGE_FIELD_CHECK:
+                if state not in {"field_check_required", "hardware_error"}:
+                    raise IncidentConflictError("현장 확인이 필요한 이벤트가 아닙니다")
+                next_state = "resuming"
             else:
                 if state != "approval_required":
                     raise IncidentConflictError("관리자 결정을 받을 수 없는 상태입니다")
@@ -126,7 +143,10 @@ class IncidentApprovalLatch:
                 "operator_id": operator_id,
             }
             self._incident["decision_history"].append(decision_entry)
-            if decision == DECISION_COMPLETE_MONITORING:
+            if decision in {
+                DECISION_COMPLETE_MONITORING,
+                DECISION_ACKNOWLEDGE_FIELD_CHECK,
+            }:
                 self._incident.update(
                     release_request_id=request_id,
                     release_operator_id=operator_id,
@@ -173,6 +193,29 @@ class IncidentApprovalLatch:
                 dispenser_result="succeeded",
                 result_detail=str(result_detail),
             )
+            return copy.deepcopy(self._incident)
+
+    def mark_dispense_progress(
+        self,
+        *,
+        dispenser_request_id: str,
+        state: str,
+        actuation_started: bool | None = None,
+    ) -> dict[str, Any]:
+        dispenser_request_id = str(dispenser_request_id).strip()
+        if not dispenser_request_id:
+            raise ValueError("dispenser_request_id가 필요합니다")
+        if state not in PROGRESS_DISPENSER_STATES:
+            raise ValueError(f"지원하지 않는 진행 상태입니다: {state}")
+        with self._lock:
+            if self._incident is None or self._incident["state"] != "dispensing":
+                raise IncidentConflictError("배출 진행 중인 이벤트가 아닙니다")
+            self._incident.update(
+                dispenser_request_id=dispenser_request_id,
+                dispenser_progress=state,
+            )
+            if actuation_started is not None:
+                self._incident["actuation_started"] = actuation_started
             return copy.deepcopy(self._incident)
 
     def mark_dispense_failed(
@@ -229,7 +272,7 @@ class IncidentApprovalLatch:
 
     def cancel(self, reason: str = "") -> dict[str, Any] | None:
         with self._lock:
-            if self._incident is None:
+            if self._incident is None or not self.is_paused():
                 return None
             self._incident.update(state="canceled", message=str(reason))
             return copy.deepcopy(self._incident)

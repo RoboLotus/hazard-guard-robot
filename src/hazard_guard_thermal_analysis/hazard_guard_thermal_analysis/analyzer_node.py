@@ -7,6 +7,7 @@ import time
 
 import rclpy
 from hazard_guard_interfaces.msg import HazardDetection
+from hazard_guard_interfaces.srv import RecordThermalVisit
 from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
@@ -58,6 +59,7 @@ class ThermalVoxelAnalyzer(Node):
             "oil_temperature_c": None,
         }
         self._history: list[dict] = []
+        self._record_correlation_id: str | None = None
         self._latest_result: dict[str, object] | None = None
         self._latest_header = None
         self._latest_key: tuple[int, int] | None = None
@@ -193,6 +195,11 @@ class ThermalVoxelAnalyzer(Node):
         self.create_subscription(String, "/hazard_guard/thermal/inspection_control", self._on_inspection_control, 10)
         self.create_service(Trigger, "/hazard_guard/thermal/start_visit", self._start_visit)
         self.create_service(Trigger, "/hazard_guard/thermal/record_visit", self._record_visit)
+        self.create_service(
+            RecordThermalVisit,
+            "/hazard_guard/thermal/record_visit_correlated",
+            self._record_visit_correlated,
+        )
         self.create_service(
             Trigger,
             "/hazard_guard/thermal/baseline_status",
@@ -565,6 +572,8 @@ class ThermalVoxelAnalyzer(Node):
             response.message = "Thermal trend configuration is not available"
             return response
         result = self._evaluate(current)
+        if self._record_correlation_id:
+            result["correlation_id"] = self._record_correlation_id
         payload = self._payload(result)
         response.success, response.message = self._append_history(payload)
         if not response.success:
@@ -598,6 +607,15 @@ class ThermalVoxelAnalyzer(Node):
         if bool(self.get_parameter("publish_detections").value):
             self._publish_detections(self._latest_header, result)
         summaries = result.get("trend_analysis", {})
+        visit_index = (
+            summaries.get("visit_index")
+            if isinstance(summaries, dict)
+            else None
+        )
+        if isinstance(visit_index, int):
+            response.message += f"; visit_index={visit_index}"
+            if hasattr(response, "visit_index"):
+                response.visit_index = visit_index
         states = []
         if isinstance(summaries, dict):
             for item in summaries.get("equipment", []):
@@ -608,6 +626,19 @@ class ThermalVoxelAnalyzer(Node):
         self._publish_equipment_config_status("applied")
         self._apply_pending_equipment_config()
         return response
+
+    def _record_visit_correlated(self, request, response):
+        correlation_id = str(request.correlation_id).strip()
+        if not correlation_id:
+            response.success = False
+            response.message = "correlation_id is required"
+            response.visit_index = 0
+            return response
+        self._record_correlation_id = correlation_id
+        try:
+            return self._record_visit(request, response)
+        finally:
+            self._record_correlation_id = None
 
     def _append_history(self, payload: str) -> tuple[bool, str]:
         history_value = str(self.get_parameter("history_path").value)
