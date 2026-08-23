@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 import yaml
@@ -96,7 +97,51 @@ def test_physical_mission_alignment_uses_relaxed_sampled_policy():
     assert mission["pre_rotation_timeout_sec"] == 30.0
     assert mission["pre_rotation_retries"] == 1
     assert mission["thermal_service_timeout_sec"] == 5.0
-    assert "parameters=[nav2_params_file]" in source
+    assert '"hazard_approval_enabled": ParameterValue(' in source
+
+
+def test_dispenser_and_hazard_approval_are_explicitly_opt_in():
+    source = LAUNCH.read_text(encoding="utf-8")
+    package_xml = (PACKAGE / "package.xml").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    declarations = {}
+    mission_node = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id == "DeclareLaunchArgument" and node.args:
+            name = ast.literal_eval(node.args[0])
+            declarations[name] = node
+        if node.func.id == "Node":
+            keywords = {item.arg: item.value for item in node.keywords}
+            package = keywords.get("package")
+            if isinstance(package, ast.Constant) and package.value == (
+                "hazard_guard_mission_manager"
+            ):
+                mission_node = node
+
+    for argument in (
+        "use_dispenser",
+        "enable_physical_drop",
+        "enable_hazard_approval",
+    ):
+        declaration = declarations[argument]
+        defaults = {
+            item.arg: item.value for item in declaration.keywords
+        }
+        assert ast.literal_eval(defaults["default_value"]) == "false"
+    assert mission_node is not None
+    mission_keywords = {item.arg: item.value for item in mission_node.keywords}
+    parameters_source = ast.get_source_segment(
+        source, mission_keywords["parameters"]
+    )
+    assert parameters_source is not None
+    assert '"hazard_guard_dispenser"' in source
+    assert 'condition=IfCondition(use_dispenser)' in source
+    assert '{"enable_physical_drop": enable_physical_drop}' in source
+    assert '"hazard_approval_enabled": ParameterValue(' in parameters_source
+    assert "nav2_params_file," in parameters_source
+    assert "<exec_depend>hazard_guard_dispenser</exec_depend>" in package_xml
 
 
 def test_person_safety_is_opt_in_and_gates_only_motor_facing_cmd_vel():
