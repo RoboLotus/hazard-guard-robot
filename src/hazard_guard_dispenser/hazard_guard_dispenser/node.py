@@ -610,8 +610,11 @@ class DispenserNode(Node):
             self.current_angle = target
             return
 
-        step = self._p("step_deg")
-        delay = self._p("step_delay")
+        # Use the immutable values validated during startup. Reading mutable
+        # parameters here could turn a live update to step_deg=0 into an
+        # infinite physical motion loop.
+        step = self.servo_profile.step_deg
+        delay = self.servo_profile.step_delay_sec
         direction = 1 if target > self.current_angle else -1
 
         angle = self.current_angle
