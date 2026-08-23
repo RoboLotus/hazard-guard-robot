@@ -58,6 +58,10 @@ class CubeLink:
         self._lock = threading.Lock()
         self._running = False
 
+        # Battery notifications arrive on the asyncio BLE thread while ROS
+        # status publication reads them from an executor thread. Keep the
+        # readings behind the same lock as the client registry so callers
+        # never iterate a dictionary that is being mutated concurrently.
         self._battery = {}
         self._drop_event = threading.Event()
         self._drop_addr = None
@@ -242,8 +246,11 @@ class CubeLink:
         if not data:
             return
         volts = data[0] / 10.0
-        prev = self._battery.get(address)
-        self._battery[address] = volts
+        now = time.monotonic()
+        with self._lock:
+            previous = self._battery.get(address)
+            prev = previous[0] if previous is not None else None
+            self._battery[address] = (volts, now)
         if prev is None or abs(volts - prev) >= 0.1:
             self._info(f"배터리 {address}: {volts:.1f}V ({self._pct(volts)}%)")
         if volts < 10.5:
@@ -254,17 +261,44 @@ class CubeLink:
         pct = (volts - 9.0) / (12.6 - 9.0) * 100.0
         return int(max(0, min(100, pct)) + 0.5)
 
-    def battery_levels(self):
-        """{주소: (전압, 잔량%)} 형태로 반환."""
-        return {address: (volts, self._pct(volts))
-                for address, volts in self._battery.items()}
+    def battery_levels(self, stale_after=None):
+        """Return an immutable battery snapshot for connected and stale cubes.
+
+        Values are ``(voltage, percent, connected, stale)``. A disconnected
+        cube remains visible as its last-known reading, but it is explicitly
+        marked disconnected rather than being mistaken for an available cube.
+        """
+        now = time.monotonic()
+        with self._lock:
+            readings = dict(self._battery)
+            connected = {
+                address
+                for address, client in self._clients.items()
+                if client.is_connected
+            }
+        result = {}
+        for address, (volts, updated_at) in readings.items():
+            stale = (
+                stale_after is not None
+                and stale_after >= 0
+                and now - updated_at > stale_after
+            )
+            result[address] = (
+                volts,
+                self._pct(volts),
+                address in connected,
+                stale,
+            )
+        return result
 
     def lowest_battery(self):
         """가장 낮은 큐브의 (주소, 전압, 잔량%). 값이 없으면 None."""
-        if not self._battery:
+        with self._lock:
+            readings = dict(self._battery)
+        if not readings:
             return None
-        address = min(self._battery, key=self._battery.get)
-        volts = self._battery[address]
+        address = min(readings, key=lambda item: readings[item][0])
+        volts = readings[address][0]
         return address, volts, self._pct(volts)
 
     async def _cancel_others(self, winner):
