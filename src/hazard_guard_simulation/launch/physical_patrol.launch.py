@@ -374,6 +374,13 @@ def generate_launch_description() -> LaunchDescription:
                     "thermal_offset_c": LaunchConfiguration(
                         "thermal_offset_c"
                     ),
+                    # HP60C and ThermoEye keep independent header clocks. Pair
+                    # on local arrival, then publish z-up coordinates for WebUI.
+                    "fusion_sync_by_receipt_time": "true",
+                    "fusion_output_frame": "map",
+                    "fusion_transform_at_latest": "true",
+                    "fusion_color_min_c": "10.0",
+                    "fusion_color_max_c": "60.0",
                 },
                 condition=IfCondition(
                     LaunchConfiguration("enable_thermal_pipeline")

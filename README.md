@@ -501,6 +501,11 @@ mm에서 m로 자동 변환하며, 캘리브레이션 TF로 각 depth 표면을 
 캘리브레이션 파일이 아직 없으면 열화상 퍼블리셔는 임시 CameraInfo만 발행하고
 fusion은 필요한 TF를 찾을 수 없어 점을 누적하지 않습니다. 캘리브레이션을 끝낸
 뒤 WebUI의 맵 생성을 다시 시작하면 저장된 intrinsic/extrinsic이 자동 적용됩니다.
+실물 순찰/분석 fusion은 HP60C와 ThermoEye의 독립 clock을 고려해 Jetson 수신
+시각이 가장 가까운 프레임을 짝지으며, 열화상 `plumb_bob` 왜곡까지 적용합니다.
+WebUI 공개 cloud는 `map` 좌표와 같은 `frame_id`를 사용하고 분석 필드
+(`temperature_c`, `confidence`, thermal pixel)와 고정 온도 범위 packed `rgb`를
+함께 유지합니다.
 열화상 3D 처리를 끄거나 이미 별도로 실행한 카메라를 재사용하려면 각각
 `enable_thermal_mapping:=false`, `start_thermal_camera:=false`를 사용합니다.
 

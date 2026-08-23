@@ -32,6 +32,11 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("thermal_scale", default_value="0.01"),
             DeclareLaunchArgument("thermal_offset_c", default_value="-273.15"),
             DeclareLaunchArgument("fusion_stride", default_value="4"),
+            DeclareLaunchArgument("fusion_sync_by_receipt_time", default_value="false"),
+            DeclareLaunchArgument("fusion_output_frame", default_value=""),
+            DeclareLaunchArgument("fusion_transform_at_latest", default_value="false"),
+            DeclareLaunchArgument("fusion_color_min_c", default_value="10.0"),
+            DeclareLaunchArgument("fusion_color_max_c", default_value="60.0"),
             DeclareLaunchArgument("publish_detections", default_value="true"),
             Node(
                 package="hazard_guard_thermal_analysis",
@@ -43,6 +48,19 @@ def generate_launch_description() -> LaunchDescription:
                     "thermal_scale": ParameterValue(LaunchConfiguration("thermal_scale"), value_type=float),
                     "thermal_offset_c": ParameterValue(LaunchConfiguration("thermal_offset_c"), value_type=float),
                     "stride": ParameterValue(LaunchConfiguration("fusion_stride"), value_type=int),
+                    "sync_by_receipt_time": ParameterValue(
+                        LaunchConfiguration("fusion_sync_by_receipt_time"), value_type=bool
+                    ),
+                    "output_frame": LaunchConfiguration("fusion_output_frame"),
+                    "transform_at_latest": ParameterValue(
+                        LaunchConfiguration("fusion_transform_at_latest"), value_type=bool
+                    ),
+                    "color_min_c": ParameterValue(
+                        LaunchConfiguration("fusion_color_min_c"), value_type=float
+                    ),
+                    "color_max_c": ParameterValue(
+                        LaunchConfiguration("fusion_color_max_c"), value_type=float
+                    ),
                 }],
                 remappings=[
                     ("/hazard_guard/thermal/image", LaunchConfiguration("thermal_image_topic")),

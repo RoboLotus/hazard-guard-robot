@@ -134,6 +134,9 @@ def test_physical_thermal_policy_forwards_local_baseline_collection():
 
     assert '"physical_thermal_camera.launch.py"' in source
     assert '{"show_gui": "false"}' in source
+    assert '"fusion_sync_by_receipt_time": "true"' in source
+    assert '"fusion_output_frame": "map"' in source
+    assert '"fusion_transform_at_latest": "true"' in source
     for argument in (
         "thermal_baseline_path",
         "thermal_baseline_collection_path",

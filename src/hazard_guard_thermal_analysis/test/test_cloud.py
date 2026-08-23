@@ -4,7 +4,13 @@ import pytest
 from sensor_msgs.msg import Image, PointCloud2, PointField
 from std_msgs.msg import Header
 
-from hazard_guard_thermal_analysis.cloud import create_thermal_cloud, decode_scalar_image, iter_thermal_cloud
+from hazard_guard_thermal_analysis.cloud import (
+    create_thermal_cloud,
+    decode_scalar_array,
+    decode_scalar_image,
+    iter_thermal_cloud,
+    temperature_rgb,
+)
 from hazard_guard_thermal_analysis.projection import ThermalPoint
 
 
@@ -24,13 +30,36 @@ def test_thermal_point_cloud_contract_round_trip_includes_radiometric_pixel() ->
     source = [ThermalPoint(1.0, 2.0, 3.0, 64.5, 0.8, 12.0, 34.0)]
     cloud = create_thermal_cloud(header, source)
     restored = list(iter_thermal_cloud(cloud))
-    assert cloud.point_step == 28
+    assert cloud.point_step == 32
     assert [field.name for field in cloud.fields] == [
-        "x", "y", "z", "temperature_c", "confidence", "pixel_u", "pixel_v"
+        "x", "y", "z", "temperature_c", "confidence", "pixel_u", "pixel_v", "rgb"
     ]
     assert restored[0].x == pytest.approx(1.0)
     assert restored[0].temperature_c == pytest.approx(64.5)
     assert (restored[0].pixel_u, restored[0].pixel_v) == pytest.approx((12.0, 34.0))
+    assert struct.unpack_from("<I", cloud.data, 28)[0] == temperature_rgb(64.5, 10.0, 60.0)
+
+
+def test_numpy_scalar_decoder_honours_padded_rows() -> None:
+    image = Image()
+    image.width = 2
+    image.height = 2
+    image.encoding = "16UC1"
+    image.step = 6
+    image.data = struct.pack("<HHH", 1000, 2000, 9999) + struct.pack(
+        "<HHH", 3000, 4000, 9999
+    )
+    decoded = decode_scalar_array(image, scale=0.001)
+    assert decoded.reshape(-1).tolist() == pytest.approx([1.0, 2.0, 3.0, 4.0])
+
+
+def test_temperature_colour_is_fixed_and_clamped() -> None:
+    assert temperature_rgb(-50.0, 10.0, 60.0) == temperature_rgb(10.0, 10.0, 60.0)
+    assert temperature_rgb(500.0, 10.0, 60.0) == temperature_rgb(60.0, 10.0, 60.0)
+    cold = temperature_rgb(10.0, 10.0, 60.0)
+    hot = temperature_rgb(60.0, 10.0, 60.0)
+    assert (cold & 0xFF) > ((cold >> 16) & 0xFF)
+    assert ((hot >> 16) & 0xFF) > (hot & 0xFF)
 
 
 def test_reader_remains_compatible_with_old_five_field_cloud() -> None:

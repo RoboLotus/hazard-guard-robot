@@ -13,6 +13,7 @@ class CameraIntrinsics:
     fy: float
     cx: float
     cy: float
+    distortion: tuple[float, ...] = ()
 
     def validate(self) -> None:
         if self.width <= 0 or self.height <= 0:
@@ -38,6 +39,29 @@ class CameraIntrinsics:
             fy=focal_length,
             cx=(width - 1) * 0.5,
             cy=(height - 1) * 0.5,
+        )
+
+    def project(self, x: float, y: float, z: float) -> tuple[float, float]:
+        """Project a 3D point with ROS plumb_bob distortion."""
+        normalized_x = x / z
+        normalized_y = y / z
+        coefficients = (*self.distortion, 0.0, 0.0, 0.0, 0.0, 0.0)
+        k1, k2, p1, p2, k3 = coefficients[:5]
+        radius2 = normalized_x * normalized_x + normalized_y * normalized_y
+        radial = 1.0 + k1 * radius2 + k2 * radius2**2 + k3 * radius2**3
+        distorted_x = (
+            normalized_x * radial
+            + 2.0 * p1 * normalized_x * normalized_y
+            + p2 * (radius2 + 2.0 * normalized_x * normalized_x)
+        )
+        distorted_y = (
+            normalized_y * radial
+            + p1 * (radius2 + 2.0 * normalized_y * normalized_y)
+            + 2.0 * p2 * normalized_x * normalized_y
+        )
+        return (
+            self.fx * distorted_x + self.cx,
+            self.fy * distorted_y + self.cy,
         )
 
 
@@ -134,12 +158,11 @@ def fuse_depth_and_thermal(
             )
             if z_thermal <= 0.0:
                 continue
-            thermal_u = int(
-                round(thermal_camera.fx * x_thermal / z_thermal + thermal_camera.cx)
+            projected_u, projected_v = thermal_camera.project(
+                x_thermal, y_thermal, z_thermal
             )
-            thermal_v = int(
-                round(thermal_camera.fy * y_thermal / z_thermal + thermal_camera.cy)
-            )
+            thermal_u = int(round(projected_u))
+            thermal_v = int(round(projected_v))
             if not (
                 0 <= thermal_u < thermal_camera.width
                 and 0 <= thermal_v < thermal_camera.height

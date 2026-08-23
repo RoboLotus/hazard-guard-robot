@@ -37,6 +37,23 @@ def test_intrinsics_can_fall_back_to_horizontal_fov() -> None:
     assert intrinsics.cy == pytest.approx(59.5)
 
 
+def test_plumb_bob_distortion_is_applied_to_thermal_projection() -> None:
+    undistorted = CameraIntrinsics(160, 120, 100.0, 100.0, 80.0, 60.0)
+    distorted = CameraIntrinsics(
+        160,
+        120,
+        100.0,
+        100.0,
+        80.0,
+        60.0,
+        distortion=(0.2, 0.0, 0.0, 0.0, 0.0),
+    )
+    plain_u, plain_v = undistorted.project(0.4, 0.2, 1.0)
+    curved_u, curved_v = distorted.project(0.4, 0.2, 1.0)
+    assert curved_u > plain_u
+    assert curved_v > plain_v
+
+
 def test_projection_rejects_invalid_depth_and_outside_fov() -> None:
     camera = CameraIntrinsics(2, 1, 1.0, 1.0, 0.0, 0.0)
     points = fuse_depth_and_thermal(
