@@ -40,6 +40,7 @@ from .command_policy import (
     physical_drop_block_reason,
 )
 from .battery_policy import BatteryPolicy
+from .servo_profile import ServoProfile
 
 
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
@@ -71,7 +72,9 @@ class DispenserNode(Node):
         # --- 서보 (실측으로 확정된 값) ---
         self.declare_parameter("servo_id", 1)
         self.declare_parameter("angle_home", 0)
-        self.declare_parameter("angle_dump", 60)
+        self.declare_parameter("angle_dump", 30)
+        self.declare_parameter("servo_min_angle", 0)
+        self.declare_parameter("servo_max_angle", 90)
         self.declare_parameter("step_deg", 3)
         self.declare_parameter("step_delay", 0.03)
         self.declare_parameter("dump_hold", 1.0)
@@ -110,6 +113,14 @@ class DispenserNode(Node):
         self.declare_parameter("stop_hold_sec", 0.5)
 
         self.servo_id = self._p("servo_id")
+        self.servo_profile = ServoProfile(
+            home_angle=int(self._p("angle_home")),
+            dump_angle=int(self._p("angle_dump")),
+            minimum_angle=int(self._p("servo_min_angle")),
+            maximum_angle=int(self._p("servo_max_angle")),
+            step_deg=int(self._p("step_deg")),
+            step_delay_sec=float(self._p("step_delay")),
+        )
         self.battery_policy = BatteryPolicy(
             empty_voltage=float(self._p("battery_empty_voltage")),
             full_voltage=float(self._p("battery_full_voltage")),
@@ -261,7 +272,11 @@ class DispenserNode(Node):
             except ValueError:
                 self.get_logger().error(f"각도 형식 오류: {cmd}")
                 return
-            self._go_to(angle)
+            try:
+                self._go_to(angle)
+            except ValueError as exc:
+                self.get_logger().error(str(exc))
+                return
             self.get_logger().info(f"수동 각도 -> {self.current_angle}")
         else:
             self.get_logger().warn(f'모르는 명령: "{msg.data}"')
@@ -588,7 +603,7 @@ class DispenserNode(Node):
     def _go_to(self, target, smooth=True):
         if not self.hardware_ready or self.bot is None:
             raise RuntimeError("Rosmaster 하드웨어가 준비되지 않았습니다")
-        target = max(0, min(180, int(target)))
+        target = self.servo_profile.validate_target(int(target))
 
         if not smooth:
             self.bot.set_pwm_servo(self.servo_id, target)

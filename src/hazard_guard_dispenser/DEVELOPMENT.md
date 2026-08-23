@@ -10,7 +10,9 @@
 - 최초 반입일: 2026-08-19
 - 원본 패키지: `/home/jetson/dispenser_ws/src/hazard_guard_dispenser`
 - 하드웨어 연결: Jetson USB `/dev/myserial` -> Rosmaster 확장보드 S1 -> MG946R
-- 기본 서보 설정: ID 1, 대기 0도, 배출 30도
+- 코드 안전 기본값: ID 1, 대기 0도, 배출 30도
+- 실물 프로필: `config/dispenser_physical.yaml`, 대기 0도, 배출 60도
+  (2026-08-21 팀원 실측 반영, 실제 디스펜서 조립 완료 후 재검증 필요)
 - BLE 프로토콜: 비콘 큐브에 ARM/CANCEL을 전송하고 낙하 보고를 수신
 
 현재 코드는 물리 순찰 launch 및 mission manager에는 아직 연결하지 않았다.
