@@ -107,6 +107,17 @@ class CubeBatteryTests(unittest.TestCase):
         self.assertEqual(sent, 1)
         self.assertEqual(writes, [(address, b"C")])
 
+    def test_actuation_claim_and_invalidation_are_mutually_exclusive(self):
+        link = CubeLink()
+        link._arm_state = "armed"
+        self.assertTrue(link.begin_actuation())
+        self.assertFalse(link.begin_actuation())
+
+        blocked = CubeLink()
+        blocked._arm_state = "armed"
+        blocked.cancel_all()
+        self.assertFalse(blocked.begin_actuation())
+
 
 if __name__ == "__main__":
     unittest.main()
