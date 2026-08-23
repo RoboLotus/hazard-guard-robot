@@ -82,6 +82,7 @@ class DispenserNode(Node):
         self.declare_parameter("arm_repeat", 2)
         self.declare_parameter("drop_report_timeout", 2.5)
         self.declare_parameter("battery_report_sec", 60.0)
+        self.declare_parameter("battery_stale_sec", 180.0)
         self.declare_parameter(
             "request_ledger_path",
             os.getenv(
@@ -249,11 +250,19 @@ class DispenserNode(Node):
     def _publish_battery(self):
         if not self.cube_link:
             return
-        levels = self.cube_link.battery_levels()
+        levels = self.cube_link.battery_levels(
+            stale_after=float(self._p("battery_stale_sec"))
+        )
         if not levels:
             return
-        parts = [f"{address[-5:]}={volts:.1f}V/{pct}%"
-                 for address, (volts, pct) in levels.items()]
+        parts = [
+            (
+                f"{address[-5:]}={volts:.1f}V/{pct}%"
+                f"/{'connected' if connected else 'disconnected'}"
+                f"/{'stale' if stale else 'fresh'}"
+            )
+            for address, (volts, pct, connected, stale) in levels.items()
+        ]
         msg = String()
         msg.data = " ".join(parts)
         self.batt_pub.publish(msg)
