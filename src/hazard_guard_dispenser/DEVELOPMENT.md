@@ -42,6 +42,17 @@ source install/setup.bash
 ros2 run hazard_guard_dispenser dispenser_node --ros-args -p use_cube_ble:=false
 ```
 
+실물 60도 프로필을 사용하되 실제 배출은 차단한 상태로 시작하려면 다음 launch를
+사용한다.
+
+```bash
+ros2 launch hazard_guard_dispenser dispenser.launch.py
+```
+
+`enable_physical_drop:=true`는 정지·BLE·전원·기구 체크리스트를 통과한 실물
+시험에서만 명시한다. 일반 `ros2 run`은 코드 안전 기본값인 30도를 사용하므로
+실물 디스펜서 운용 명령으로 사용하지 않는다.
+
 수동 배출 예:
 
 ```bash
