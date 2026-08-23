@@ -26,6 +26,7 @@ import re
 import rclpy
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 
 from .request_ledger import (
@@ -38,6 +39,7 @@ from .command_policy import (
     allow_maintenance_command,
     physical_drop_block_reason,
 )
+from .battery_policy import BatteryPolicy
 
 
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
@@ -83,6 +85,12 @@ class DispenserNode(Node):
         self.declare_parameter("drop_report_timeout", 2.5)
         self.declare_parameter("battery_report_sec", 60.0)
         self.declare_parameter("battery_stale_sec", 180.0)
+        self.declare_parameter("battery_empty_voltage", 9.0)
+        self.declare_parameter("battery_full_voltage", 12.6)
+        self.declare_parameter("battery_low_voltage", 10.5)
+        self.declare_parameter("battery_critical_voltage", 10.0)
+        self.declare_parameter("battery_valid_min_voltage", 7.5)
+        self.declare_parameter("battery_valid_max_voltage", 13.5)
         self.declare_parameter(
             "request_ledger_path",
             os.getenv(
@@ -102,6 +110,14 @@ class DispenserNode(Node):
         self.declare_parameter("stop_hold_sec", 0.5)
 
         self.servo_id = self._p("servo_id")
+        self.battery_policy = BatteryPolicy(
+            empty_voltage=float(self._p("battery_empty_voltage")),
+            full_voltage=float(self._p("battery_full_voltage")),
+            low_voltage=float(self._p("battery_low_voltage")),
+            critical_voltage=float(self._p("battery_critical_voltage")),
+            valid_min_voltage=float(self._p("battery_valid_min_voltage")),
+            valid_max_voltage=float(self._p("battery_valid_max_voltage")),
+        )
 
         self.busy = False
         self.lock = threading.Lock()
@@ -147,8 +163,13 @@ class DispenserNode(Node):
 
         self.pub = self.create_publisher(
             String, "hazard_guard/dispenser/status", 10)
+        battery_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
         self.batt_pub = self.create_publisher(
-            String, "hazard_guard/dispenser/battery", 10)
+            String, "hazard_guard/dispenser/battery", battery_qos)
         self.result_pub = self.create_publisher(
             String, "hazard_guard/dispenser/result", 10)
         if self.cube_link:
@@ -179,6 +200,7 @@ class DispenserNode(Node):
             f"디스펜서 준비 완료. 서보 S{self.servo_id}, "
             f"home={self._p('angle_home')} dump={self._p('angle_dump')}")
         self._publish_status()
+        self._publish_battery()
 
     def _p(self, name):
         return self.get_parameter(name).value
@@ -250,14 +272,52 @@ class DispenserNode(Node):
     def _publish_battery(self):
         if not self.cube_link:
             return
-        beacons = self.cube_link.battery_snapshot(
+        snapshot = self.cube_link.status_snapshot(
             stale_after=float(self._p("battery_stale_sec"))
         )
-        connected = self.cube_link.connected_count()
+        readings = snapshot["beacons"]
+        by_address = {item["address"]: item for item in readings}
+        connected_addresses = {
+            item["address"] for item in readings if item["connected"]
+        }
+        beacons = []
+        for address in sorted(connected_addresses | set(by_address)):
+            record = dict(by_address.get(address, {}))
+            voltage = record.get("voltage")
+            stale = bool(record.get("stale", False))
+            connected = address in connected_addresses
+            record.update(
+                address=address,
+                voltage=voltage,
+                percent=(
+                    self.battery_policy.percent(voltage)
+                    if voltage is not None
+                    else None
+                ),
+                connected=connected,
+                stale=stale,
+                battery_supported=voltage is not None,
+                battery_state=self.battery_policy.state(
+                    voltage, stale=stale
+                ),
+                available_for_drop=self.battery_policy.available_for_drop(
+                    voltage,
+                    connected=connected,
+                    stale=stale,
+                ),
+            )
+            beacons.append(record)
+        connected = int(snapshot["connected"])
+        available_addresses = {
+            item["address"]
+            for item in beacons
+            if item["available_for_drop"]
+        }
         payload = {
             "schema_version": 1,
             "expected": int(self._p("expected_cubes")),
             "connected": connected,
+            "available_for_drop": len(available_addresses),
             "beacons": beacons,
             "updated_at_unix_ms": int(time.time() * 1000),
         }
@@ -271,9 +331,31 @@ class DispenserNode(Node):
         self.batt_pub.publish(msg)
 
         low = self.cube_link.lowest_battery()
-        if low and low[1] < 10.5:
+        if low and self.battery_policy.state(low[1]) in {"low", "critical"}:
             self.get_logger().warn(
                 f"큐브 배터리 부족: {low[0]} {low[1]:.1f}V ({low[2]}%)")
+
+    def _eligible_cube_addresses(self):
+        if not self.cube_link:
+            return set()
+        snapshot = self.cube_link.status_snapshot(
+            stale_after=float(self._p("battery_stale_sec"))
+        )
+        readings = {
+            item["address"]: item
+            for item in snapshot["beacons"]
+        }
+        eligible = set()
+        for address, record in readings.items():
+            if not record.get("connected"):
+                continue
+            if self.battery_policy.available_for_drop(
+                record.get("voltage"),
+                connected=True,
+                stale=bool(record.get("stale", False)),
+            ):
+                eligible.add(address)
+        return eligible
 
     def _on_odom(self, message):
         now = time.monotonic()
@@ -396,7 +478,10 @@ class DispenserNode(Node):
             armed = 0
             if self.cube_link:
                 self.get_logger().info("  0) 큐브에 ARM 발송")
-                armed = self.cube_link.arm_all(repeat=self._p("arm_repeat"))
+                armed = self.cube_link.arm_all(
+                    repeat=self._p("arm_repeat"),
+                    allowed_addresses=self._eligible_cube_addresses(),
+                )
             block_reason = physical_drop_block_reason(
                 enabled=True,
                 hardware_available=self.hardware_ready,

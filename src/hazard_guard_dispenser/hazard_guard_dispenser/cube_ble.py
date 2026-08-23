@@ -93,7 +93,9 @@ class CubeLink:
         with self._lock:
             return sum(1 for c in self._clients.values() if c.is_connected)
 
-    def arm_all(self, repeat=2, interval=0.05):
+    def arm_all(
+        self, repeat=2, interval=0.05, allowed_addresses=None
+    ):
         """배출 직전 호출. 반환값 = 신호가 전달된 큐브 수."""
         self._drop_event.clear()
         self._drop_addr = None
@@ -103,7 +105,14 @@ class CubeLink:
             return 0
 
         fut = asyncio.run_coroutine_threadsafe(
-            self._send_all(CMD_ARM, repeat, interval), self._loop)
+            self._send_all(
+                CMD_ARM,
+                repeat,
+                interval,
+                allowed_addresses=allowed_addresses,
+            ),
+            self._loop,
+        )
         try:
             n = fut.result(timeout=3.0)
             self._info(f"ARM 발송 완료: {n}대")
@@ -234,7 +243,7 @@ class CubeLink:
                 self._drop_event.set()
                 asyncio.run_coroutine_threadsafe(
                     self._cancel_others(address), self._loop)
-        elif code in (RPT_SHAKEN_OFF, RPT_AUTO_OFF):
+        elif code in (RPT_SHAKEN_OFF, RPT_AUTO_OFF, RPT_LOW_BATT):
             if self.on_cube_off:
                 try:
                     self.on_cube_off(address, code)
@@ -293,6 +302,10 @@ class CubeLink:
 
     def battery_snapshot(self, stale_after=None):
         """Return JSON-friendly per-cube battery records."""
+        return self.status_snapshot(stale_after=stale_after)["beacons"]
+
+    def status_snapshot(self, stale_after=None):
+        """Capture connection and battery state under one lock boundary."""
         now = time.monotonic()
         with self._lock:
             readings = dict(self._battery)
@@ -302,9 +315,22 @@ class CubeLink:
                 if client.is_connected
             }
         records = []
-        for address, (volts, updated_at, updated_at_unix) in sorted(
-            readings.items()
-        ):
+        for address in sorted(connected | set(readings)):
+            reading = readings.get(address)
+            if reading is None:
+                records.append(
+                    {
+                        "address": address,
+                        "voltage": None,
+                        "percent": None,
+                        "connected": address in connected,
+                        "stale": False,
+                        "battery_supported": False,
+                        "updated_at_unix_ms": None,
+                    }
+                )
+                continue
+            volts, updated_at, updated_at_unix = reading
             stale = (
                 stale_after is not None
                 and stale_after >= 0
@@ -317,10 +343,19 @@ class CubeLink:
                     "percent": self._pct(volts),
                     "connected": address in connected,
                     "stale": stale,
+                    "battery_supported": True,
                     "updated_at_unix_ms": int(updated_at_unix * 1000),
                 }
             )
-        return records
+        return {"connected": len(connected), "beacons": records}
+
+    def connected_addresses(self):
+        with self._lock:
+            return {
+                address
+                for address, client in self._clients.items()
+                if client.is_connected
+            }
 
     def lowest_battery(self):
         """가장 낮은 큐브의 (주소, 전압, 잔량%). 값이 없으면 None."""
@@ -343,9 +378,19 @@ class CubeLink:
             return_exceptions=True)
         self._info(f"나머지 {len(targets)}대에 CANCEL 발송")
 
-    async def _send_all(self, payload, repeat, interval):
+    async def _send_all(
+        self, payload, repeat, interval, allowed_addresses=None
+    ):
         with self._lock:
-            targets = [c for c in self._clients.values() if c.is_connected]
+            targets = [
+                client
+                for address, client in self._clients.items()
+                if client.is_connected
+                and (
+                    allowed_addresses is None
+                    or address in allowed_addresses
+                )
+            ]
         if not targets:
             self._error("연결된 큐브 없음")
             return 0
