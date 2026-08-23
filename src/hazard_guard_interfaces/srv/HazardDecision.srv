@@ -1,0 +1,8 @@
+string incident_id
+string request_id
+string decision
+string operator_id
+---
+bool accepted
+string state
+string message
