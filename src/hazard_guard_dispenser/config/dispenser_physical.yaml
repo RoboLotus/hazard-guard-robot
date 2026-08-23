@@ -1,0 +1,22 @@
+dispenser_node:
+  ros__parameters:
+    servo_id: 1
+    angle_home: 0
+    angle_dump: 60
+    servo_min_angle: 0
+    servo_max_angle: 75
+    step_deg: 3
+    step_delay: 0.03
+    dump_hold: 1.0
+    home_hold: 0.5
+    use_cube_ble: true
+    expected_cubes: 3
+    battery_empty_voltage: 9.0
+    battery_full_voltage: 12.6
+    battery_low_voltage: 10.5
+    battery_critical_voltage: 10.0
+    battery_valid_min_voltage: 7.5
+    battery_valid_max_voltage: 13.5
+    enable_physical_drop: false
+    home_on_startup: false
+    home_on_shutdown: false
