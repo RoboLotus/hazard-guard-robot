@@ -10,8 +10,12 @@ from pathlib import Path
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.conditions import IfCondition, UnlessCondition
+from launch.substitutions import (
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -44,11 +48,22 @@ def validate_launch_configuration(context):
 
 def generate_launch_description() -> LaunchDescription:
     database_path = LaunchConfiguration("database_path")
+    odom_frame_id = LaunchConfiguration("odom_frame_id")
+    map_frame_id = LaunchConfiguration("map_frame_id")
     storage_path = LaunchConfiguration("storage_path")
     cloud_decimation = LaunchConfiguration("cloud_decimation")
     cloud_voxel_size = LaunchConfiguration("cloud_voxel_size")
     cloud_linear_update = LaunchConfiguration("cloud_linear_update")
     cloud_angular_update = LaunchConfiguration("cloud_angular_update")
+    optimized_cloud = LaunchConfiguration("optimized_cloud")
+    surface_input_topic = PythonExpression(
+        [
+            "'/hazard_guard/rtabmap/cloud_surface_optimized' if '",
+            optimized_cloud,
+            "' == 'true' else "
+            "'/hazard_guard/rtabmap/cloud_surface_internal'",
+        ]
+    )
 
     common_camera_remaps = [
         ("rgb/image", "/ascamera_hp60c/camera_publisher/rgb0/image"),
@@ -69,6 +84,24 @@ def generate_launch_description() -> LaunchDescription:
                 "storage_path",
                 default_value=str(
                     Path.home() / "RoboLotus/hazard-guard-robot/runtime/maps"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "odom_frame_id",
+                default_value="odom",
+                choices=["odom", "map"],
+                description=(
+                    "External pose frame stored in RTAB-Map. Use map only "
+                    "after AMCL localization is active."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "map_frame_id",
+                default_value="rtabmap_map",
+                choices=["rtabmap_map", "map"],
+                description=(
+                    "RTAB-Map output frame. The saved-map second pass uses "
+                    "map so the optimized cloud and WebUI robot pose align."
                 ),
             ),
             DeclareLaunchArgument(
@@ -124,6 +157,40 @@ def generate_launch_description() -> LaunchDescription:
                 description="RTAB-Map registration: 0=Visual, 1=ICP, 2=Visual+ICP",
             ),
             DeclareLaunchArgument(
+                "subscribe_scan",
+                default_value="true",
+                description=(
+                    "Use LiDAR constraints inside RTAB-Map. The second-pass "
+                    "RGB-D workflow disables this because localization owns pose."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "neighbor_link_refining",
+                default_value="true",
+                description="Refine neighboring graph links with registration.",
+            ),
+            DeclareLaunchArgument(
+                "proximity_by_space",
+                default_value="false",
+                description="Search nearby graph nodes for loop constraints.",
+            ),
+            DeclareLaunchArgument(
+                "loop_closure_threshold",
+                default_value="1.0",
+                description=(
+                    "RTAB-Map loop closure threshold. Use 1.0 to disable "
+                    "visual loop closures when external localization owns pose."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "optimize_max_error",
+                default_value="10.0",
+                description=(
+                    "Reject graph optimizations whose error ratio exceeds "
+                    "this value; the second-pass profile uses 3.0."
+                ),
+            ),
+            DeclareLaunchArgument(
                 "cloud_fixed_frame",
                 default_value="odom",
                 choices=["odom", "map"],
@@ -156,7 +223,16 @@ def generate_launch_description() -> LaunchDescription:
                 package="tf2_ros",
                 executable="static_transform_publisher",
                 name="camera_mount_to_hp60c",
-                arguments=["0", "0", "0", "1.570796", "3.141592", "1.570796", "camera_Link", "ascamera_hp60c_camera_link_0"],
+                arguments=[
+                    "0",
+                    "0",
+                    "0",
+                    "1.570796",
+                    "3.141592",
+                    "1.570796",
+                    "camera_Link",
+                    "ascamera_hp60c_camera_link_0",
+                ],
             ),
             Node(
                 package="rtabmap_sync",
@@ -185,15 +261,18 @@ def generate_launch_description() -> LaunchDescription:
                     {
                         "use_sim_time": False,
                         "frame_id": "base_link",
-                        "odom_frame_id": "odom",
-                        "map_frame_id": "rtabmap_map",
+                        "odom_frame_id": odom_frame_id,
+                        "map_frame_id": map_frame_id,
                         "database_path": database_path,
                         # SLAM Toolbox exclusively owns map -> odom for Nav2.
                         # Publishing rtabmap_map -> odom would give odom two
                         # parents and corrupt the physical robot TF tree.
                         "publish_tf": False,
                         "subscribe_rgbd": True,
-                        "subscribe_scan": True,
+                        "subscribe_scan": ParameterValue(
+                            LaunchConfiguration("subscribe_scan"),
+                            value_type=bool,
+                        ),
                         "approx_sync": True,
                         "qos_image": 2,
                         "qos_camera_info": 2,
@@ -206,13 +285,37 @@ def generate_launch_description() -> LaunchDescription:
                             value_type=str,
                         ),
                         "Reg/Force3DoF": "true",
-                        "RGBD/NeighborLinkRefining": "true",
-                        "RGBD/OptimizeMaxError": "10.0",
+                        "RGBD/NeighborLinkRefining": ParameterValue(
+                            LaunchConfiguration("neighbor_link_refining"),
+                            value_type=str,
+                        ),
+                        "RGBD/ProximityByTime": "false",
+                        "RGBD/ProximityBySpace": ParameterValue(
+                            LaunchConfiguration("proximity_by_space"),
+                            value_type=str,
+                        ),
+                        "RGBD/ProximityPathMaxNeighbors": "0",
+                        "RGBD/AggressiveLoopThr": "1.0",
+                        "Rtabmap/LoopThr": ParameterValue(
+                            LaunchConfiguration("loop_closure_threshold"),
+                            value_type=str,
+                        ),
+                        "RGBD/OptimizeMaxError": ParameterValue(
+                            LaunchConfiguration("optimize_max_error"),
+                            value_type=str,
+                        ),
                         "Vis/MinInliers": "20",
                         "Grid/FromDepth": "true",
                         "Grid/3D": "true",
                         "Grid/RangeMin": "0.2",
                         "Grid/RangeMax": "4.0",
+                        # Generate per-node local grids at the same resolution
+                        # used by map_assembler. Otherwise cached 5 cm grids
+                        # would silently override the requested 3 cm output.
+                        "Grid/CellSize": ParameterValue(
+                            cloud_voxel_size,
+                            value_type=str,
+                        ),
                         "Mem/IncrementalMemory": "true",
                         "Rtabmap/DetectionRate": "2.0",
                     }
@@ -266,6 +369,7 @@ def generate_launch_description() -> LaunchDescription:
                     ("depth/image", "/ascamera_hp60c/camera_publisher/depth0/image_raw"),
                     ("cloud", "/hazard_guard/rtabmap/cloud_frame_generated"),
                 ],
+                condition=UnlessCondition(optimized_cloud),
             ),
             # This guard affects only the 3D visualization path. It bounds the
             # point count/rate and pauses map integration under sustained
@@ -310,7 +414,7 @@ def generate_launch_description() -> LaunchDescription:
                     ("output", "/hazard_guard/rtabmap/cloud_frame_limited"),
                     (
                         "surface_input",
-                        "/hazard_guard/rtabmap/cloud_surface_internal",
+                        surface_input_topic,
                     ),
                     ("surface_output", "/hazard_guard/rtabmap/cloud_surface"),
                     # The managed WebUI currently overrides its configured
@@ -344,6 +448,7 @@ def generate_launch_description() -> LaunchDescription:
                     ("input", "/hazard_guard/rtabmap/cloud_frame_limited"),
                     ("output", "/hazard_guard/rtabmap/cloud_frame"),
                 ],
+                condition=UnlessCondition(optimized_cloud),
             ),
             Node(
                 package="hazard_guard_simulation",
@@ -427,10 +532,11 @@ def generate_launch_description() -> LaunchDescription:
                         "/hazard_guard/rtabmap/cloud_surface_internal",
                     ),
                 ],
+                condition=UnlessCondition(optimized_cloud),
             ),
-            # This optional comparison backend rebuilds the cloud from
-            # RTAB-Map's optimized graph and node data. It does not replace the
-            # public WebUI topic until physical comparison selects a winner.
+            # Rebuild the cloud from per-node RGB-D data and the optimized
+            # graph. AdaptiveCloudGuard selects this source when enabled, so
+            # the public WebUI topic remains stable across raw/optimized modes.
             Node(
                 package="rtabmap_util",
                 executable="map_assembler",
@@ -449,7 +555,10 @@ def generate_launch_description() -> LaunchDescription:
                         "Grid/3D": "true",
                         "Grid/RangeMin": "0.2",
                         "Grid/RangeMax": "4.0",
-                        "Grid/CellSize": "0.08",
+                        "Grid/CellSize": ParameterValue(
+                            cloud_voxel_size,
+                            value_type=str,
+                        ),
                     }
                 ],
                 remappings=[

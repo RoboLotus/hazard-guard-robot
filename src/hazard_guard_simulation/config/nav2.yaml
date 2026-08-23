@@ -144,7 +144,10 @@ controller_server:
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
-      min_vel_x: -0.15
+      # Patrol transit is forward-only. Inspection yaw is applied by the
+      # mission manager after position arrival, so reverse X trajectories are
+      # no longer needed to preserve a backwards-facing goal orientation.
+      min_vel_x: 0.0
       # Both demo worlds are a ring around the equipment island: 0.585-0.610 m
       # wide in demo_facility_scaled.sdf, 0.97 m (N/S) in the alternative
       # demo_facility.sdf. The robot is 0.600 x 0.310 m. Clamping

@@ -13,7 +13,9 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
 
 
-def test_generated_world_uses_transient_diffusion_and_random_motion(tmp_path):
+def test_generated_world_uses_transient_diffusion_and_stationary_worker(
+    tmp_path,
+):
     source = tmp_path / "source.sdf"
     profile = tmp_path / "profile.json"
     destination = tmp_path / "generated.sdf"
@@ -60,6 +62,12 @@ def test_generated_world_uses_transient_diffusion_and_random_motion(tmp_path):
         node.text for node in core.findall(".//submesh/name")
     ]
     assert core_submeshes == ["shredder_motor.006"]
+    core_thermal = core.find(".//plugin")
+    assert core_thermal is not None
+    assert core_thermal.get("filename") == "ignition-gazebo-thermal-system"
+    assert (
+        core_thermal.get("name") == "ignition::gazebo::systems::Thermal"
+    )
     surface_layers = [
         root.find(f".//model[@name='sim-hot-motor_diffusion_{index}']")
         for index in range(1, len(MODULE.DIFFUSION_DISTANCE_MULTIPLIERS) + 1)
@@ -76,11 +84,34 @@ def test_generated_world_uses_transient_diffusion_and_random_motion(tmp_path):
     assert all(layer.findall(".//temperature") for layer in surface_layers)
     assert root.findall(".//sphere") == []
 
-    walker = root.find(".//plugin[@name='hazard_guard_simulation::RandomWalkSystem']")
-    assert walker is not None
-    assert float(walker.findtext("minimum_speed")) < float(
-        walker.findtext("maximum_speed")
+    worker = root.find(".//model[@name='thermal_factory_worker']")
+    assert worker is not None
+    assert worker.findtext("static") == "true"
+    walker = worker.find(
+        ".//plugin[@name='hazard_guard_simulation::RandomWalkSystem']"
     )
-    assert float(walker.findtext("maximum_pause")) > 0.0
-    assert 0.0 < float(walker.findtext("backtrack_probability")) < 1.0
-    assert walker.findtext("seed") == "0"
+    assert walker is None
+    scale = [float(value) for value in worker.findtext(".//mesh/scale").split()]
+    assert scale == [MODULE.PERSON_SCALE] * 3
+    pose = [float(value) for value in worker.findtext("pose").split()]
+    assert pose == list(MODULE.PERSON_POSE)
+
+
+def test_physical_patrol_exposes_opt_in_thermal_pipeline():
+    launch_path = (
+        Path(__file__).parents[1] / "launch" / "physical_patrol.launch.py"
+    )
+    source = launch_path.read_text(encoding="utf-8")
+
+    assert '"enable_thermal_pipeline", default_value="false"' in source
+    assert '"thermal_roi_config", default_value=""' in source
+    assert '"simulated": "false"' in source
+    assert '"use_sim_time": "false"' in source
+    for argument in (
+        "thermal_image_topic",
+        "thermal_info_topic",
+        "thermal_depth_image_topic",
+        "thermal_depth_info_topic",
+        "thermal_history_path",
+    ):
+        assert source.count(f'"{argument}"') >= 2

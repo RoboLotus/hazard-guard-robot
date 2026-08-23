@@ -3,14 +3,22 @@ from pathlib import Path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description() -> LaunchDescription:
     simulation_share = Path(get_package_share_directory("hazard_guard_simulation"))
     nav2_share = Path(get_package_share_directory("nav2_bringup"))
+    detection_share = Path(
+        get_package_share_directory("hazard_guard_person_detection")
+    )
+    safety_share = Path(
+        get_package_share_directory("hazard_guard_safety_supervisor")
+    )
     nav2_parameters = simulation_share / "config" / "nav2.yaml"
     gui = LaunchConfiguration("gui")
     world = LaunchConfiguration("world")
@@ -23,6 +31,21 @@ def generate_launch_description() -> LaunchDescription:
     visualize_sensors = LaunchConfiguration("visualize_sensors")
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
+    use_person_safety = LaunchConfiguration("use_person_safety")
+    person_model_path = LaunchConfiguration("person_model_path")
+    person_device = LaunchConfiguration("person_device")
+    bridge_velocity_topic = PythonExpression(
+        [
+            "'/cmd_vel_safe' if '",
+            use_person_safety,
+            "'.lower() == 'true' else '/cmd_vel'",
+        ]
+    )
+    heat_source_profile = LaunchConfiguration("heat_source_profile")
+    use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
+    thermal_history_path = LaunchConfiguration("thermal_history_path")
+    use_performance_monitor = LaunchConfiguration("use_performance_monitor")
+    performance_storage_path = LaunchConfiguration("performance_storage_path")
 
     return LaunchDescription(
         [
@@ -48,6 +71,14 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("visualize_sensors", default_value="false"),
             DeclareLaunchArgument("include_dispenser", default_value="true"),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
+            DeclareLaunchArgument("use_person_safety", default_value="false"),
+            DeclareLaunchArgument("person_model_path", default_value="yolo11n.pt"),
+            DeclareLaunchArgument("person_device", default_value=""),
+            DeclareLaunchArgument("heat_source_profile", default_value=""),
+            DeclareLaunchArgument("use_thermal_pipeline", default_value="true"),
+            DeclareLaunchArgument("thermal_history_path", default_value="~/.local/share/hazard_guard/thermal_history.jsonl"),
+            DeclareLaunchArgument("use_performance_monitor", default_value="true"),
+            DeclareLaunchArgument("performance_storage_path", default_value=""),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(simulation_share / "launch" / "slam.launch.py")
@@ -64,7 +95,46 @@ def generate_launch_description() -> LaunchDescription:
                     "visualize_sensors": visualize_sensors,
                     "include_dispenser": include_dispenser,
                     "dispenser_mass": dispenser_mass,
+                    "cmd_vel_ros_topic": bridge_velocity_topic,
+                    "heat_source_profile": heat_source_profile,
+                    "use_thermal_pipeline": use_thermal_pipeline,
+                    "thermal_history_path": thermal_history_path,
                 }.items(),
+            ),
+            TimerAction(
+                period=6.0,
+                actions=[
+                    IncludeLaunchDescription(
+                        PythonLaunchDescriptionSource(
+                            str(
+                                detection_share
+                                / "launch"
+                                / "person_detection.launch.py"
+                            )
+                        ),
+                        launch_arguments={
+                            "rgb_topic": "/camera/image_raw",
+                            "depth_topic": "/depth_camera/image_raw",
+                            "model_path": person_model_path,
+                            "device": person_device,
+                            "simulated": "true",
+                            "depth_registration_verified": "true",
+                            "use_sim_time": "true",
+                        }.items(),
+                        condition=IfCondition(use_person_safety),
+                    ),
+                    IncludeLaunchDescription(
+                        PythonLaunchDescriptionSource(
+                            str(
+                                safety_share
+                                / "launch"
+                                / "person_safety.launch.py"
+                            )
+                        ),
+                        launch_arguments={"use_sim_time": "true"}.items(),
+                        condition=IfCondition(use_person_safety),
+                    ),
+                ],
             ),
             TimerAction(
                 period=8.0,
@@ -90,8 +160,29 @@ def generate_launch_description() -> LaunchDescription:
                         executable="mission_manager",
                         name="hazard_guard_mission_manager",
                         output="screen",
-                        parameters=[{"use_sim_time": True}],
-                    )
+                        parameters=[
+                            {
+                                "use_sim_time": True,
+                                "safety_supervision_enabled": ParameterValue(
+                                    use_person_safety,
+                                    value_type=bool,
+                                ),
+                            }
+                        ],
+                    ),
+                    Node(
+                        package="hazard_guard_performance_monitor",
+                        executable="performance_monitor",
+                        name="hazard_guard_performance_monitor",
+                        output="screen",
+                        condition=IfCondition(use_performance_monitor),
+                        parameters=[
+                            {
+                                "storage_path": performance_storage_path,
+                                "sample_interval_sec": 1.0,
+                            }
+                        ],
+                    ),
                 ],
             ),
         ]

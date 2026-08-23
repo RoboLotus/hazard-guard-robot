@@ -12,7 +12,7 @@ from launch.actions import (
     SetEnvironmentVariable,
     TimerAction,
 )
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     Command,
@@ -56,6 +56,9 @@ def generate_launch_description() -> LaunchDescription:
     simulation_share = Path(
         get_package_share_directory("hazard_guard_simulation")
     )
+    thermal_analysis_share = Path(
+        get_package_share_directory("hazard_guard_thermal_analysis")
+    )
     ros_gz_share = Path(get_package_share_directory("ros_gz_sim"))
     default_world = simulation_share / "worlds" / "demo_facility_scaled.sdf"
     robot = simulation_share / "urdf" / "hazard_guard_m1.urdf.xacro"
@@ -73,6 +76,16 @@ def generate_launch_description() -> LaunchDescription:
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
     heat_source_profile = LaunchConfiguration("heat_source_profile")
+    cmd_vel_ros_topic = LaunchConfiguration("cmd_vel_ros_topic")
+    use_thermal_pipeline = LaunchConfiguration("use_thermal_pipeline")
+    thermal_history_path = LaunchConfiguration("thermal_history_path")
+    thermal_baseline_path = LaunchConfiguration("thermal_baseline_path")
+    thermal_baseline_collection_path = LaunchConfiguration(
+        "thermal_baseline_collection_path"
+    )
+    thermal_baseline_minimum_valid_visits = LaunchConfiguration(
+        "thermal_baseline_minimum_valid_visits"
+    )
 
     thermal_extrinsic = thermal_extrinsic_arguments(simulation_share)
 
@@ -114,6 +127,14 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("gui", default_value="false"),
             DeclareLaunchArgument("use_sim_time", default_value="true"),
             DeclareLaunchArgument(
+                "cmd_vel_ros_topic",
+                default_value="/cmd_vel",
+                description=(
+                    "ROS-side velocity topic bridged to Gazebo /cmd_vel. "
+                    "Use /cmd_vel_safe when the person-safety gate is enabled."
+                ),
+            ),
+            DeclareLaunchArgument(
                 "world",
                 default_value=str(default_world),
                 description="Absolute path to the Gazebo Fortress world",
@@ -152,6 +173,35 @@ def generate_launch_description() -> LaunchDescription:
                 "heat_source_profile",
                 default_value="",
                 description="JSON profile for deterministic synthetic heat sources",
+            ),
+            DeclareLaunchArgument(
+                "use_thermal_pipeline",
+                default_value="false",
+                description=(
+                    "Fuse simulated thermal/depth images into the common "
+                    "thermal point-cloud contract. False keeps the "
+                    "deterministic profile detector."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_history_path",
+                default_value="~/.local/share/hazard_guard/simulation_thermal_history.jsonl",
+                description="Persistent simulation patrol history JSONL path",
+            ),
+            DeclareLaunchArgument(
+                "thermal_baseline_path",
+                default_value="~/.local/share/hazard_guard/simulation_thermal_baselines.json",
+            ),
+            DeclareLaunchArgument(
+                "thermal_baseline_collection_path",
+                default_value=(
+                    "~/.local/share/hazard_guard/"
+                    "simulation_thermal_baseline_collection.json"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_baseline_minimum_valid_visits",
+                default_value="10",
             ),
             SetEnvironmentVariable(
                 "IGN_GAZEBO_RESOURCE_PATH",
@@ -232,6 +282,7 @@ def generate_launch_description() -> LaunchDescription:
                     # publishes the real intrinsics instead.
                 ],
                 remappings=[
+                    ("/cmd_vel", cmd_vel_ros_topic),
                     ("/camera/image", "/camera/image_raw"),
                     ("/depth_camera/image", "/depth_camera/image_raw"),
                     ("/depth_camera/image/points", "/depth_camera/points"),
@@ -290,6 +341,35 @@ def generate_launch_description() -> LaunchDescription:
                         "use_sim_time": use_sim_time,
                     }
                 ],
+                condition=UnlessCondition(use_thermal_pipeline),
+            ),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    str(
+                        thermal_analysis_share
+                        / "launch"
+                        / "thermal_pipeline.launch.py"
+                    )
+                ),
+                launch_arguments={
+                    "use_sim_time": use_sim_time,
+                    "simulated": "true",
+                    "thermal_image_topic": "/thermal_camera/image_raw",
+                    "thermal_info_topic": "/thermal_camera/camera_info",
+                    "depth_image_topic": "/depth_camera/image_raw",
+                    "depth_info_topic": "/depth_camera/camera_info",
+                    "thermal_scale": "0.01",
+                    "thermal_offset_c": "-273.15",
+                    "history_path": thermal_history_path,
+                    "baseline_path": thermal_baseline_path,
+                    "baseline_collection_path": (
+                        thermal_baseline_collection_path
+                    ),
+                    "baseline_minimum_valid_visits": (
+                        thermal_baseline_minimum_valid_visits
+                    ),
+                }.items(),
+                condition=IfCondition(use_thermal_pipeline),
             ),
             TimerAction(
                 period=3.0,

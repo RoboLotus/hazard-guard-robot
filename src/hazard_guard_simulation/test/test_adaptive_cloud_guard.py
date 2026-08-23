@@ -95,6 +95,13 @@ def test_small_cloud_is_forwarded_without_copy():
     assert MODULE.evenly_sample_cloud(cloud, 3) is cloud
 
 
+def test_optimized_surface_input_retries_large_transient_clouds():
+    qos = MODULE.SURFACE_INPUT_QOS
+
+    assert qos.reliability == ReliabilityPolicy.RELIABLE
+    assert qos.durability == DurabilityPolicy.TRANSIENT_LOCAL
+
+
 def test_short_cloud_buffer_is_rejected_before_sampling():
     cloud = make_cloud(width=2, height=1, row_step=8, values=[10])
 

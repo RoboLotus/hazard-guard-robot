@@ -1,0 +1,13 @@
+std_msgs/Header header
+hazard_guard_interfaces/PersonObservation[] observations
+float32 inference_ms
+string backend
+bool simulated
+bool rgb_valid
+bool depth_valid
+float32 rgb_depth_skew_sec
+uint32 rgb_width
+uint32 rgb_height
+uint32 depth_width
+uint32 depth_height
+string health_reason

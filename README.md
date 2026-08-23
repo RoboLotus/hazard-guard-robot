@@ -17,6 +17,8 @@ Gazebo Fortress, SLAM Toolbox, Nav2와 WebUI 연동을 검증할 수 있는 개�
 - Nav2 단일 목적지·다중 웨이포인트 주행
 - 하드웨어 없이 사용하는 mock telemetry·열원 탐지
 - ROS 2 Action 기반 다중 웨이포인트 임무 관리자
+- YOLO11n 사람 탐지와 RGB-D 거리 추정
+- Nav2 SpeedLimit 감속, 최종 `cmd_vel` 정지 게이트, 순찰 일시정지·재개
 - FastAPI WebUI bridge에서 사용할 ROS 토픽과 액션
 
 Jetson 전용 CUDA·TensorRT, 실제 ROSMASTER 하드웨어 드라이버, 경고장치 제어는
@@ -28,6 +30,8 @@ Jetson 전용 CUDA·TensorRT, 실제 ROSMASTER 하드웨어 드라이버, 경고
 src/
 ├─ hazard_guard_interfaces/    메시·서비스·순찰 Action 정의
 ├─ hazard_guard_mission_manager/ Nav2 순찰 임무 실행 노드
+├─ hazard_guard_person_detection/ YOLO11n 사람 탐지·RGB-D 거리
+├─ hazard_guard_safety_supervisor/ 안전 상태·Nav2 감속·최종 속도 게이트
 ├─ hazard_guard_mock_robot/    mock 상태·명령·열원·검증 노드
 ├─ hazard_guard_bringup/       기본 mock bringup
 └─ hazard_guard_simulation/    Fortress 모델, 월드, SLAM, Nav2
@@ -42,6 +46,16 @@ src/
 
 팀 공용 Docker 기반 환경은 별도 `RoboLotus/slam-jetson-env` 저장소에서
 관리합니다. 이 저장소는 ROS 패키지와 시뮬레이션 소스만 관리합니다.
+
+## 사람 탐지와 안전 제어
+
+사람 탐지는 Nav2 장애물 회피를 대체하지 않습니다. Nav2가 경로 계획과 회피를
+계속 담당하고, YOLO11n과 Depth가 사람의 의미·거리를 제공하여 감속 또는 최종
+정지를 추가합니다. 기본 launch에서는 비활성화되어 있으며 모델과 Jetson 환경을
+검증한 뒤 `use_person_safety:=true`로 켭니다.
+
+- 구조·토픽·실행·실물 검증: [PERSON_SAFETY_ARCHITECTURE.md](PERSON_SAFETY_ARCHITECTURE.md)
+- YOLO·Jetson 환경 설치와 기록: [YOLO_JETSON_SETUP.md](YOLO_JETSON_SETUP.md)
 
 ## 빌드
 
@@ -424,11 +438,15 @@ ros2 launch hazard_guard_simulation rtabmap_sim.launch.py \
 실행하지 않습니다.
 
 RTAB-Map 자체의 `/rtabmap/cloud_map`은 이 구성에서 Z=0인 장애물 점유 셀을
-나타냅니다. 컬러 표면 지도는 RGB·Depth로 프레임별 포인트클라우드를 만든 뒤
-RTAB-Map의 `map` 좌표계에 누적하여
-`/hazard_guard/rtabmap/cloud_surface`로 발행합니다. 각 점은 X/Y/Z와 RGB를
-포함하며 WebUI 백엔드가 이를 다운샘플링해 브라우저로 전송합니다. RViz는 이
-데이터를 보는 도구일 뿐 WebUI의 데이터 원본은 아닙니다.
+나타냅니다. 저장 2D 지도 기반의 두 번째 주행에서는 RGB·Depth를 RTAB-Map
+노드별로 기록하고, `map_assembler`가 AMCL에서 받은 노드 pose로 컬러 표면
+지도를 다시 만듭니다. 기본 프로필은 RTAB visual/ICP odometry와 loop closure를
+사용하지 않으므로 이미 누적한 점군을 RTAB-Map이 독자적으로 재배치하지 않습니다.
+결과는 `map` 좌표계의
+`/hazard_guard/rtabmap/cloud_surface`로 발행합니다. RTAB-Map의 TF 발행은
+끄므로 `map -> odom`은 계속 AMCL만 담당하며 Nav2 좌표계와 경쟁하지 않습니다.
+각 점은 X/Y/Z와 RGB를 포함하며 WebUI 백엔드가 이를 다운샘플링해 브라우저로
+전송합니다. RViz는 이 데이터를 보는 도구일 뿐 WebUI의 데이터 원본은 아닙니다.
 
 실제 로봇 전환 시 RTAB-Map 알고리즘 코드를 다시 만들 필요는 없지만,
 Gazebo 카메라 토픽 대신 실제 RGB·Depth·CameraInfo·Odometry·TF를 연결해야
@@ -452,6 +470,12 @@ guard가 포함됩니다. 실기 비교에서 9,000 points/frame, decimation 2,
 4,500점과 4 Hz로 낮추며, 임계 부하에서는 3D 표면 누적만 일시 중지합니다. 이때
 SLAM Toolbox, Nav2, RTAB-Map 위치 추정 및 RTAB-Map DB 기록 경로는 계속
 동작합니다.
+
+여기서 `9,000`은 **누적 프레임 수가 아니라 입력 한 프레임의 최대 포인트
+수**입니다. `cloud_voxel_size:=0.03`의 단위는 미터이므로 **0.03 m = 3 cm**이며
+0.03 cm가 아닙니다. 최적화 후의 전체 누적 지도는 9,000점을 넘을 수 있습니다.
+WebUI 백엔드는 그 전체 지도에 복셀화를 다시 적용하지 않고, 기본 최대 20,000점을
+균일 간격으로 골라 전송하므로 Robot의 3 cm 공간 해상도를 중복 변경하지 않습니다.
 
 누적 지도는 WebUI 호환 토픽인
 `/hazard_guard/rtabmap/cloud_surface`를 유지하며 최대 1 Hz로 전달됩니다.
@@ -504,7 +528,7 @@ ros2 launch hazard_guard_simulation physical_mapping.launch.py \
 ```bash
 source /opt/ros/humble/setup.bash
 cd ~/RoboLotus/hazard-guard-robot
-colcon build --symlink-install --packages-select hazard_guard_simulation
+colcon build --symlink-install --packages-up-to hazard_guard_simulation
 source install/setup.bash
 ```
 
@@ -557,6 +581,47 @@ FastAPI 터미널에서 `Ctrl+C`를 누르면 백엔드와 WebUI 관리 ROS stac
 후 CPU 평균, RAM 평균 점유율, 설정 포인트/Hz/voxel, 실제 출력 포인트와 guard
 모드별 시간을 터미널에 요약합니다. WebUI에서 3D mapping을 시작하지 않았다면
 측정 결과 없음으로 표시됩니다.
+
+### 순찰 임무 자동 성능 리포트
+
+순찰 launch는 `hazard_guard_performance_monitor`를 함께 시작합니다. 모니터는
+`/hazard_guard/mission/status`에서 실제 임무가 시작된 구간만 1초 간격으로
+수집하고 `completed`, `failed`, `canceled` 상태에서 보고서를 마감합니다.
+
+- Linux `/proc`: 전체·코어별 CPU, RAM, Swap, 대상 프로세스 CPU·RSS·I/O
+- Jetson `tegrastats`: GPU 사용률, CPU/GPU 온도, 입력 전력
+- 임무 문맥: 단계, 회차, 현재 웨이포인트
+
+기본 저장 경로는 다음과 같습니다.
+
+```text
+~/.local/share/hazard-guard/performance/YYYY-MM-DD/<report-id>/
+```
+
+각 세션에는 `samples.jsonl`, `summary.json`, `process-summary.csv`, `report.md`가
+생성됩니다. 실행 중에는 `active.json`이 1초마다 갱신되어 WebUI 리포트 탭에
+현재 CPU·GPU·RAM을 표시합니다. Robot과 WebUI가 다른 사용자나 컨테이너에서
+실행되면 양쪽에 같은 공유 경로를 명시합니다.
+
+```bash
+export HAZARD_GUARD_PERFORMANCE_DIR=/data/hazard-guard/performance
+```
+
+자동 수집을 끄거나 별도 경로를 지정할 수도 있습니다.
+
+```bash
+ros2 launch hazard_guard_simulation physical_patrol.launch.py \
+  map:=/absolute/path/to/map.yaml \
+  use_performance_monitor:=false
+
+ros2 launch hazard_guard_performance_monitor performance_monitor.launch.py \
+  storage_path:=/data/hazard-guard/performance
+```
+
+Jetson이 아닌 개발 PC에서는 `tegrastats` 항목만 측정 없음으로 기록되고 CPU·RAM
+및 프로세스 통계는 계속 생성됩니다. GPU는 Jetson 전체 사용률이며 프로세스별
+GPU 점유율을 의미하지 않습니다. YOLO 성능은 GPU 사용률과 함께 추론 FPS·지연을
+별도 비교해야 합니다.
 
 ## WebUI 운용 모드 연동
 

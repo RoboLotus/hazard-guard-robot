@@ -1,0 +1,6 @@
+hazard_guard_performance_monitor:
+  ros__parameters:
+    sample_interval_sec: 1.0
+    # Empty means HAZARD_GUARD_PERFORMANCE_DIR or
+    # ~/.local/share/hazard-guard/performance.
+    storage_path: ""

@@ -21,12 +21,29 @@ from typing import Deque, Dict, Optional, Tuple
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import (
+    DurabilityPolicy,
+    HistoryPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import String
 
 
 MODE_RANK = {"normal": 0, "high_load": 1, "critical": 2}
+
+# The optimized map can be several megabytes. Receiving it as BEST_EFFORT
+# makes one lost DDS fragment discard the whole PointCloud2, leaving the WebUI
+# on an old snapshot. Mirror the reliable, transient-local map publisher for
+# this internal hop, then republish a bounded public cloud with sensor QoS.
+SURFACE_INPUT_QOS = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+)
 
 
 class LoadPolicy:
@@ -330,6 +347,7 @@ class AdaptiveCloudGuard(Node):
         self._input_points = 0
         self._output_points = 0
         self._surface_points = 0
+        self._surface_output_points = 0
         self._rate_drops = 0
         self._critical_drops = 0
         self._malformed_drops = 0
@@ -351,7 +369,7 @@ class AdaptiveCloudGuard(Node):
             PointCloud2,
             "surface_input",
             self._on_surface,
-            qos_profile_sensor_data,
+            SURFACE_INPUT_QOS,
         )
         self.create_timer(1.0, self._monitor_load)
         self.create_timer(0.1, self._publish_surface_if_due)
@@ -408,8 +426,29 @@ class AdaptiveCloudGuard(Node):
             or now - self._last_surface_publish < 1.0 / surface_hz
         ):
             return
-        self._surface_publisher.publish(self._latest_surface)
-        self._surface_compat_publisher.publish(self._latest_surface)
+        # Keep the complete optimized cloud on the internal RTAB-Map topic,
+        # but bound the browser-facing copy before it crosses DDS. In critical
+        # mode retain a coarse snapshot instead of replacing the map with a
+        # single point.
+        target_points = int(self._profile["points"])
+        if target_points <= 0:
+            target_points = int(self._profiles["high_load"]["points"])
+        try:
+            filtered = evenly_sample_cloud(
+                self._latest_surface,
+                target_points,
+            )
+        except (ValueError, TypeError) as error:
+            self._malformed_drops += 1
+            self.get_logger().error(
+                f"Malformed cumulative PointCloud2 dropped: {error}"
+            )
+            self._latest_surface = None
+            self._surface_dirty = False
+            return
+        self._surface_output_points = int(filtered.width) * int(filtered.height)
+        self._surface_publisher.publish(filtered)
+        self._surface_compat_publisher.publish(filtered)
         self._latest_surface = None
         self._surface_dirty = False
         self._last_surface_publish = now
@@ -443,6 +482,7 @@ class AdaptiveCloudGuard(Node):
                 "input_points": self._input_points,
                 "output_points": self._output_points,
                 "surface_points": self._surface_points,
+                "surface_output_points": self._surface_output_points,
                 "rate_drops": self._rate_drops,
                 "critical_drops": self._critical_drops,
                 "malformed_drops": self._malformed_drops,

@@ -15,12 +15,17 @@
   <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>hazard_guard_person_detection</exec_depend>
   <exec_depend>hazard_guard_sensor_config</exec_depend>
+  <exec_depend>hazard_guard_safety_supervisor</exec_depend>
+  <exec_depend>hazard_guard_thermal_analysis</exec_depend>
   <exec_depend>hazard_guard_mission_manager</exec_depend>
   <exec_depend>hazard_guard_mock_robot</exec_depend>
+  <exec_depend>hazard_guard_performance_monitor</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>message_filters</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
@@ -28,7 +33,6 @@
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
-  <exec_depend>rclpy</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>ros_gz_sim</exec_depend>
   <exec_depend>rosgraph_msgs</exec_depend>

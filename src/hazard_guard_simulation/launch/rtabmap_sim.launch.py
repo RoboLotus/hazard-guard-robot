@@ -7,10 +7,14 @@ from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 
 
-def _rtabmap_node(parameters: Path, *, reset_database: bool) -> Node:
+def _rtabmap_node(
+    parameters: Path | LaunchConfiguration,
+    *,
+    reset_database: bool,
+) -> Node:
     return Node(
         package="rtabmap_slam",
         executable="rtabmap",
@@ -18,7 +22,7 @@ def _rtabmap_node(parameters: Path, *, reset_database: bool) -> Node:
         name="rtabmap",
         output="screen",
         parameters=[
-            str(parameters),
+            ParameterFile(parameters, allow_substs=True),
             {
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
                 "database_path": LaunchConfiguration("database_path"),
@@ -73,6 +77,74 @@ def _color_cloud_assembler_node() -> Node:
                 "/hazard_guard/rtabmap/cloud_surface",
             ),
         ],
+        condition=UnlessCondition(LaunchConfiguration("optimized_cloud")),
+    )
+
+
+def _optimized_map_assembler_node() -> Node:
+    """Rebuild the public cloud whenever RTAB-Map optimizes node poses."""
+
+    return Node(
+        package="rtabmap_util",
+        executable="map_assembler",
+        namespace="rtabmap",
+        name="optimized_map_assembler",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "map_always_update": True,
+                "map_cleanup": True,
+                "cloud_output_voxelized": True,
+                "Grid/3D": "true",
+                "Grid/RangeMin": "0.2",
+                "Grid/RangeMax": "4.0",
+                # Match the field-tested physical visualization policy.
+                # RTAB-Map parameters are expressed in metres.
+                "Grid/CellSize": "0.03",
+            }
+        ],
+        remappings=[
+            (
+                "cloud_map",
+                "/hazard_guard/rtabmap/cloud_surface_optimized",
+            )
+        ],
+        condition=IfCondition(LaunchConfiguration("optimized_cloud")),
+    )
+
+
+def _optimized_cloud_guard_node() -> Node:
+    """Bound the large optimized snapshot before WebUI DDS transport."""
+
+    return Node(
+        package="hazard_guard_simulation",
+        executable="adaptive_cloud_guard.py",
+        name="adaptive_cloud_guard",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "normal_points": 9000,
+                "high_load_points": 4500,
+                "normal_surface_hz": 1.0,
+                "high_load_surface_hz": 0.5,
+            }
+        ],
+        remappings=[
+            ("input", "/hazard_guard/rtabmap/cloud_frame_guard_unused"),
+            (
+                "surface_input",
+                "/hazard_guard/rtabmap/cloud_surface_optimized",
+            ),
+            ("surface_output", "/hazard_guard/rtabmap/cloud_surface"),
+            (
+                "surface_compat_output",
+                "/hazard_guard/rtabmap/cloud_frame_raw",
+            ),
+            ("status", "/hazard_guard/rtabmap/cloud_guard/status"),
+        ],
+        condition=IfCondition(LaunchConfiguration("optimized_cloud")),
     )
 
 
@@ -98,6 +170,7 @@ def generate_launch_description() -> LaunchDescription:
     start_simulation = LaunchConfiguration("start_simulation")
     start_rviz = LaunchConfiguration("rviz")
     start_demo_route = LaunchConfiguration("demo_route")
+    parameters_file = LaunchConfiguration("parameters_file")
 
     return LaunchDescription(
         [
@@ -121,6 +194,15 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("heat_source_profile", default_value=""),
             DeclareLaunchArgument("start_simulation", default_value="true"),
             DeclareLaunchArgument("rviz", default_value="true"),
+            DeclareLaunchArgument(
+                "parameters_file",
+                default_value=str(parameters),
+                description=(
+                    "RTAB-Map parameter profile. The two-pass workflow uses "
+                    "rtabmap_rgbd_capture.yaml so external odometry remains "
+                    "authoritative and RTAB-Map only records RGB-D data."
+                ),
+            ),
             DeclareLaunchArgument(
                 "publish_tf",
                 default_value="true",
@@ -148,6 +230,14 @@ def generate_launch_description() -> LaunchDescription:
                 "max_temp_c",
                 default_value="60.0",
                 description="Red end of the thermal map's colour window",
+            ),
+            DeclareLaunchArgument(
+                "optimized_cloud",
+                default_value="false",
+                description=(
+                    "Publish the graph-optimized RTAB-Map cloud instead of "
+                    "the irreversible raw point-cloud assembly"
+                ),
             ),
             DeclareLaunchArgument(
                 "demo_route",
@@ -246,14 +336,21 @@ def generate_launch_description() -> LaunchDescription:
                                 "/hazard_guard/rtabmap/cloud_frame",
                             ),
                         ],
+                        condition=UnlessCondition(
+                            LaunchConfiguration("optimized_cloud")
+                        ),
                     ),
-                    _rtabmap_node(parameters, reset_database=True),
-                    _rtabmap_node(parameters, reset_database=False),
+                    _rtabmap_node(parameters_file, reset_database=True),
+                    _rtabmap_node(parameters_file, reset_database=False),
                 ],
             ),
             TimerAction(
                 period=7.0,
-                actions=[_color_cloud_assembler_node()],
+                actions=[
+                    _color_cloud_assembler_node(),
+                    _optimized_map_assembler_node(),
+                    _optimized_cloud_guard_node(),
+                ],
             ),
             TimerAction(
                 # After the assembler, for the same reason: map<-camera TF has

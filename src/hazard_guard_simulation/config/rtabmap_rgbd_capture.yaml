@@ -1,0 +1,56 @@
+/rtabmap/rtabmap:
+  ros__parameters:
+    # Second-pass RGB-D capture profile. AMCL/Nav2 (or the field-tested
+    # localization stack) owns map -> odom; RTAB-Map never publishes that TF.
+    use_sim_time: true
+    frame_id: base_footprint
+    # The saved 2D map and AMCL own the capture pose. This makes every RGB-D
+    # node inherit map -> odom corrections instead of freezing odom drift into
+    # the RTAB-Map database.
+    odom_frame_id: map
+    # The optimized 3D cloud must share the saved 2D map frame so the WebUI
+    # robot marker and the rebuilt cloud use the same coordinates. RTAB-Map
+    # still publishes no TF, so AMCL remains the only map -> odom authority.
+    map_frame_id: map
+    publish_tf: false
+
+    subscribe_rgbd: true
+    subscribe_depth: false
+    subscribe_rgb: false
+    subscribe_scan: false
+    subscribe_odom_info: false
+    approx_sync: true
+    sync_queue_size: 30
+    qos_image: 2
+    qos_camera_info: 2
+    qos_odom: 2
+
+    # External localization determines every input pose. Keep all RTAB-Map
+    # loop/proximity closures disabled so the 3D cloud follows the validated
+    # SLAM Toolbox map and AMCL pose without retrospective graph jumps.
+    Reg/Strategy: "0"
+    Reg/Force3DoF: "true"
+    RGBD/NeighborLinkRefining: "false"
+    RGBD/ProximityByTime: "false"
+    RGBD/ProximityBySpace: "false"
+    RGBD/ProximityPathMaxNeighbors: "0"
+    RGBD/AggressiveLoopThr: "1.0"
+    RGBD/OptimizeMaxError: "3.0"
+    Rtabmap/LoopThr: "1.0"
+    Vis/MinInliers: "20"
+    Optimizer/GravitySigma: "0"
+
+    Grid/FromDepth: "true"
+    Grid/3D: "true"
+    Grid/RangeMin: "0.2"
+    Grid/RangeMax: "4.0"
+    # Keep the RTAB-Map node cache and map_assembler on the same 3 cm grid.
+    # A different cache size would make the assembler's voxel setting inert.
+    Grid/CellSize: "0.03"
+    Grid/MaxObstacleHeight: "2.5"
+    Grid/MinGroundHeight: "-0.15"
+
+    Mem/IncrementalMemory: "true"
+    Mem/InitWMWithAllNodes: "false"
+    Mem/DepthCompressionFormat: ".png"
+    Rtabmap/DetectionRate: "2.0"

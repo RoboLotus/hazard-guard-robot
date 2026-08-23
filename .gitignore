@@ -20,15 +20,18 @@ runtime/debug/
 runtime/settings/
 runtime/bags/
 runtime/benchmarks/
-runtime/models/
+runtime/performance/
+runtime/models/*
+!runtime/models/.gitkeep
 # Captured calibration frames - tens of megabytes each. The JSON results beside
 # them are kept on purpose so runs can be compared.
 runtime/calibration/*.npz
 
-# YOLO weights, downloaded on first run
-*.pt
 *.db3
 *.mcap
+*.pt
+*.onnx
+*.engine
 
 # Local manufacturer assets and share bundles
 Yahboom/

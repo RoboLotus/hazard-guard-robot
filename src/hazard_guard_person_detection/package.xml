@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>hazard_guard_person_detection</name>
+  <version>0.1.0</version>
+  <description>YOLO person detection and robust RGB-D distance estimation.</description>
+  <maintainer email="maintainers@hazardguard.local">HazardGuard Team</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>cv_bridge</depend>
+  <depend>hazard_guard_interfaces</depend>
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>ament_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

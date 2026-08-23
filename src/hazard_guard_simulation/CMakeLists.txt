@@ -44,6 +44,7 @@ install(PROGRAMS scripts/rtabmap_scan_demo.py scripts/auto_explore.py
   scripts/thermal_cloud.py
   scripts/timestamp_diagnostics.py
   scripts/person_detector.py
+  scripts/localization_ready_gate.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
@@ -54,6 +55,9 @@ if(BUILD_TESTING)
   )
   ament_add_pytest_test(test_physical_patrol_launch
     test/test_physical_patrol_launch.py
+  )
+  ament_add_pytest_test(test_person_safety_launch
+    test/test_person_safety_launch.py
   )
   ament_add_pytest_test(test_cloud_stamp_relay
     test/test_cloud_stamp_relay.py
@@ -79,10 +83,17 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_auto_explore
     test/test_auto_explore.py
   )
+  ament_add_pytest_test(test_rgbd_mapping_launch
+    test/test_rgbd_mapping_launch.py
+  )
+  ament_add_pytest_test(test_localization_ready_gate
+    test/test_localization_ready_gate.py
+  )
 endif()
 
 install(PROGRAMS
   scripts/build_demo_people_heat_world.py
+  scripts/run_demo_people_heat_navigation.sh
   scripts/run_demo_people_heat_simulation.sh
   scripts/trailer_aware_patrol.py
   DESTINATION lib/${PROJECT_NAME}
