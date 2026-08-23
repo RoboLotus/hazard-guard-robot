@@ -1,3 +1,4 @@
+import asyncio
 import time
 import unittest
 
@@ -7,6 +8,7 @@ from hazard_guard_dispenser.cube_ble import CubeLink
 class _Client:
     def __init__(self, connected=True):
         self.is_connected = connected
+        self.address = "fake"
 
 
 class CubeBatteryTests(unittest.TestCase):
@@ -84,6 +86,26 @@ class CubeBatteryTests(unittest.TestCase):
 
         record = link.status_snapshot()["beacons"][0]
         self.assertTrue(record["reported_unavailable"])
+        self.assertFalse(link.arm_is_valid())
+
+    def test_cancel_is_sent_even_to_unavailable_cube(self):
+        link = CubeLink()
+        address = "AA:00:00:00:00:03"
+        client = _Client(connected=True)
+        client.address = address
+        link._clients[address] = client
+        link._unavailable.add(address)
+        writes = []
+
+        async def write_one(target, payload):
+            writes.append((target.address, payload))
+            return True
+
+        link._write_one = write_one
+        sent = asyncio.run(link._send_all(b"C", 1, 0))
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(writes, [(address, b"C")])
 
 
 if __name__ == "__main__":
