@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 @dataclass(frozen=True)
@@ -21,7 +22,7 @@ class BatteryPolicy:
             self.full_voltage,
             self.valid_max_voltage,
         )
-        if any(value <= 0 for value in values):
+        if any(not math.isfinite(value) or value <= 0 for value in values):
             raise ValueError("배터리 전압 기준은 모두 0보다 커야 합니다")
         if values != tuple(sorted(values)):
             raise ValueError(
@@ -55,7 +56,11 @@ class BatteryPolicy:
         *,
         connected: bool,
         stale: bool = False,
+        allow_unknown: bool = False,
     ) -> bool:
         if not connected:
             return False
-        return self.state(voltage, stale=stale) not in {"critical", "invalid"}
+        state = self.state(voltage, stale=stale)
+        if state == "unknown":
+            return bool(allow_unknown and voltage is None and not stale)
+        return state not in {"critical", "invalid"}

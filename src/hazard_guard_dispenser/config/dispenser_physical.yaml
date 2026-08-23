@@ -17,6 +17,7 @@ dispenser_node:
     battery_critical_voltage: 10.0
     battery_valid_min_voltage: 7.5
     battery_valid_max_voltage: 13.5
+    allow_unknown_battery: false
     enable_physical_drop: false
     home_on_startup: false
     home_on_shutdown: false

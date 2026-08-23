@@ -76,6 +76,15 @@ class CubeBatteryTests(unittest.TestCase):
         self.assertIsNone(record["voltage"])
         self.assertIsNone(record["updated_at_unix_ms"])
 
+    def test_low_battery_report_marks_cube_unavailable(self):
+        link = CubeLink()
+        address = "AA:00:00:00:00:02"
+        link._clients[address] = _Client(connected=True)
+        link._on_report(address, bytes([4]))
+
+        record = link.status_snapshot()["beacons"][0]
+        self.assertTrue(record["reported_unavailable"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -94,6 +94,7 @@ class DispenserNode(Node):
         self.declare_parameter("battery_critical_voltage", 10.0)
         self.declare_parameter("battery_valid_min_voltage", 7.5)
         self.declare_parameter("battery_valid_max_voltage", 13.5)
+        self.declare_parameter("allow_unknown_battery", False)
         self.declare_parameter(
             "request_ledger_path",
             os.getenv(
@@ -129,6 +130,14 @@ class DispenserNode(Node):
             valid_min_voltage=float(self._p("battery_valid_min_voltage")),
             valid_max_voltage=float(self._p("battery_valid_max_voltage")),
         )
+        if float(self._p("battery_report_sec")) <= 0:
+            raise ValueError("battery_report_sec는 0보다 커야 합니다")
+        if float(self._p("battery_stale_sec")) <= 0:
+            raise ValueError("battery_stale_sec는 0보다 커야 합니다")
+        if int(self._p("arm_repeat")) < 1:
+            raise ValueError("arm_repeat는 1 이상이어야 합니다")
+        if int(self._p("expected_cubes")) < 1:
+            raise ValueError("expected_cubes는 1 이상이어야 합니다")
 
         self.busy = False
         self.lock = threading.Lock()
@@ -184,6 +193,7 @@ class DispenserNode(Node):
         self.result_pub = self.create_publisher(
             String, "hazard_guard/dispenser/result", 10)
         if self.cube_link:
+            self.cube_link.on_status_change = self._publish_battery
             self.create_timer(self._p("battery_report_sec"), self._publish_battery)
         try:
             from hazard_guard_interfaces.srv import DispenserRequestStatus
@@ -286,6 +296,20 @@ class DispenserNode(Node):
 
     def _publish_battery(self):
         if not self.cube_link:
+            msg = String()
+            msg.data = json.dumps(
+                {
+                    "schema_version": 1,
+                    "enabled": False,
+                    "expected": int(self._p("expected_cubes")),
+                    "connected": 0,
+                    "available_for_drop": 0,
+                    "beacons": [],
+                    "updated_at_unix_ms": int(time.time() * 1000),
+                },
+                separators=(",", ":"),
+            )
+            self.batt_pub.publish(msg)
             return
         snapshot = self.cube_link.status_snapshot(
             stale_after=float(self._p("battery_stale_sec"))
@@ -319,8 +343,12 @@ class DispenserNode(Node):
                     voltage,
                     connected=connected,
                     stale=stale,
+                    allow_unknown=bool(self._p("allow_unknown_battery")),
                 ),
             )
+            if record.get("reported_unavailable"):
+                record["battery_state"] = "critical"
+                record["available_for_drop"] = False
             beacons.append(record)
         connected = int(snapshot["connected"])
         available_addresses = {
@@ -330,6 +358,7 @@ class DispenserNode(Node):
         }
         payload = {
             "schema_version": 1,
+            "enabled": True,
             "expected": int(self._p("expected_cubes")),
             "connected": connected,
             "available_for_drop": len(available_addresses),
@@ -368,7 +397,10 @@ class DispenserNode(Node):
                 record.get("voltage"),
                 connected=True,
                 stale=bool(record.get("stale", False)),
+                allow_unknown=bool(self._p("allow_unknown_battery")),
             ):
+                if record.get("reported_unavailable"):
+                    continue
                 eligible.add(address)
         return eligible
 
