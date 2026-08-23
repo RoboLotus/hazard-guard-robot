@@ -148,6 +148,9 @@ class IncidentApprovalLatch:
         dispenser_request_id: str,
         result_detail: str = "",
     ) -> dict[str, Any]:
+        dispenser_request_id = str(dispenser_request_id).strip()
+        if not dispenser_request_id:
+            raise ValueError("dispenser_request_id가 필요합니다")
         with self._lock:
             if self._incident is None:
                 raise IncidentConflictError("활성 위험 이벤트가 없습니다")
@@ -162,7 +165,7 @@ class IncidentApprovalLatch:
                 raise IncidentConflictError("배출을 승인한 관리자 결정이 없습니다")
             self._incident.update(
                 state=state,
-                dispenser_request_id=str(dispenser_request_id),
+                dispenser_request_id=dispenser_request_id,
                 dispenser_result="succeeded",
                 result_detail=str(result_detail),
             )
@@ -176,6 +179,9 @@ class IncidentApprovalLatch:
         result_detail: str = "",
         actuation_started: bool,
     ) -> dict[str, Any]:
+        dispenser_request_id = str(dispenser_request_id).strip()
+        if not dispenser_request_id:
+            raise ValueError("dispenser_request_id가 필요합니다")
         with self._lock:
             if self._incident is None or self._incident["state"] != "dispensing":
                 raise IncidentConflictError("배출 진행 중인 이벤트가 아닙니다")
@@ -189,7 +195,7 @@ class IncidentApprovalLatch:
                 state = "approval_required"
             self._incident.update(
                 state=state,
-                dispenser_request_id=str(dispenser_request_id),
+                dispenser_request_id=dispenser_request_id,
                 dispenser_result=str(result),
                 result_detail=str(result_detail),
             )
@@ -201,11 +207,13 @@ class IncidentApprovalLatch:
                 )
             return copy.deepcopy(self._incident)
 
-    def mark_monitoring_normalized(self) -> dict[str, Any]:
+    def mark_monitoring_normalized(self, message: str = "") -> dict[str, Any]:
         with self._lock:
             if self._incident is None or self._incident["state"] != "monitoring":
                 raise IncidentConflictError("감시 중인 이벤트가 아닙니다")
             self._incident["state"] = "admin_release_required"
+            if message:
+                self._incident["message"] = str(message)
             return copy.deepcopy(self._incident)
 
     def resolve_resume(self) -> dict[str, Any]:

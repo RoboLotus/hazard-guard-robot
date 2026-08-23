@@ -152,6 +152,18 @@ class IncidentApprovalLatchTests(unittest.TestCase):
         self.assertEqual(record["state"], "approval_required")
         self.assertIsNone(record["decision"])
 
+    def test_dispenser_request_id_is_required(self):
+        latch = IncidentApprovalLatch()
+        latch.open({"incident_id": "thermal-pump"})
+        latch.decide(
+            incident_id="thermal-pump",
+            request_id="decision-1",
+            decision=DECISION_DROP_THEN_MONITOR,
+            operator_id="operator",
+        )
+        with self.assertRaises(ValueError):
+            latch.mark_dispense_succeeded(dispenser_request_id="  ")
+
 
 if __name__ == "__main__":
     unittest.main()
