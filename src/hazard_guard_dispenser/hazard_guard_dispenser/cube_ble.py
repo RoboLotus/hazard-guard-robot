@@ -250,7 +250,7 @@ class CubeLink:
         with self._lock:
             previous = self._battery.get(address)
             prev = previous[0] if previous is not None else None
-            self._battery[address] = (volts, now)
+            self._battery[address] = (volts, now, time.time())
         if prev is None or abs(volts - prev) >= 0.1:
             self._info(f"배터리 {address}: {volts:.1f}V ({self._pct(volts)}%)")
         if volts < 10.5:
@@ -277,7 +277,7 @@ class CubeLink:
                 if client.is_connected
             }
         result = {}
-        for address, (volts, updated_at) in readings.items():
+        for address, (volts, updated_at, _updated_at_unix) in readings.items():
             stale = (
                 stale_after is not None
                 and stale_after >= 0
@@ -290,6 +290,37 @@ class CubeLink:
                 stale,
             )
         return result
+
+    def battery_snapshot(self, stale_after=None):
+        """Return JSON-friendly per-cube battery records."""
+        now = time.monotonic()
+        with self._lock:
+            readings = dict(self._battery)
+            connected = {
+                address
+                for address, client in self._clients.items()
+                if client.is_connected
+            }
+        records = []
+        for address, (volts, updated_at, updated_at_unix) in sorted(
+            readings.items()
+        ):
+            stale = (
+                stale_after is not None
+                and stale_after >= 0
+                and now - updated_at > stale_after
+            )
+            records.append(
+                {
+                    "address": address,
+                    "voltage": round(volts, 2),
+                    "percent": self._pct(volts),
+                    "connected": address in connected,
+                    "stale": stale,
+                    "updated_at_unix_ms": int(updated_at_unix * 1000),
+                }
+            )
+        return records
 
     def lowest_battery(self):
         """가장 낮은 큐브의 (주소, 전압, 잔량%). 값이 없으면 None."""

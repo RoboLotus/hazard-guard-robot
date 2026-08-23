@@ -250,21 +250,24 @@ class DispenserNode(Node):
     def _publish_battery(self):
         if not self.cube_link:
             return
-        levels = self.cube_link.battery_levels(
+        beacons = self.cube_link.battery_snapshot(
             stale_after=float(self._p("battery_stale_sec"))
         )
-        if not levels:
-            return
-        parts = [
-            (
-                f"{address[-5:]}={volts:.1f}V/{pct}%"
-                f"/{'connected' if connected else 'disconnected'}"
-                f"/{'stale' if stale else 'fresh'}"
-            )
-            for address, (volts, pct, connected, stale) in levels.items()
-        ]
+        connected = self.cube_link.connected_count()
+        payload = {
+            "schema_version": 1,
+            "expected": int(self._p("expected_cubes")),
+            "connected": connected,
+            "beacons": beacons,
+            "updated_at_unix_ms": int(time.time() * 1000),
+        }
         msg = String()
-        msg.data = " ".join(parts)
+        msg.data = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
         self.batt_pub.publish(msg)
 
         low = self.cube_link.lowest_battery()

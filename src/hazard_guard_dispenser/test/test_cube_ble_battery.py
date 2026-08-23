@@ -14,7 +14,11 @@ class CubeBatteryTests(unittest.TestCase):
         link = CubeLink()
         address = "AA:BB:CC:DD:EE:FF"
         link._clients[address] = _Client(connected=False)
-        link._battery[address] = (11.4, time.monotonic() - 10.0)
+        link._battery[address] = (
+            11.4,
+            time.monotonic() - 10.0,
+            time.time() - 10.0,
+        )
 
         voltage, percent, connected, stale = link.battery_levels(
             stale_after=1.0
@@ -39,6 +43,22 @@ class CubeBatteryTests(unittest.TestCase):
         self.assertEqual(percent, 86)
         self.assertTrue(connected)
         self.assertFalse(stale)
+
+    def test_structured_snapshot_preserves_identity_and_freshness(self):
+        link = CubeLink()
+        address = "11:22:33:44:55:66"
+        link._clients[address] = _Client(connected=True)
+        link._on_battery(address, bytes([126]))
+
+        snapshot = link.battery_snapshot(stale_after=60.0)
+
+        self.assertEqual(len(snapshot), 1)
+        self.assertEqual(snapshot[0]["address"], address)
+        self.assertEqual(snapshot[0]["voltage"], 12.6)
+        self.assertEqual(snapshot[0]["percent"], 100)
+        self.assertTrue(snapshot[0]["connected"])
+        self.assertFalse(snapshot[0]["stale"])
+        self.assertGreater(snapshot[0]["updated_at_unix_ms"], 0)
 
 
 if __name__ == "__main__":
