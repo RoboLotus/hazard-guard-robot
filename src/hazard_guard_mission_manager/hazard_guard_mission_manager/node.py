@@ -9,6 +9,7 @@ from typing import Any
 import rclpy
 from hazard_guard_interfaces.action import RunPatrol
 from hazard_guard_interfaces.msg import HazardIncident, PersonSafetyState
+from hazard_guard_interfaces.srv import HazardDecision
 from rclpy.action import (
     ActionServer,
     CancelResponse,
@@ -40,6 +41,12 @@ from .geometry import (
     pose_errors,
 )
 from .incident import IncidentApprovalLatch, IncidentConflictError
+from .incident import (
+    DECISION_COMPLETE_MONITORING,
+    DECISION_DROP_THEN_MONITOR,
+    DECISION_DROP_THEN_RESUME,
+    DECISION_RESUME,
+)
 from .incident_detection import thermal_observations
 from .navigation import Nav2Adapter
 from .schedule import (
@@ -120,6 +127,12 @@ class HazardGuardMissionManager(Node):
             "thermal_trend_topic", "/hazard_guard/thermal/trend"
         )
         self.declare_parameter("hazard_evaluation_timeout_sec", 2.0)
+        self.declare_parameter(
+            "dispenser_command_topic", "/hazard_guard/dispenser/command"
+        )
+        self.declare_parameter(
+            "dispenser_result_topic", "/hazard_guard/dispenser/result"
+        )
 
         self._callback_group = ReentrantCallbackGroup()
         status_qos = QoSProfile(
@@ -145,6 +158,24 @@ class HazardGuardMissionManager(Node):
             HazardIncident,
             "/hazard_guard/incidents/status",
             status_qos,
+        )
+        self._dispenser_command_publisher = self.create_publisher(
+            String,
+            str(self.get_parameter("dispenser_command_topic").value),
+            10,
+        )
+        self._dispenser_result_subscription = self.create_subscription(
+            String,
+            str(self.get_parameter("dispenser_result_topic").value),
+            self._on_dispenser_result,
+            10,
+            callback_group=self._callback_group,
+        )
+        self._incident_decision_service = self.create_service(
+            HazardDecision,
+            "/hazard_guard/incidents/decision",
+            self._on_incident_decision,
+            callback_group=self._callback_group,
         )
         self._thermal_start_client = self.create_client(
             Trigger,
@@ -315,6 +346,163 @@ class HazardGuardMissionManager(Node):
             setattr(message, name, float(incident.get(name) or 0.0))
         message.simulated = bool(incident.get("simulated", False))
         self._incident_publisher.publish(message)
+
+    @staticmethod
+    def _decision_response(
+        response: HazardDecision.Response,
+        *,
+        accepted: bool,
+        record: dict[str, Any] | None,
+        request_id: str,
+        decision: str,
+        message: str,
+    ) -> HazardDecision.Response:
+        response.accepted = bool(accepted)
+        response.incident_id = str((record or {}).get("incident_id") or "")
+        response.request_id = str(request_id)
+        response.decision = str(decision)
+        response.state = str((record or {}).get("state") or "unavailable")
+        response.message = str(message)
+        return response
+
+    def _on_incident_decision(
+        self,
+        request: HazardDecision.Request,
+        response: HazardDecision.Response,
+    ) -> HazardDecision.Response:
+        decision = str(request.decision).strip()
+        request_id = str(request.request_id).strip()
+        try:
+            if decision in {
+                DECISION_DROP_THEN_RESUME,
+                DECISION_DROP_THEN_MONITOR,
+            } and self._safety.is_paused():
+                raise IncidentConflictError(
+                    "사람 안전 상태가 CLEAR가 아니므로 비콘을 배출할 수 없습니다"
+                )
+            record, created = self._incident.decide(
+                incident_id=str(request.incident_id),
+                request_id=request_id,
+                decision=decision,
+                operator_id=str(request.operator_id),
+            )
+        except (ValueError, IncidentConflictError) as exc:
+            return self._decision_response(
+                response,
+                accepted=False,
+                record=self._incident.snapshot(),
+                request_id=request_id,
+                decision=decision,
+                message=str(exc),
+            )
+
+        if not created:
+            return self._decision_response(
+                response,
+                accepted=True,
+                record=record,
+                request_id=request_id,
+                decision=decision,
+                message="이미 처리된 관리자 결정입니다.",
+            )
+
+        if decision in {DECISION_RESUME, DECISION_COMPLETE_MONITORING}:
+            record = self._incident.resolve_resume()
+            self._publish_incident(record)
+            self._update_state(
+                status="executing",
+                message="관리자 확인에 따라 순찰을 재개합니다.",
+                incident=record,
+            )
+            return self._decision_response(
+                response,
+                accepted=True,
+                record=record,
+                request_id=request_id,
+                decision=decision,
+                message="순찰 재개를 승인했습니다.",
+            )
+
+        dispenser_message = String()
+        dispenser_message.data = json.dumps(
+            {
+                "command": "drop",
+                "request_id": request_id,
+                "detection_id": record.get("detection_id"),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        self._dispenser_command_publisher.publish(dispenser_message)
+        self._publish_incident(record)
+        self._update_state(
+            status="dispensing",
+            message="관리자 승인에 따라 비콘 배출 결과를 기다립니다.",
+            incident=record,
+        )
+        return self._decision_response(
+            response,
+            accepted=True,
+            record=record,
+            request_id=request_id,
+            decision=decision,
+            message="비콘 배출 요청을 전송했습니다.",
+        )
+
+    def _on_dispenser_result(self, message: String) -> None:
+        try:
+            result = json.loads(message.data)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return
+        if not isinstance(result, dict):
+            return
+        current = self._incident.snapshot()
+        if current is None or current.get("state") != "dispensing":
+            return
+        request_id = str(result.get("request_id") or "")
+        if request_id != str(current.get("request_id") or ""):
+            return
+        result_state = str(result.get("state") or "hardware_error")
+        detail = str(result.get("result_detail") or "")
+        try:
+            if result_state == "succeeded":
+                updated = self._incident.mark_dispense_succeeded(
+                    dispenser_request_id=request_id,
+                    result_detail=detail,
+                )
+                if updated["state"] == "resuming":
+                    updated = self._incident.resolve_resume()
+                    mission_status = "executing"
+                    mission_message = "비콘 배출을 확인하고 순찰을 재개합니다."
+                else:
+                    mission_status = "monitoring"
+                    mission_message = (
+                        "비콘 설치 지점 감시 중입니다. 관리자 확인 전에는 재개하지 않습니다."
+                    )
+            else:
+                updated = self._incident.mark_dispense_failed(
+                    dispenser_request_id=request_id,
+                    result=result_state,
+                    result_detail=detail,
+                    actuation_started=bool(result.get("actuation_started", False)),
+                )
+                mission_status = str(updated["state"])
+                mission_message = (
+                    "비콘 배출 결과를 확인해야 하므로 순찰을 정지 상태로 유지합니다."
+                    if updated["state"] != "approval_required"
+                    else "비콘이 동작하기 전에 실패했습니다. 관리자 결정을 다시 선택할 수 있습니다."
+                )
+        except (ValueError, IncidentConflictError) as exc:
+            self.get_logger().error(f"디스펜서 결과 상태 전이 실패: {exc}")
+            return
+        updated["message"] = mission_message
+        self._publish_incident(updated)
+        self._update_state(
+            status=mission_status,
+            message=mission_message,
+            incident=updated,
+        )
 
     def _goal_callback(self, request: RunPatrol.Goal) -> GoalResponse:
         with self._state_lock:

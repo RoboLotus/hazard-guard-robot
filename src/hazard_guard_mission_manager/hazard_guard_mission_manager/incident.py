@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import re
 import threading
 from typing import Any
 
@@ -26,6 +27,7 @@ TERMINAL_DISPENSER_STATES = {
     "rejected_no_confirmation",
     "idempotency_conflict",
 }
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,96}$")
 
 
 class IncidentConflictError(RuntimeError):
@@ -90,6 +92,8 @@ class IncidentApprovalLatch:
             raise ValueError("incident_id가 필요합니다")
         if not request_id:
             raise ValueError("request_id가 필요합니다")
+        if not REQUEST_ID_PATTERN.fullmatch(request_id):
+            raise ValueError("request_id 형식이 올바르지 않습니다")
         if not operator_id:
             raise ValueError("operator_id가 필요합니다")
         with self._lock:

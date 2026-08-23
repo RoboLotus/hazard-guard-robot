@@ -104,6 +104,17 @@ class IncidentApprovalLatchTests(unittest.TestCase):
                 operator_id="   ",
             )
 
+    def test_request_id_must_match_dispenser_contract(self):
+        latch = IncidentApprovalLatch()
+        latch.open({"incident_id": "thermal-pump"})
+        with self.assertRaises(ValueError):
+            latch.decide(
+                incident_id="thermal-pump",
+                request_id="invalid request id",
+                decision="resume",
+                operator_id="operator",
+            )
+
     def test_dispense_success_follows_original_decision(self):
         monitor = IncidentApprovalLatch()
         monitor.open({"incident_id": "monitor"})
