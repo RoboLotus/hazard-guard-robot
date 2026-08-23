@@ -70,6 +70,7 @@ def generate_launch_description() -> LaunchDescription:
     use_dispenser = LaunchConfiguration("use_dispenser")
     enable_physical_drop = LaunchConfiguration("enable_physical_drop")
     enable_hazard_approval = LaunchConfiguration("enable_hazard_approval")
+    dispenser_rear_offset_m = LaunchConfiguration("dispenser_rear_offset_m")
     performance_storage_path = LaunchConfiguration("performance_storage_path")
     enable_rgbd_mapping = LaunchConfiguration("enable_rgbd_mapping")
     start_hp60c_camera = IfCondition(
@@ -151,6 +152,14 @@ def generate_launch_description() -> LaunchDescription:
                 description=(
                     "Pause patrol on correlated thermal warning/critical "
                     "results and require an authenticated operator decision."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "dispenser_rear_offset_m",
+                default_value="-0.25",
+                description=(
+                    "Signed base_link X offset from robot center to the "
+                    "dispenser outlet used for installed-beacon map markers."
                 ),
             ),
             DeclareLaunchArgument(
@@ -330,7 +339,11 @@ def generate_launch_description() -> LaunchDescription:
                                 "hazard_approval_enabled": ParameterValue(
                                     enable_hazard_approval,
                                     value_type=bool,
-                                )
+                                ),
+                                "dispenser_rear_offset_m": ParameterValue(
+                                    dispenser_rear_offset_m,
+                                    value_type=float,
+                                ),
                             },
                         ],
                     ),

@@ -9,7 +9,7 @@ import uuid
 from typing import Any
 
 import rclpy
-from hazard_guard_interfaces.action import RunPatrol
+from hazard_guard_interfaces.action import DispenseBeacon, RunPatrol
 from hazard_guard_interfaces.msg import HazardIncident, PersonSafetyState
 from hazard_guard_interfaces.srv import (
     DispenserRequestStatus,
@@ -17,6 +17,7 @@ from hazard_guard_interfaces.srv import (
     RecordThermalVisit,
 )
 from rclpy.action import (
+    ActionClient,
     ActionServer,
     CancelResponse,
     GoalResponse,
@@ -140,8 +141,13 @@ class HazardGuardMissionManager(Node):
             "thermal_trend_topic", "/hazard_guard/thermal/trend"
         )
         self.declare_parameter("hazard_evaluation_timeout_sec", 2.0)
+        self.declare_parameter("monitoring_interval_sec", 10.0)
+        self.declare_parameter("monitoring_dwell_sec", 3.0)
+        self.declare_parameter("monitoring_result_timeout_sec", 8.0)
+        self.declare_parameter("monitoring_max_failures", 3)
+        self.declare_parameter("dispenser_rear_offset_m", -0.25)
         self.declare_parameter(
-            "dispenser_command_topic", "/hazard_guard/dispenser/command"
+            "dispenser_action_name", "/hazard_guard/dispenser/dispense"
         )
         self.declare_parameter(
             "dispenser_result_topic", "/hazard_guard/dispenser/result"
@@ -184,10 +190,11 @@ class HazardGuardMissionManager(Node):
             "/hazard_guard/incidents/status",
             status_qos,
         )
-        self._dispenser_command_publisher = self.create_publisher(
-            String,
-            str(self.get_parameter("dispenser_command_topic").value),
-            10,
+        self._dispenser_action_client = ActionClient(
+            self,
+            DispenseBeacon,
+            str(self.get_parameter("dispenser_action_name").value),
+            callback_group=self._callback_group,
         )
         self._dispenser_result_subscription = self.create_subscription(
             String,
@@ -236,6 +243,12 @@ class HazardGuardMissionManager(Node):
         self._expected_thermal_correlations: set[str] = set()
         self._thermal_completed_correlations: set[str] = set()
         self._pending_dispenser_verifications: dict[str, dict[str, Any]] = {}
+        self._monitoring_lock = threading.Lock()
+        self._monitoring_phase = "idle"
+        self._monitoring_due_at = 0.0
+        self._monitoring_pending_correlation: str | None = None
+        self._monitoring_pending_deadline = 0.0
+        self._monitoring_failures = 0
         self._safety = SafetyPauseLatch(
             enabled=bool(
                 self.get_parameter("safety_supervision_enabled").value
@@ -263,6 +276,11 @@ class HazardGuardMissionManager(Node):
         self._dispenser_verification_timer = self.create_timer(
             0.5,
             self._poll_pending_dispenser_results,
+            callback_group=self._callback_group,
+        )
+        self._monitoring_timer = self.create_timer(
+            0.25,
+            self._monitoring_tick,
             callback_group=self._callback_group,
         )
         self._mission_state = MissionStateStore(self._publish_state_payload)
@@ -348,6 +366,24 @@ class HazardGuardMissionManager(Node):
             with self._thermal_trend_condition:
                 self._thermal_completed_correlations.add(correlation_id)
                 self._thermal_trend_condition.notify_all()
+            with self._monitoring_lock:
+                monitoring_result = (
+                    correlation_id == self._monitoring_pending_correlation
+                )
+                if monitoring_result:
+                    self._monitoring_pending_correlation = None
+                    self._monitoring_pending_deadline = 0.0
+                    self._monitoring_due_at = (
+                        time.monotonic()
+                        + max(
+                            0.5,
+                            float(
+                                self.get_parameter(
+                                    "monitoring_interval_sec"
+                                ).value
+                            ),
+                        )
+                    )
             current = self._incident.snapshot()
             if current is not None and current.get("state") in {
                 "monitoring",
@@ -373,6 +409,24 @@ class HazardGuardMissionManager(Node):
                             status="admin_release_required",
                             message=updated["message"],
                             incident=updated,
+                        )
+                        self._reset_monitoring_state(clear_focus=True)
+                    if monitoring_result:
+                        with self._thermal_trend_condition:
+                            self._expected_thermal_correlations.discard(
+                                correlation_id
+                            )
+                            self._thermal_completed_correlations.discard(
+                                correlation_id
+                            )
+                    return
+                if monitoring_result:
+                    with self._thermal_trend_condition:
+                        self._expected_thermal_correlations.discard(
+                            correlation_id
+                        )
+                        self._thermal_completed_correlations.discard(
+                            correlation_id
                         )
                     return
             for observation in observations:
@@ -413,6 +467,12 @@ class HazardGuardMissionManager(Node):
         for name in ("x", "y", "z", "temperature_c", "confidence"):
             setattr(message, name, float(incident.get(name) or 0.0))
         message.simulated = bool(incident.get("simulated", False))
+        message.beacon_pose_available = bool(
+            incident.get("beacon_pose_available", False)
+        )
+        message.beacon_frame_id = str(incident.get("beacon_frame_id") or "")
+        for name in ("beacon_x", "beacon_y", "beacon_z", "beacon_yaw"):
+            setattr(message, name, float(incident.get(name) or 0.0))
         self._incident_publisher.publish(message)
 
     @staticmethod
@@ -585,25 +645,88 @@ class HazardGuardMissionManager(Node):
                     "attempts": 0,
                     "in_flight": False,
                     "future": None,
+                    "goal_accepted": False,
                 },
             )
-        dispenser_message = String()
-        dispenser_message.data = json.dumps(
-            {
-                "command": "drop",
-                "request_id": request_id,
-                "detection_id": detection_id,
-                "authorization": command_authorization(
-                    self._dispenser_approval_secret,
-                    request_id=request_id,
-                    detection_id=detection_id,
-                ),
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
+        if not self._dispenser_action_client.server_is_ready():
+            self.get_logger().error("디스펜서 Action 서버가 준비되지 않았습니다")
+            return
+        goal = DispenseBeacon.Goal()
+        goal.request_id = request_id
+        goal.detection_id = detection_id or ""
+        goal.authorization = command_authorization(
+            self._dispenser_approval_secret,
+            request_id=request_id,
+            detection_id=detection_id,
         )
-        self._dispenser_command_publisher.publish(dispenser_message)
+        future = self._dispenser_action_client.send_goal_async(
+            goal,
+            feedback_callback=self._on_dispenser_action_feedback,
+        )
+        future.add_done_callback(
+            lambda completed, rid=request_id: (
+                self._on_dispenser_action_goal(rid, completed)
+            )
+        )
+
+    def _on_dispenser_action_feedback(self, feedback_message: Any) -> None:
+        feedback = feedback_message.feedback
+        self.get_logger().debug(
+            f"디스펜서 Action 진행: {feedback.state} {feedback.message}"
+        )
+
+    def _on_dispenser_action_goal(self, request_id: str, future: Any) -> None:
+        try:
+            goal_handle = future.result()
+            if not goal_handle.accepted:
+                raise RuntimeError("디스펜서 Action 목표가 거부됐습니다")
+            with self._state_lock:
+                pending = self._pending_dispenser_verifications.get(request_id)
+                if pending is not None:
+                    pending["goal_accepted"] = True
+            result_future = goal_handle.get_result_async()
+            result_future.add_done_callback(
+                lambda completed, rid=request_id: (
+                    self._on_dispenser_action_result(rid, completed)
+                )
+            )
+        except Exception as exc:
+            with self._state_lock:
+                self._pending_dispenser_verifications.pop(request_id, None)
+                self._apply_dispenser_result(
+                    {
+                        "request_id": request_id,
+                        "state": "hardware_error",
+                        "result_detail": str(exc),
+                        "actuation_started": False,
+                    }
+                )
+
+    def _on_dispenser_action_result(self, request_id: str, future: Any) -> None:
+        try:
+            wrapped = future.result()
+            result = wrapped.result
+            payload = {
+                "request_id": str(result.request_id),
+                "detection_id": str(result.detection_id),
+                "state": str(result.state),
+                "result_detail": str(result.result_detail),
+                "dropped_by": str(result.dropped_by),
+                "actuation_started": bool(result.actuation_started),
+                "home_recovered": bool(result.home_recovered),
+            }
+            if payload["request_id"] != request_id:
+                raise ValueError("디스펜서 Action 결과 request_id가 일치하지 않습니다")
+        except Exception as exc:
+            payload = {
+                "request_id": request_id,
+                "state": "hardware_error",
+                "result_detail": str(exc),
+                "actuation_started": True,
+            }
+        with self._state_lock:
+            self._pending_dispenser_verifications.pop(request_id, None)
+            self._apply_dispenser_result(payload)
 
     def _on_dispenser_result(self, message: String) -> None:
         try:
@@ -641,6 +764,7 @@ class HazardGuardMissionManager(Node):
                         "attempts": 0,
                         "in_flight": False,
                         "future": None,
+                        "goal_accepted": True,
                     },
                 )
             self._poll_pending_dispenser_results()
@@ -650,7 +774,7 @@ class HazardGuardMissionManager(Node):
 
     def _poll_pending_dispenser_results(self) -> None:
         now = time.monotonic()
-        timed_out: list[str] = []
+        timed_out: list[tuple[str, bool]] = []
         with self._state_lock:
             for request_id, pending in list(
                 self._pending_dispenser_verifications.items()
@@ -659,7 +783,9 @@ class HazardGuardMissionManager(Node):
                     future = pending.get("future")
                     if future is not None:
                         future.cancel()
-                    timed_out.append(request_id)
+                    timed_out.append(
+                        (request_id, bool(pending.get("goal_accepted")))
+                    )
                     self._pending_dispenser_verifications.pop(
                         request_id, None
                     )
@@ -689,7 +815,7 @@ class HazardGuardMissionManager(Node):
                         self._on_verified_dispenser_result(rid, completed)
                     )
                 )
-        for request_id in timed_out:
+        for request_id, actuation_possible in timed_out:
             self.get_logger().error(
                 f"디스펜서 원장 확인 시간 초과: {request_id}"
             )
@@ -699,7 +825,7 @@ class HazardGuardMissionManager(Node):
                         "request_id": request_id,
                         "state": "hardware_error",
                         "result_detail": "request_ledger_verification_timeout",
-                        "actuation_started": True,
+                        "actuation_started": actuation_possible,
                     }
                 )
 
@@ -778,9 +904,11 @@ class HazardGuardMissionManager(Node):
                 )
                 return
             if result_state == "succeeded":
+                beacon_pose = self._current_beacon_pose(current)
                 updated = self._incident.mark_dispense_succeeded(
                     dispenser_request_id=request_id,
                     result_detail=detail,
+                    beacon_pose=beacon_pose,
                 )
                 if updated["state"] == "resuming":
                     updated = self._incident.resolve_resume()
@@ -797,6 +925,7 @@ class HazardGuardMissionManager(Node):
                     mission_message = (
                         "비콘 설치 지점 감시 중입니다. 관리자 확인 전에는 재개하지 않습니다."
                     )
+                    self._begin_monitoring(updated)
             else:
                 known_terminal = result_state in TERMINAL_DISPENSER_STATES
                 actuation_value = result.get("actuation_started")
@@ -810,6 +939,11 @@ class HazardGuardMissionManager(Node):
                     result=(result_state if known_terminal else "hardware_error"),
                     result_detail=detail,
                     actuation_started=actuation_started,
+                    beacon_pose=(
+                        self._current_beacon_pose(current)
+                        if actuation_started
+                        else None
+                    ),
                 )
                 mission_status = str(updated["state"])
                 mission_message = (
@@ -827,6 +961,152 @@ class HazardGuardMissionManager(Node):
             message=mission_message,
             incident=updated,
         )
+
+    def _current_beacon_pose(self, incident: dict[str, Any]) -> dict[str, Any]:
+        frame_id = str(incident.get("frame_id") or "map")
+        pose = self._nav.current_pose(frame_id)
+        if pose is None:
+            self.get_logger().warning(
+                "배출 시점 로봇 위치를 확인하지 못해 비콘 위치를 기록하지 않습니다"
+            )
+            return {
+                "beacon_pose_available": False,
+                "beacon_frame_id": frame_id,
+            }
+        x, y, yaw = pose
+        offset = float(self.get_parameter("dispenser_rear_offset_m").value)
+        return {
+            "beacon_pose_available": True,
+            "beacon_frame_id": frame_id,
+            "beacon_x": x + offset * math.cos(yaw),
+            "beacon_y": y + offset * math.sin(yaw),
+            "beacon_z": 0.0,
+            "beacon_yaw": yaw,
+        }
+
+    def _begin_monitoring(self, incident: dict[str, Any]) -> None:
+        self._set_thermal_focus(str(incident.get("equipment_id") or "") or None)
+        with self._monitoring_lock:
+            self._monitoring_phase = "idle"
+            self._monitoring_due_at = time.monotonic()
+            self._monitoring_pending_correlation = None
+            self._monitoring_pending_deadline = 0.0
+            self._monitoring_failures = 0
+
+    def _reset_monitoring_state(self, *, clear_focus: bool = False) -> None:
+        with self._monitoring_lock:
+            pending = self._monitoring_pending_correlation
+            self._monitoring_phase = "idle"
+            self._monitoring_due_at = 0.0
+            self._monitoring_pending_correlation = None
+            self._monitoring_pending_deadline = 0.0
+            self._monitoring_failures = 0
+        if pending:
+            with self._thermal_trend_condition:
+                self._expected_thermal_correlations.discard(pending)
+                self._thermal_completed_correlations.discard(pending)
+        if clear_focus:
+            self._set_thermal_focus(None)
+
+    def _monitoring_tick(self) -> None:
+        if not self._monitoring_lock.acquire(blocking=False):
+            return
+        try:
+            incident = self._incident.snapshot()
+            if incident is None or incident.get("state") != "monitoring":
+                return
+            now = time.monotonic()
+            if self._monitoring_pending_correlation:
+                if now < self._monitoring_pending_deadline:
+                    return
+                correlation_id = self._monitoring_pending_correlation
+                self._monitoring_pending_correlation = None
+                self._monitoring_pending_deadline = 0.0
+                self._monitoring_due_at = now + max(
+                    0.5,
+                    float(self.get_parameter("monitoring_interval_sec").value),
+                )
+                with self._thermal_trend_condition:
+                    self._expected_thermal_correlations.discard(correlation_id)
+                    self._thermal_completed_correlations.discard(correlation_id)
+                self.get_logger().warning(
+                    "현장 감시 열화상 판정 시간이 초과되어 다음 수집을 예약합니다"
+                )
+                self._handle_monitoring_failure("thermal_result_timeout")
+                return
+            if now < self._monitoring_due_at:
+                return
+            if self._monitoring_phase == "idle":
+                if not self._start_thermal_visit("incident monitoring"):
+                    self._monitoring_due_at = now + max(
+                        0.5,
+                        float(
+                            self.get_parameter("monitoring_interval_sec").value
+                        ),
+                    )
+                    self._handle_monitoring_failure("thermal_start_unavailable")
+                    return
+                self._monitoring_phase = "collecting"
+                self._monitoring_due_at = now + max(
+                    0.1,
+                    float(self.get_parameter("monitoring_dwell_sec").value),
+                )
+                return
+            correlation_id = (
+                f"monitor:{incident['incident_id']}:{uuid.uuid4().hex}"
+            )
+            with self._thermal_trend_condition:
+                self._expected_thermal_correlations.add(correlation_id)
+            visit_index = self._record_thermal_visit(
+                "incident monitoring", correlation_id
+            )
+            self._monitoring_phase = "idle"
+            if visit_index is None:
+                with self._thermal_trend_condition:
+                    self._expected_thermal_correlations.discard(correlation_id)
+                self._monitoring_due_at = now + max(
+                    0.5,
+                    float(self.get_parameter("monitoring_interval_sec").value),
+                )
+                self._handle_monitoring_failure("thermal_record_unavailable")
+                return
+            self._monitoring_failures = 0
+            self._monitoring_pending_correlation = correlation_id
+            self._monitoring_pending_deadline = now + max(
+                0.5,
+                float(
+                    self.get_parameter("monitoring_result_timeout_sec").value
+                ),
+            )
+        finally:
+            self._monitoring_lock.release()
+
+    def _handle_monitoring_failure(self, reason: str) -> None:
+        self._monitoring_failures += 1
+        maximum = max(
+            1,
+            int(self.get_parameter("monitoring_max_failures").value),
+        )
+        if self._monitoring_failures < maximum:
+            return
+        try:
+            updated = self._incident.mark_monitoring_release_required(
+                message=(
+                    "열화상 현장 감시 통신을 확인할 수 없습니다. "
+                    "관리자 판단 후 순찰 재개 여부를 결정하세요."
+                ),
+                normalized=False,
+            )
+        except IncidentConflictError:
+            return
+        updated["monitoring_failure"] = reason
+        self._publish_incident(updated)
+        self._update_state(
+            status="admin_release_required",
+            message=updated["message"],
+            incident=updated,
+        )
+        self._set_thermal_focus(None)
 
     def _goal_callback(self, request: RunPatrol.Goal) -> GoalResponse:
         with self._state_lock:
@@ -1943,6 +2223,8 @@ class HazardGuardMissionManager(Node):
         return result
 
     def destroy_node(self) -> bool:
+        self._reset_monitoring_state(clear_focus=True)
+        self._dispenser_action_client.destroy()
         self._action_server.destroy()
         return super().destroy_node()
 

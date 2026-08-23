@@ -15,3 +15,9 @@ float32 temperature_c
 float32 confidence
 bool simulated
 string message
+bool beacon_pose_available
+string beacon_frame_id
+float32 beacon_x
+float32 beacon_y
+float32 beacon_z
+float32 beacon_yaw

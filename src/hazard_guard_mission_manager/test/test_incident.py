@@ -29,6 +29,14 @@ class IncidentApprovalLatchTests(unittest.TestCase):
         )
         latch.mark_dispense_succeeded(dispenser_request_id="drop-1")
         self.assertTrue(latch.is_paused())
+        with self.assertRaises(IncidentConflictError):
+            latch.decide(
+                incident_id="thermal-pump",
+                request_id="decision-too-early",
+                decision=DECISION_COMPLETE_MONITORING,
+                operator_id="operator",
+            )
+        latch.mark_monitoring_normalized()
         record, created = latch.decide(
             incident_id="thermal-pump",
             request_id="decision-2",
@@ -39,6 +47,30 @@ class IncidentApprovalLatchTests(unittest.TestCase):
         self.assertEqual(record["state"], "resuming")
         self.assertEqual(record["decision"], DECISION_DROP_THEN_MONITOR)
         self.assertEqual(len(record["decision_history"]), 2)
+
+    def test_dispense_success_records_verified_beacon_pose(self):
+        latch = IncidentApprovalLatch()
+        latch.open({"incident_id": "thermal-pump"})
+        latch.decide(
+            incident_id="thermal-pump",
+            request_id="decision-1",
+            decision=DECISION_DROP_THEN_MONITOR,
+            operator_id="operator",
+        )
+        record = latch.mark_dispense_succeeded(
+            dispenser_request_id="drop-1",
+            beacon_pose={
+                "beacon_pose_available": True,
+                "beacon_frame_id": "map",
+                "beacon_x": 1.2,
+                "beacon_y": -0.4,
+                "beacon_z": 0.0,
+                "beacon_yaw": 0.5,
+            },
+        )
+        self.assertTrue(record["beacon_pose_available"])
+        self.assertEqual(record["beacon_frame_id"], "map")
+        self.assertAlmostEqual(record["beacon_x"], 1.2)
 
     def test_monitoring_cannot_resolve_without_release_decision(self):
         latch = IncidentApprovalLatch()
@@ -54,6 +86,23 @@ class IncidentApprovalLatchTests(unittest.TestCase):
             latch.resolve_resume()
         latch.mark_monitoring_normalized()
         self.assertTrue(latch.is_paused())
+
+    def test_monitoring_transport_failure_requires_admin_release(self):
+        latch = IncidentApprovalLatch()
+        latch.open({"incident_id": "thermal-pump"})
+        latch.decide(
+            incident_id="thermal-pump",
+            request_id="decision-1",
+            decision=DECISION_DROP_THEN_MONITOR,
+            operator_id="operator",
+        )
+        latch.mark_dispense_succeeded(dispenser_request_id="drop-1")
+        record = latch.mark_monitoring_release_required(
+            message="thermal unavailable",
+            normalized=False,
+        )
+        self.assertEqual(record["state"], "admin_release_required")
+        self.assertFalse(record["monitoring_normalized"])
 
     def test_request_id_reuse_with_different_decision_is_rejected(self):
         latch = IncidentApprovalLatch()
@@ -163,6 +212,29 @@ class IncidentApprovalLatchTests(unittest.TestCase):
         )
         self.assertEqual(record["state"], "approval_required")
         self.assertIsNone(record["decision"])
+
+    def test_post_actuation_failure_records_field_check_pose(self):
+        latch = IncidentApprovalLatch()
+        latch.open({"incident_id": "thermal-pump"})
+        latch.decide(
+            incident_id="thermal-pump",
+            request_id="decision-1",
+            decision=DECISION_DROP_THEN_MONITOR,
+            operator_id="operator",
+        )
+        record = latch.mark_dispense_failed(
+            dispenser_request_id="drop-1",
+            result="jam_suspected",
+            actuation_started=True,
+            beacon_pose={
+                "beacon_pose_available": True,
+                "beacon_frame_id": "map",
+                "beacon_x": 0.7,
+                "beacon_y": 0.2,
+            },
+        )
+        self.assertEqual(record["state"], "field_check_required")
+        self.assertTrue(record["beacon_pose_available"])
 
     def test_dispenser_request_id_is_required(self):
         latch = IncidentApprovalLatch()

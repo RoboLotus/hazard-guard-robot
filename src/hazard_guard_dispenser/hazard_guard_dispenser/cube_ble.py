@@ -11,9 +11,12 @@ cube_ble.py — 비콘 큐브 BLE 연결 관리 (RoboLotus)
 """
 
 import asyncio
+import json
 import logging
+import os
 import threading
 import time
+from pathlib import Path
 
 try:
     from bleak import BleakClient, BleakScanner
@@ -46,7 +49,8 @@ RPT_NAME = {
 
 class CubeLink:
     def __init__(self, expected_cubes=3, scan_seconds=5.0,
-                 rescan_interval=15.0, logger=None):
+                 rescan_interval=15.0, logger=None,
+                 installed_state_path=None):
         self.expected = expected_cubes
         self.scan_seconds = scan_seconds
         self.rescan_interval = rescan_interval
@@ -63,6 +67,12 @@ class CubeLink:
         # readings behind the same lock as the client registry so callers
         # never iterate a dictionary that is being mutated concurrently.
         self._battery = {}
+        self._installed_state_path = (
+            Path(installed_state_path).expanduser()
+            if installed_state_path else None
+        )
+        self._installed_persistence_ok = True
+        self._installed = self._load_installed()
         self._unavailable = set()
         self._drop_event = threading.Event()
         self._drop_addr = None
@@ -70,6 +80,60 @@ class CubeLink:
         self._arm_state = "idle"
         self.on_cube_off = None
         self.on_status_change = None
+
+    def _load_installed(self):
+        path = self._installed_state_path
+        if path is None or not path.exists():
+            return set()
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            values = payload.get("installed", []) if isinstance(payload, dict) else []
+            return {str(value) for value in values if str(value).strip()}
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            self._installed_persistence_ok = False
+            self._warn(f"설치 비콘 상태를 읽지 못해 안전하게 비활성화합니다: {exc}")
+            return set()
+
+    def _persist_installed_locked(self):
+        path = self._installed_state_path
+        if path is None:
+            return
+        try:
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            temporary = path.with_suffix(path.suffix + ".tmp")
+            temporary.write_text(
+                json.dumps(
+                    {"installed": sorted(self._installed)},
+                    separators=(",", ":"),
+                ),
+                encoding="utf-8",
+            )
+            os.replace(temporary, path)
+            self._installed_persistence_ok = True
+        except OSError:
+            self._installed_persistence_ok = False
+            raise
+
+    def reset_installed(self, address=None):
+        """Maintenance-only reset after a physical beacon is reloaded."""
+        with self._lock:
+            if address is None:
+                self._installed.clear()
+            else:
+                self._installed.discard(str(address))
+            self._persist_installed_locked()
+        self._notify_status_change()
+
+    def mark_installed(self, address):
+        """Persist a BLE drop winner before it can be considered again."""
+        with self._lock:
+            self._installed.add(str(address))
+            self._persist_installed_locked()
+        self._notify_status_change()
+
+    def installed_persistence_ok(self):
+        with self._lock:
+            return bool(self._installed_persistence_ok)
 
     # ---------------- 외부에서 부르는 것 ----------------
     def start(self):
@@ -274,11 +338,16 @@ class CubeLink:
         self._info(f"보고 수신 {address}: {RPT_NAME.get(code, code)}")
 
         if code == RPT_DROPPED:
+            try:
+                self.mark_installed(address)
+            except OSError as exc:
+                self._error(f"설치 비콘 상태 저장 실패: {exc}")
             if not self._drop_event.is_set():
                 self._drop_addr = address
                 self._drop_event.set()
-                asyncio.run_coroutine_threadsafe(
-                    self._cancel_others(address), self._loop)
+                if self._loop is not None:
+                    asyncio.run_coroutine_threadsafe(
+                        self._cancel_others(address), self._loop)
         elif code in (RPT_SHAKEN_OFF, RPT_AUTO_OFF, RPT_LOW_BATT):
             if code == RPT_LOW_BATT:
                 self._arm_invalidated.set()
@@ -362,9 +431,10 @@ class CubeLink:
                 for address, client in self._clients.items()
                 if client.is_connected
             }
-            unavailable = set(self._unavailable)
+            unavailable = set(self._unavailable) | set(self._installed)
+            installed = set(self._installed)
         records = []
-        for address in sorted(connected | set(readings)):
+        for address in sorted(connected | set(readings) | installed):
             reading = readings.get(address)
             if reading is None:
                 records.append(
@@ -376,6 +446,7 @@ class CubeLink:
                         "stale": False,
                         "battery_supported": False,
                         "reported_unavailable": address in unavailable,
+                        "installed": address in installed,
                         "updated_at_unix_ms": None,
                     }
                 )
@@ -395,10 +466,15 @@ class CubeLink:
                     "stale": stale,
                     "battery_supported": True,
                     "reported_unavailable": address in unavailable,
+                    "installed": address in installed,
                     "updated_at_unix_ms": int(updated_at_unix * 1000),
                 }
             )
-        return {"connected": len(connected), "beacons": records}
+        return {
+            "connected": len(connected),
+            "beacons": records,
+            "installed_persistence_ok": self.installed_persistence_ok(),
+        }
 
     def connected_addresses(self):
         with self._lock:
@@ -450,7 +526,10 @@ class CubeLink:
                     if client.is_connected
                     and (
                         payload != CMD_ARM
-                        or address not in self._unavailable
+                        or (
+                            address not in self._unavailable
+                            and address not in self._installed
+                        )
                     )
                     and (
                         allowed_addresses is None
@@ -459,6 +538,9 @@ class CubeLink:
                 ]
             if payload == CMD_ARM and self._arm_invalidated.is_set():
                 break
+            if payload == CMD_ARM and not self._installed_persistence_ok:
+                self._error("설치 비콘 원장이 손상되어 ARM을 차단합니다")
+                return 0
             if not targets:
                 self._error("전송 가능한 큐브 없음")
                 return 0

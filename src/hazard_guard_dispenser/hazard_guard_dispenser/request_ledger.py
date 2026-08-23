@@ -6,6 +6,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,9 +16,16 @@ TERMINAL_STATES = frozenset({
     "succeeded", "jam_suspected", "hardware_error", "canceled",
     "rejected_busy", "recovery_required", "command_completed_unverified",
     "hardware_unavailable", "rejected_no_confirmation", "safety_interlock",
+    "idempotency_conflict",
 })
-IN_PROGRESS_STATES = frozenset({"accepted", "dispensing", "waiting", "homing"})
-_PROGRESS_ORDER = {"accepted": 0, "dispensing": 1, "waiting": 2, "homing": 3}
+IN_PROGRESS_STATES = frozenset({"accepted", "arming", "dispensing", "waiting", "homing"})
+_PROGRESS_ORDER = {
+    "accepted": 0,
+    "arming": 1,
+    "dispensing": 2,
+    "waiting": 3,
+    "homing": 4,
+}
 
 
 class RequestLedgerError(RuntimeError):
@@ -56,13 +64,17 @@ class RequestLedger:
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=FULL")
-        connection.execute("PRAGMA busy_timeout=5000")
-        return connection
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.execute("PRAGMA busy_timeout=5000")
+            return connection
+        except Exception:
+            connection.close()
+            raise
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection, connection:
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS dispenser_requests (
                     request_id TEXT PRIMARY KEY,
@@ -110,7 +122,7 @@ class RequestLedger:
         return _PROGRESS_ORDER.get(next_state, -1) >= _PROGRESS_ORDER.get(current, -1)
 
     def claim(self, *, request_id: str, detection_id: str | None, command: str = "drop") -> tuple[dict[str, Any], bool]:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             request_row = connection.execute(
                 "SELECT record_json FROM dispenser_requests WHERE request_id = ?", (request_id,)
@@ -189,7 +201,7 @@ class RequestLedger:
             return record, True
 
     def transition(self, request_id: str, state: str, **fields: Any) -> dict[str, Any]:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
                 "SELECT record_json FROM dispenser_requests WHERE request_id = ?", (request_id,)
@@ -211,10 +223,10 @@ class RequestLedger:
             return record
 
     def recover_interrupted(self) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             rows = connection.execute(
-                "SELECT record_json FROM dispenser_requests WHERE state IN ('accepted','dispensing','waiting','homing')"
+                "SELECT record_json FROM dispenser_requests WHERE state IN ('accepted','arming','dispensing','waiting','homing')"
             ).fetchall()
             recovered = []
             for row in rows:
@@ -233,7 +245,7 @@ class RequestLedger:
             return recovered
 
     def get(self, request_id: str) -> dict[str, Any] | None:
-        with self._lock, self._connect() as connection:
+        with self._lock, closing(self._connect()) as connection, connection:
             row = connection.execute(
                 "SELECT record_json FROM dispenser_requests WHERE request_id = ?", (request_id,)
             ).fetchone()
