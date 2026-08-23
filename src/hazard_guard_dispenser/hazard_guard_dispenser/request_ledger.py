@@ -165,18 +165,27 @@ class RequestLedger:
                     "rejected_no_confirmation",
                     "safety_interlock",
                 }:
+                    previous_request_id = existing["request_id"]
+                    if previous_request_id != request_id:
+                        previous_ids = list(
+                            existing.get("superseded_request_ids") or []
+                        )
+                        previous_ids.append(previous_request_id)
+                        existing["superseded_request_ids"] = previous_ids
+                        existing["request_id"] = request_id
                     existing.update(
                         state="accepted",
                         updated_at=_now(),
                         result_detail="safe_retry_before_actuation",
                     )
                     connection.execute(
-                        "UPDATE dispenser_requests SET state=?, record_json=?, updated_at=? WHERE request_id=?",
+                        "UPDATE dispenser_requests SET request_id=?, state=?, record_json=?, updated_at=? WHERE request_id=?",
                         (
+                            existing["request_id"],
                             existing["state"],
                             self._encode(existing),
                             existing["updated_at"],
-                            existing["request_id"],
+                            previous_request_id,
                         ),
                     )
                     connection.commit()

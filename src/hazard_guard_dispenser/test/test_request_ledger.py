@@ -60,6 +60,27 @@ class RequestLedgerTest(unittest.TestCase):
         self.assertTrue(created)
         self.assertEqual(record["state"], "accepted")
 
+    def test_same_detection_can_retry_with_a_new_canonical_request_id(self):
+        ledger = RequestLedger(self.path)
+        ledger.claim(request_id="req-1", detection_id="thermal-1")
+        ledger.transition(
+            "req-1",
+            "safety_interlock",
+            actuation_started=False,
+        )
+
+        record, created = ledger.claim(
+            request_id="req-2",
+            detection_id="thermal-1",
+        )
+        armed = ledger.transition("req-2", "arming")
+
+        self.assertTrue(created)
+        self.assertEqual(record["request_id"], "req-2")
+        self.assertEqual(record["superseded_request_ids"], ["req-1"])
+        self.assertEqual(armed["request_id"], "req-2")
+        self.assertIsNone(ledger.get("req-1"))
+
     def test_restart_restores_terminal_result_without_replaying(self):
         first = RequestLedger(self.path)
         first.claim(request_id="req-1", detection_id="thermal-1")
