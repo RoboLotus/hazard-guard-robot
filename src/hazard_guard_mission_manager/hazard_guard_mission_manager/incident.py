@@ -142,26 +142,63 @@ class IncidentApprovalLatch:
             }
             return response, True
 
-    def mark_dispense_result(
+    def mark_dispense_succeeded(
         self,
-        state: str,
-        **values: Any,
+        *,
+        dispenser_request_id: str,
+        result_detail: str = "",
     ) -> dict[str, Any]:
-        allowed = {
-            "monitoring",
-            "resuming",
-            "approval_required",
-            "field_check_required",
-            "hardware_error",
-        }
-        if state not in allowed:
-            raise ValueError(f"지원하지 않는 배출 결과 상태입니다: {state}")
         with self._lock:
             if self._incident is None:
                 raise IncidentConflictError("활성 위험 이벤트가 없습니다")
             if self._incident["state"] != "dispensing":
                 raise IncidentConflictError("배출 진행 중인 이벤트가 아닙니다")
-            self._incident.update(state=state, **values)
+            decision = self._incident.get("decision")
+            if decision == DECISION_DROP_THEN_RESUME:
+                state = "resuming"
+            elif decision == DECISION_DROP_THEN_MONITOR:
+                state = "monitoring"
+            else:
+                raise IncidentConflictError("배출을 승인한 관리자 결정이 없습니다")
+            self._incident.update(
+                state=state,
+                dispenser_request_id=str(dispenser_request_id),
+                dispenser_result="succeeded",
+                result_detail=str(result_detail),
+            )
+            return copy.deepcopy(self._incident)
+
+    def mark_dispense_failed(
+        self,
+        *,
+        dispenser_request_id: str,
+        result: str,
+        result_detail: str = "",
+        actuation_started: bool,
+    ) -> dict[str, Any]:
+        with self._lock:
+            if self._incident is None or self._incident["state"] != "dispensing":
+                raise IncidentConflictError("배출 진행 중인 이벤트가 아닙니다")
+            if actuation_started:
+                state = (
+                    "field_check_required"
+                    if result == "jam_suspected"
+                    else "hardware_error"
+                )
+            else:
+                state = "approval_required"
+            self._incident.update(
+                state=state,
+                dispenser_request_id=str(dispenser_request_id),
+                dispenser_result=str(result),
+                result_detail=str(result_detail),
+            )
+            if not actuation_started:
+                self._incident.update(
+                    decision=None,
+                    request_id=None,
+                    operator_id=None,
+                )
             return copy.deepcopy(self._incident)
 
     def mark_monitoring_normalized(self) -> dict[str, Any]:

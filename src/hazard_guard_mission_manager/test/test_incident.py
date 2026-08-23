@@ -26,7 +26,7 @@ class IncidentApprovalLatchTests(unittest.TestCase):
             decision=DECISION_DROP_THEN_MONITOR,
             operator_id="operator",
         )
-        latch.mark_dispense_result("monitoring")
+        latch.mark_dispense_succeeded(dispenser_request_id="drop-1")
         self.assertTrue(latch.is_paused())
         record, created = latch.decide(
             incident_id="thermal-pump",
@@ -48,7 +48,7 @@ class IncidentApprovalLatchTests(unittest.TestCase):
             decision=DECISION_DROP_THEN_MONITOR,
             operator_id="operator",
         )
-        latch.mark_dispense_result("monitoring")
+        latch.mark_dispense_succeeded(dispenser_request_id="drop-1")
         with self.assertRaises(IncidentConflictError):
             latch.resolve_resume()
         latch.mark_monitoring_normalized()
@@ -103,6 +103,54 @@ class IncidentApprovalLatchTests(unittest.TestCase):
                 decision="resume",
                 operator_id="   ",
             )
+
+    def test_dispense_success_follows_original_decision(self):
+        monitor = IncidentApprovalLatch()
+        monitor.open({"incident_id": "monitor"})
+        monitor.decide(
+            incident_id="monitor",
+            request_id="decision-monitor",
+            decision=DECISION_DROP_THEN_MONITOR,
+            operator_id="operator",
+        )
+        self.assertEqual(
+            monitor.mark_dispense_succeeded(
+                dispenser_request_id="drop-monitor"
+            )["state"],
+            "monitoring",
+        )
+
+        resume = IncidentApprovalLatch()
+        resume.open({"incident_id": "resume"})
+        resume.decide(
+            incident_id="resume",
+            request_id="decision-resume",
+            decision="drop_then_resume",
+            operator_id="operator",
+        )
+        self.assertEqual(
+            resume.mark_dispense_succeeded(
+                dispenser_request_id="drop-resume"
+            )["state"],
+            "resuming",
+        )
+
+    def test_only_pre_actuation_failure_returns_to_approval(self):
+        latch = IncidentApprovalLatch()
+        latch.open({"incident_id": "thermal-pump"})
+        latch.decide(
+            incident_id="thermal-pump",
+            request_id="decision-1",
+            decision=DECISION_DROP_THEN_MONITOR,
+            operator_id="operator",
+        )
+        record = latch.mark_dispense_failed(
+            dispenser_request_id="drop-1",
+            result="communication_error",
+            actuation_started=False,
+        )
+        self.assertEqual(record["state"], "approval_required")
+        self.assertIsNone(record["decision"])
 
 
 if __name__ == "__main__":
