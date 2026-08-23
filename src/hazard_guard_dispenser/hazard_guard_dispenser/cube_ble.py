@@ -63,9 +63,11 @@ class CubeLink:
         # readings behind the same lock as the client registry so callers
         # never iterate a dictionary that is being mutated concurrently.
         self._battery = {}
+        self._unavailable = set()
         self._drop_event = threading.Event()
         self._drop_addr = None
         self.on_cube_off = None
+        self.on_status_change = None
 
     # ---------------- 외부에서 부르는 것 ----------------
     def start(self):
@@ -215,8 +217,10 @@ class CubeLink:
                 self._warn(f"{dev.address}: 배터리 특성 없음 (구버전 펌웨어)")
             with self._lock:
                 self._clients[dev.address] = client
+                self._unavailable.discard(dev.address)
             self._info(f"큐브 연결됨: {dev.address} "
                        f"({self.connected_count()}/{self.expected})")
+            self._notify_status_change()
         except Exception as e:
             self._warn(f"연결 실패 {dev.address}: {e}")
             try:
@@ -227,6 +231,7 @@ class CubeLink:
     def _on_disconnect(self, client):
         addr = getattr(client, "address", "?")
         self._warn(f"큐브 끊김: {addr}. 다음 탐색 때 재연결")
+        self._notify_status_change()
 
     def _on_report(self, address, data):
         if not data:
@@ -244,11 +249,19 @@ class CubeLink:
                 asyncio.run_coroutine_threadsafe(
                     self._cancel_others(address), self._loop)
         elif code in (RPT_SHAKEN_OFF, RPT_AUTO_OFF, RPT_LOW_BATT):
+            if code == RPT_LOW_BATT:
+                with self._lock:
+                    self._unavailable.add(address)
+                if self._loop is not None:
+                    asyncio.run_coroutine_threadsafe(
+                        self._send_all(CMD_CANCEL, 1, 0), self._loop
+                    )
             if self.on_cube_off:
                 try:
                     self.on_cube_off(address, code)
                 except Exception as e:
                     self._error(f"소등 콜백 오류: {e}")
+        self._notify_status_change()
 
     def _on_battery(self, address, data):
         """큐브가 보낸 배터리 값. 전압을 10배한 1바이트."""
@@ -264,6 +277,7 @@ class CubeLink:
             self._info(f"배터리 {address}: {volts:.1f}V ({self._pct(volts)}%)")
         if volts < 10.5:
             self._warn(f"배터리 부족 {address}: {volts:.1f}V. 충전 필요")
+        self._notify_status_change()
 
     @staticmethod
     def _pct(volts):
@@ -314,6 +328,7 @@ class CubeLink:
                 for address, client in self._clients.items()
                 if client.is_connected
             }
+            unavailable = set(self._unavailable)
         records = []
         for address in sorted(connected | set(readings)):
             reading = readings.get(address)
@@ -326,6 +341,7 @@ class CubeLink:
                         "connected": address in connected,
                         "stale": False,
                         "battery_supported": False,
+                        "reported_unavailable": address in unavailable,
                         "updated_at_unix_ms": None,
                     }
                 )
@@ -344,6 +360,7 @@ class CubeLink:
                     "connected": address in connected,
                     "stale": stale,
                     "battery_supported": True,
+                    "reported_unavailable": address in unavailable,
                     "updated_at_unix_ms": int(updated_at_unix * 1000),
                 }
             )
@@ -356,6 +373,15 @@ class CubeLink:
                 for address, client in self._clients.items()
                 if client.is_connected
             }
+
+    def _notify_status_change(self):
+        callback = self.on_status_change
+        if callback is None:
+            return
+        try:
+            callback()
+        except Exception as exc:
+            self._error(f"상태 변경 콜백 오류: {exc}")
 
     def lowest_battery(self):
         """가장 낮은 큐브의 (주소, 전압, 잔량%). 값이 없으면 None."""
@@ -386,6 +412,7 @@ class CubeLink:
                 client
                 for address, client in self._clients.items()
                 if client.is_connected
+                and address not in self._unavailable
                 and (
                     allowed_addresses is None
                     or address in allowed_addresses

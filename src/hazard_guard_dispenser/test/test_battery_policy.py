@@ -21,10 +21,13 @@ class BatteryPolicyTests(unittest.TestCase):
         self.assertFalse(
             self.policy.available_for_drop(20.0, connected=True)
         )
+        self.assertFalse(self.policy.available_for_drop(None, connected=True))
         self.assertTrue(
-            self.policy.available_for_drop(None, connected=True)
+            self.policy.available_for_drop(
+                None, connected=True, allow_unknown=True
+            )
         )
-        self.assertTrue(
+        self.assertFalse(
             self.policy.available_for_drop(10.0, connected=True, stale=True)
         )
         self.assertFalse(
@@ -34,6 +37,8 @@ class BatteryPolicyTests(unittest.TestCase):
     def test_rejects_invalid_threshold_order(self):
         with self.assertRaises(ValueError):
             BatteryPolicy(low_voltage=9.5, critical_voltage=10.0)
+        with self.assertRaises(ValueError):
+            BatteryPolicy(low_voltage=float("nan"))
 
 
 if __name__ == "__main__":
