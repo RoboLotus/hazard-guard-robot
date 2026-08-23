@@ -27,8 +27,10 @@ import yaml
 
 DEFAULT_ROOT = Path("~/.local/share/hazard_guard/calibration").expanduser()
 WINDOW_NAME = "HazardGuard Calibration Validation (read-only)"
-PANEL_WIDTH = 600
-PANEL_HEIGHT = 450
+# Three panels are displayed side by side.  Keep the composite inside a
+# 1440 px-wide Jetson desktop instead of opening an 1800 px-wide window.
+PANEL_WIDTH = 480
+PANEL_HEIGHT = 360
 
 
 def normalize_u8(values: np.ndarray) -> np.ndarray:
@@ -218,6 +220,7 @@ class CalibrationValidator(Node):
         self.depth_info: CameraInfo | None = None
         self.last_render = 0.0
         self.last_composite: np.ndarray | None = None
+        self.window_opened = False
 
         self.thermal_k, self.thermal_d, self.thermal_size = load_thermal_intrinsic(
             arguments.intrinsic_file
@@ -370,6 +373,16 @@ class CalibrationValidator(Node):
             (245, 245, 245), 1, cv2.LINE_AA,
         )
         self.last_composite = np.vstack((body, footer))
+        if not self.window_opened:
+            cv2.namedWindow(
+                WINDOW_NAME, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO
+            )
+            cv2.resizeWindow(
+                WINDOW_NAME,
+                self.last_composite.shape[1],
+                self.last_composite.shape[0],
+            )
+            self.window_opened = True
         cv2.imshow(WINDOW_NAME, self.last_composite)
 
     def _show_error(self, message: str) -> None:
