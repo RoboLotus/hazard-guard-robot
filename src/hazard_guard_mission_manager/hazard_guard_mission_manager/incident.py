@@ -68,6 +68,7 @@ class IncidentApprovalLatch:
                 decision=None,
                 request_id=None,
                 operator_id=None,
+                decision_history=[],
             )
             self._incident = record
             return copy.deepcopy(record), True
@@ -80,10 +81,17 @@ class IncidentApprovalLatch:
         decision: str,
         operator_id: str,
     ) -> tuple[dict[str, Any], bool]:
+        incident_id = str(incident_id).strip()
+        request_id = str(request_id).strip()
+        operator_id = str(operator_id).strip()
         if decision not in DECISIONS:
             raise ValueError(f"지원하지 않는 관리자 결정입니다: {decision}")
+        if not incident_id:
+            raise ValueError("incident_id가 필요합니다")
         if not request_id:
             raise ValueError("request_id가 필요합니다")
+        if not operator_id:
+            raise ValueError("operator_id가 필요합니다")
         with self._lock:
             previous = self._decision_requests.get(request_id)
             fingerprint = {
@@ -92,9 +100,9 @@ class IncidentApprovalLatch:
                 "operator_id": operator_id,
             }
             if previous is not None:
-                if previous != fingerprint:
+                if previous["fingerprint"] != fingerprint:
                     raise IncidentConflictError("request_id가 다른 결정에 재사용되었습니다")
-                return copy.deepcopy(self._incident), False
+                return copy.deepcopy(previous["response"]), False
             if self._incident is None or self._incident["incident_id"] != incident_id:
                 raise IncidentConflictError("활성 위험 이벤트가 일치하지 않습니다")
             state = self._incident["state"]
@@ -108,18 +116,71 @@ class IncidentApprovalLatch:
                 next_state = (
                     "resuming" if decision == DECISION_RESUME else "dispensing"
                 )
-            self._decision_requests[request_id] = fingerprint
-            self._incident.update(
-                decision=decision,
-                request_id=request_id,
-                operator_id=operator_id,
-                state=next_state,
-            )
-            return copy.deepcopy(self._incident), True
+            decision_entry = {
+                "request_id": request_id,
+                "decision": decision,
+                "operator_id": operator_id,
+            }
+            self._incident["decision_history"].append(decision_entry)
+            if decision == DECISION_COMPLETE_MONITORING:
+                self._incident.update(
+                    release_request_id=request_id,
+                    release_operator_id=operator_id,
+                    state=next_state,
+                )
+            else:
+                self._incident.update(
+                    decision=decision,
+                    request_id=request_id,
+                    operator_id=operator_id,
+                    state=next_state,
+                )
+            response = copy.deepcopy(self._incident)
+            self._decision_requests[request_id] = {
+                "fingerprint": fingerprint,
+                "response": response,
+            }
+            return response, True
 
-    def transition(self, state: str, **values: Any) -> dict[str, Any]:
+    def mark_dispense_result(
+        self,
+        state: str,
+        **values: Any,
+    ) -> dict[str, Any]:
+        allowed = {
+            "monitoring",
+            "resuming",
+            "approval_required",
+            "field_check_required",
+            "hardware_error",
+        }
+        if state not in allowed:
+            raise ValueError(f"지원하지 않는 배출 결과 상태입니다: {state}")
         with self._lock:
             if self._incident is None:
                 raise IncidentConflictError("활성 위험 이벤트가 없습니다")
+            if self._incident["state"] != "dispensing":
+                raise IncidentConflictError("배출 진행 중인 이벤트가 아닙니다")
             self._incident.update(state=state, **values)
+            return copy.deepcopy(self._incident)
+
+    def mark_monitoring_normalized(self) -> dict[str, Any]:
+        with self._lock:
+            if self._incident is None or self._incident["state"] != "monitoring":
+                raise IncidentConflictError("감시 중인 이벤트가 아닙니다")
+            self._incident["state"] = "admin_release_required"
+            return copy.deepcopy(self._incident)
+
+    def resolve_resume(self) -> dict[str, Any]:
+        with self._lock:
+            if self._incident is None or self._incident["state"] != "resuming":
+                raise IncidentConflictError("승인된 재개 상태가 아닙니다")
+            self._incident["state"] = "resolved"
+            return copy.deepcopy(self._incident)
+
+    def cancel(self, reason: str = "") -> dict[str, Any] | None:
+        with self._lock:
+            if self._incident is None:
+                return None
+            self._incident.update(state="canceled", message=str(reason))
             return copy.deepcopy(self._incident)

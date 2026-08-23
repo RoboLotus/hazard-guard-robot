@@ -4,5 +4,8 @@ string decision
 string operator_id
 ---
 bool accepted
+string incident_id
+string request_id
+string decision
 string state
 string message
