@@ -1,0 +1,14 @@
+string request_id
+string detection_id
+string authorization
+---
+string request_id
+string detection_id
+string state
+string result_detail
+string dropped_by
+bool actuation_started
+bool home_recovered
+---
+string state
+string message

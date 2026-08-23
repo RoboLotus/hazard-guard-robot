@@ -124,8 +124,10 @@ class IncidentApprovalLatch:
                 raise IncidentConflictError("활성 위험 이벤트가 일치하지 않습니다")
             state = self._incident["state"]
             if decision == DECISION_COMPLETE_MONITORING:
-                if state not in {"monitoring", "admin_release_required"}:
-                    raise IncidentConflictError("감시 중인 이벤트가 아닙니다")
+                if state != "admin_release_required":
+                    raise IncidentConflictError(
+                        "정상화 확인 전에는 현장 감시를 종료할 수 없습니다"
+                    )
                 next_state = "resuming"
             elif decision == DECISION_ACKNOWLEDGE_FIELD_CHECK:
                 if state not in {"field_check_required", "hardware_error"}:
@@ -171,6 +173,7 @@ class IncidentApprovalLatch:
         *,
         dispenser_request_id: str,
         result_detail: str = "",
+        beacon_pose: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         dispenser_request_id = str(dispenser_request_id).strip()
         if not dispenser_request_id:
@@ -193,6 +196,8 @@ class IncidentApprovalLatch:
                 dispenser_result="succeeded",
                 result_detail=str(result_detail),
             )
+            if beacon_pose is not None:
+                self._incident.update(copy.deepcopy(beacon_pose))
             return copy.deepcopy(self._incident)
 
     def mark_dispense_progress(
@@ -225,6 +230,7 @@ class IncidentApprovalLatch:
         result: str,
         result_detail: str = "",
         actuation_started: bool,
+        beacon_pose: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         dispenser_request_id = str(dispenser_request_id).strip()
         if not dispenser_request_id:
@@ -246,6 +252,8 @@ class IncidentApprovalLatch:
                 dispenser_result=str(result),
                 result_detail=str(result_detail),
             )
+            if actuation_started and beacon_pose is not None:
+                self._incident.update(copy.deepcopy(beacon_pose))
             if not actuation_started:
                 self._incident.update(
                     decision=None,
@@ -255,10 +263,22 @@ class IncidentApprovalLatch:
             return copy.deepcopy(self._incident)
 
     def mark_monitoring_normalized(self, message: str = "") -> dict[str, Any]:
+        return self.mark_monitoring_release_required(
+            message=message,
+            normalized=True,
+        )
+
+    def mark_monitoring_release_required(
+        self,
+        *,
+        message: str = "",
+        normalized: bool,
+    ) -> dict[str, Any]:
         with self._lock:
             if self._incident is None or self._incident["state"] != "monitoring":
                 raise IncidentConflictError("감시 중인 이벤트가 아닙니다")
             self._incident["state"] = "admin_release_required"
+            self._incident["monitoring_normalized"] = bool(normalized)
             if message:
                 self._incident["message"] = str(message)
             return copy.deepcopy(self._incident)

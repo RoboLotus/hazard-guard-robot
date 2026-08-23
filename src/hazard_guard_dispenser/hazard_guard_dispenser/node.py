@@ -26,7 +26,11 @@ import re
 
 import rclpy
 from nav_msgs.msg import Odometry
+from hazard_guard_interfaces.action import DispenseBeacon
 from hazard_guard_interfaces.msg import PersonSafetyState
+from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
@@ -100,6 +104,13 @@ class DispenserNode(Node):
         self.declare_parameter("battery_valid_max_voltage", 13.5)
         self.declare_parameter("allow_unknown_battery", False)
         self.declare_parameter(
+            "installed_beacons_path",
+            os.getenv(
+                "HAZARD_GUARD_INSTALLED_BEACONS_PATH",
+                "~/.local/state/hazard_guard/dispenser/installed_beacons.json",
+            ),
+        )
+        self.declare_parameter(
             "request_ledger_path",
             os.getenv(
                 "HAZARD_GUARD_DISPENSER_LEDGER_PATH",
@@ -121,6 +132,10 @@ class DispenserNode(Node):
         )
         self.declare_parameter("person_safety_timeout_sec", 1.0)
         self.declare_parameter("require_person_safety_clear", True)
+        self.declare_parameter(
+            "action_name", "/hazard_guard/dispenser/dispense"
+        )
+        self.declare_parameter("action_result_timeout_sec", 30.0)
 
         self.servo_id = self._p("servo_id")
         self.servo_profile = ServoProfile(
@@ -173,6 +188,7 @@ class DispenserNode(Node):
         self.current_angle = self._p("angle_home")
         self.drop_count = 0
         self._motion_lock = threading.Lock()
+        self._action_cancel_requests = set()
         self._last_odom_monotonic = None
         self._stopped_since_monotonic = None
         self.request_ledger = None
@@ -204,7 +220,9 @@ class DispenserNode(Node):
             else:
                 self.cube_link = CubeLink(
                     expected_cubes=self._p("expected_cubes"),
-                    logger=self.get_logger())
+                    logger=self.get_logger(),
+                    installed_state_path=self._p("installed_beacons_path"),
+                )
                 self.cube_link.on_cube_off = self._on_cube_off
                 self.cube_link.start()
         else:
@@ -221,6 +239,16 @@ class DispenserNode(Node):
             String, "hazard_guard/dispenser/battery", battery_qos)
         self.result_pub = self.create_publisher(
             String, "hazard_guard/dispenser/result", 10)
+        self._callback_group = ReentrantCallbackGroup()
+        self._action_server = ActionServer(
+            self,
+            DispenseBeacon,
+            str(self._p("action_name")),
+            execute_callback=self._execute_dispense_action,
+            goal_callback=self._dispense_goal_callback,
+            cancel_callback=self._dispense_cancel_callback,
+            callback_group=self._callback_group,
+        )
         if self.cube_link:
             self.cube_link.on_status_change = self._publish_battery
             self.create_timer(self._p("battery_report_sec"), self._publish_battery)
@@ -262,6 +290,113 @@ class DispenserNode(Node):
         return self.get_parameter(name).value
 
     # ---------------- 명령 ----------------
+    def _dispense_goal_callback(self, request):
+        request_id = str(request.request_id).strip()
+        detection_id = str(request.detection_id).strip() or None
+        if not REQUEST_ID_PATTERN.fullmatch(request_id):
+            return GoalResponse.REJECT
+        if detection_id is not None and not REQUEST_ID_PATTERN.fullmatch(detection_id):
+            return GoalResponse.REJECT
+        if not valid_command_authorization(
+            self._approval_secret,
+            request_id=request_id,
+            detection_id=detection_id,
+            authorization=str(request.authorization),
+        ):
+            self.get_logger().error("디스펜서 Action 관리자 승인 서명이 올바르지 않습니다")
+            return GoalResponse.REJECT
+        return GoalResponse.ACCEPT
+
+    def _dispense_cancel_callback(self, goal_handle):
+        request_id = str(goal_handle.request.request_id).strip()
+        try:
+            record = (
+                self.request_ledger.get(request_id)
+                if self.request_ledger
+                else None
+            )
+        except RequestLedgerError as exc:
+            self.get_logger().error(f"Action 취소 원장 조회 실패: {exc}")
+            return CancelResponse.REJECT
+        if record and bool(record.get("actuation_started")):
+            self.get_logger().warning("서보 동작이 시작되어 Action 취소를 거부합니다")
+            return CancelResponse.REJECT
+        with self.lock:
+            self._action_cancel_requests.add(request_id)
+        return CancelResponse.ACCEPT
+
+    def _dispense_action_result(self, record):
+        result = DispenseBeacon.Result()
+        result.request_id = str(record.get("request_id") or "")
+        result.detection_id = str(record.get("detection_id") or "")
+        result.state = str(record.get("state") or "hardware_error")
+        result.result_detail = str(record.get("result_detail") or "")
+        result.dropped_by = str(record.get("dropped_by") or "")
+        result.actuation_started = bool(record.get("actuation_started", False))
+        result.home_recovered = bool(record.get("home_recovered", False))
+        return result
+
+    def _execute_dispense_action(self, goal_handle):
+        request_id = str(goal_handle.request.request_id).strip()
+        detection_id = str(goal_handle.request.detection_id).strip() or None
+        immediate = self._request_drop(request_id, detection_id)
+        if immediate is not None and str(immediate.get("state") or "") in {
+            "succeeded", "jam_suspected", "hardware_error", "canceled",
+            "rejected_busy", "recovery_required",
+            "command_completed_unverified", "hardware_unavailable",
+            "rejected_no_confirmation", "safety_interlock",
+            "idempotency_conflict",
+        }:
+            state = str(immediate.get("state") or "hardware_error")
+            if state == "canceled":
+                goal_handle.canceled()
+            elif state == "succeeded":
+                goal_handle.succeed()
+            else:
+                goal_handle.abort()
+            return self._dispense_action_result(immediate)
+        deadline = time.monotonic() + max(
+            1.0, float(self._p("action_result_timeout_sec"))
+        )
+        last_state = None
+        while time.monotonic() < deadline:
+            record = self.request_ledger.get(request_id) if self.request_ledger else None
+            if record is not None:
+                state = str(record.get("state") or "")
+                if state != last_state:
+                    feedback = DispenseBeacon.Feedback()
+                    feedback.state = state
+                    feedback.message = str(record.get("result_detail") or state)
+                    goal_handle.publish_feedback(feedback)
+                    last_state = state
+                if state in {
+                    "succeeded", "jam_suspected", "hardware_error", "canceled",
+                    "rejected_busy", "recovery_required",
+                    "command_completed_unverified", "hardware_unavailable",
+                    "rejected_no_confirmation", "safety_interlock",
+                    "idempotency_conflict",
+                }:
+                    if state == "canceled":
+                        goal_handle.canceled()
+                    elif state == "succeeded":
+                        goal_handle.succeed()
+                    else:
+                        goal_handle.abort()
+                    with self.lock:
+                        self._action_cancel_requests.discard(request_id)
+                    return self._dispense_action_result(record)
+            time.sleep(0.05)
+        record = self.request_ledger.get(request_id) if self.request_ledger else None
+        if record is None:
+            record = {
+                "request_id": request_id,
+                "detection_id": detection_id,
+                "state": "hardware_error",
+                "result_detail": "action_result_timeout",
+            }
+        goal_handle.abort()
+        return self._dispense_action_result(record)
+
     def on_command(self, msg):
         raw = msg.data.strip()
         try:
@@ -318,6 +453,18 @@ class DispenserNode(Node):
             self._publish_status()
         elif cmd == "battery":
             self._publish_battery()
+        elif cmd == "reset_installed" or cmd.startswith("reset_installed:"):
+            if not allow_maintenance_command(
+                cmd, self._p("allow_maintenance_manual_commands")
+            ):
+                self.get_logger().warn("운영 모드에서는 설치 비콘 초기화를 거부했습니다")
+                return
+            if not self.cube_link:
+                self.get_logger().warn("BLE 연결 관리자가 없어 초기화할 수 없습니다")
+                return
+            address = cmd.split(":", 1)[1].strip() if ":" in cmd else None
+            self.cube_link.reset_installed(address or None)
+            self.get_logger().info("물리 재장전된 비콘 상태를 초기화했습니다")
         elif cmd.startswith("angle:"):
             if not allow_maintenance_command(
                 cmd, self._p("allow_maintenance_manual_commands")
@@ -393,7 +540,10 @@ class DispenserNode(Node):
                     allow_unknown=bool(self._p("allow_unknown_battery")),
                 ),
             )
-            if record.get("reported_unavailable"):
+            if record.get("installed"):
+                record["battery_state"] = "installed"
+                record["available_for_drop"] = False
+            elif record.get("reported_unavailable"):
                 record["battery_state"] = "critical"
                 record["available_for_drop"] = False
             beacons.append(record)
@@ -409,6 +559,9 @@ class DispenserNode(Node):
             "expected": int(self._p("expected_cubes")),
             "connected": connected,
             "available_for_drop": len(available_addresses),
+            "inventory_persistence_ok": bool(
+                snapshot.get("installed_persistence_ok", False)
+            ),
             "beacons": beacons,
             "updated_at_unix_ms": int(time.time() * 1000),
         }
@@ -432,6 +585,8 @@ class DispenserNode(Node):
         snapshot = self.cube_link.status_snapshot(
             stale_after=float(self._p("battery_stale_sec"))
         )
+        if not snapshot.get("installed_persistence_ok", False):
+            return set()
         readings = {
             item["address"]: item
             for item in snapshot["beacons"]
@@ -511,15 +666,14 @@ class DispenserNode(Node):
     def _request_drop(self, request_id, detection_id):
         with self.lock:
             if self.request_ledger is None:
-                self._publish_result(
-                    {
-                        "request_id": request_id,
-                        "detection_id": detection_id,
-                        "state": "hardware_error",
-                        "result_detail": "request_ledger_unavailable",
-                    }
-                )
-                return
+                record = {
+                    "request_id": request_id,
+                    "detection_id": detection_id,
+                    "state": "hardware_error",
+                    "result_detail": "request_ledger_unavailable",
+                }
+                self._publish_result(record)
+                return record
             try:
                 record, created = self.request_ledger.claim(
                     request_id=request_id,
@@ -527,29 +681,27 @@ class DispenserNode(Node):
                 )
             except IdempotencyConflictError as exc:
                 self.get_logger().error(f"멱등성 키 충돌. 배출 차단: {exc}")
-                self._publish_result(
-                    {
-                        "request_id": request_id,
-                        "detection_id": detection_id,
-                        "state": "idempotency_conflict",
-                        "result_detail": str(exc),
-                    }
-                )
-                return
+                record = {
+                    "request_id": request_id,
+                    "detection_id": detection_id,
+                    "state": "idempotency_conflict",
+                    "result_detail": str(exc),
+                }
+                self._publish_result(record)
+                return record
             except RequestLedgerError as exc:
                 self.get_logger().error(f"요청 원장 기록 실패. 배출 차단: {exc}")
-                self._publish_result(
-                    {
-                        "request_id": request_id,
-                        "detection_id": detection_id,
-                        "state": "hardware_error",
-                        "result_detail": "request_ledger_write_failed",
-                    }
-                )
-                return
+                record = {
+                    "request_id": request_id,
+                    "detection_id": detection_id,
+                    "state": "hardware_error",
+                    "result_detail": "request_ledger_write_failed",
+                }
+                self._publish_result(record)
+                return record
             if not created:
                 self._publish_result({**record, "duplicate": True})
-                return
+                return record
             block_reason = self._physical_safety_block_reason()
             if block_reason is not None:
                 state = (
@@ -564,17 +716,18 @@ class DispenserNode(Node):
                     actuation_started=False,
                 )
                 self._publish_result(record)
-                return
+                return record
             if self.busy:
                 record = self.request_ledger.transition(
                     request_id, "rejected_busy", result_detail="another_request_active"
                 )
                 self._publish_result(record)
-                return
+                return record
             self.busy = True
-            record = self.request_ledger.transition(request_id, "dispensing")
+            record = self.request_ledger.transition(request_id, "arming")
         self._publish_result(record)
         threading.Thread(target=self._do_drop, args=(request_id,), daemon=True).start()
+        return record
 
     def _do_drop(self, request_id):
         final_record = None
@@ -585,6 +738,7 @@ class DispenserNode(Node):
 
             # 0) ARM — 반드시 기울이기 "전에"
             armed = 0
+            self.request_ledger.transition(request_id, "arming")
             safety_reason = self._physical_safety_block_reason()
             if safety_reason is not None:
                 final_record = self.request_ledger.transition(
@@ -624,6 +778,18 @@ class DispenserNode(Node):
                     self.cube_link.cancel_all()
                 return
             time.sleep(self._p("arm_lead_time"))
+            with self.lock:
+                canceled = request_id in self._action_cancel_requests
+            if canceled:
+                if self.cube_link:
+                    self.cube_link.cancel_all()
+                final_record = self.request_ledger.transition(
+                    request_id,
+                    "canceled",
+                    result_detail="action_canceled_before_actuation",
+                    actuation_started=False,
+                )
+                return
             safety_reason = self._physical_safety_block_reason()
             if safety_reason is not None:
                 final_record = self.request_ledger.transition(
@@ -823,16 +989,20 @@ class DispenserNode(Node):
                 self.cube_link.stop()
         except Exception:
             pass
+        self._action_server.destroy()
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = DispenserNode()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.shutdown()
         node.shutdown()
         node.destroy_node()
         if rclpy.ok():

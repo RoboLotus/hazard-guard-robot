@@ -1,6 +1,8 @@
 import asyncio
+import tempfile
 import time
 import unittest
+from pathlib import Path
 
 from hazard_guard_dispenser.cube_ble import CubeLink
 
@@ -87,6 +89,36 @@ class CubeBatteryTests(unittest.TestCase):
         record = link.status_snapshot()["beacons"][0]
         self.assertTrue(record["reported_unavailable"])
         self.assertFalse(link.arm_is_valid())
+
+    def test_dropped_cube_is_persisted_and_excluded_after_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "installed.json"
+            address = "AA:00:00:00:00:04"
+            link = CubeLink(installed_state_path=state_path)
+            link.mark_installed(address)
+
+            restored = CubeLink(installed_state_path=state_path)
+            restored._clients[address] = _Client(connected=True)
+            record = restored.status_snapshot()["beacons"][0]
+
+            self.assertTrue(record["installed"])
+            self.assertTrue(record["reported_unavailable"])
+            self.assertIn(address, restored._installed)
+            restored.reset_installed(address)
+            self.assertNotIn(address, CubeLink(
+                installed_state_path=state_path
+            )._installed)
+
+    def test_corrupt_installed_ledger_blocks_arming(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "installed.json"
+            state_path.write_text("not-json", encoding="utf-8")
+            link = CubeLink(installed_state_path=state_path)
+            address = "AA:00:00:00:00:05"
+            link._clients[address] = _Client(connected=True)
+
+            self.assertFalse(link.installed_persistence_ok())
+            self.assertEqual(asyncio.run(link._send_all(b"A", 1, 0)), 0)
 
     def test_cancel_is_sent_even_to_unavailable_cube(self):
         link = CubeLink()

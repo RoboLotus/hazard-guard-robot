@@ -29,12 +29,14 @@
 
 ## ROS 인터페이스
 
-현재 구현은 다음 ROS 인터페이스를 사용한다. 문자열 명령은 JSON envelope로
-제한되고 request ID와 HMAC 승인값이 필수다.
+운영 배출은 타입이 있는 ROS Action을 사용한다. `request_id`, `detection_id`,
+HMAC 승인값이 Action goal에 포함되고 진행 상태와 최종 결과가 같은 goal에
+귀속된다. 문자열 토픽은 상태 호환성과 제한된 정비 명령에만 남겨 둔다.
 
 | 방향 | 이름 | 형식 | 값 |
 | --- | --- | --- | --- |
-| 구독 | `/hazard_guard/dispenser/command` | `std_msgs/String` | 서명된 `drop` JSON, 정비 명령 |
+| Action | `/hazard_guard/dispenser/dispense` | `DispenseBeacon` | 서명된 배출 요청, 진행 피드백, 취소 및 최종 결과 |
+| 구독 | `/hazard_guard/dispenser/command` | `std_msgs/String` | 운영 배출에는 사용하지 않음. 허용된 정비 명령만 처리 |
 | 발행 | `/hazard_guard/dispenser/status` | `std_msgs/String` | `ready`, `busy`, `dropped`, `jam_suspected`, `error:...` |
 | 발행 | `/hazard_guard/dispenser/result` | `std_msgs/String` | request ID별 진행·최종 결과 JSON |
 | 발행 | `/hazard_guard/dispenser/battery` | `std_msgs/String` | BLE 비콘별 전압·상태 JSON |
@@ -101,11 +103,18 @@ RGB-depth 픽셀 정합을 실물로 확인한 경우에만
    정지한다.
 3. FastAPI가 관리자 확인을 기록하고 HMAC이 포함된 결정을 보낸다.
 4. `resume`, `drop_then_resume`, `drop_then_monitor` 중 하나를 수행한다.
-5. 배출 결과는 결과 토픽만 믿지 않고 디스펜서 SQLite 원장에서 다시 조회한다.
+5. Action 결과와 디스펜서 SQLite 원장을 함께 확인하며, 결과 토픽만 믿지 않는다.
 6. `jam_suspected`, 원장 불일치, 확인 시간 초과는 재배출하지 않고 현장 확인
    상태로 유지한다.
 7. 감시 중 정상화돼도 자동 재개하지 않으며 관리자가 별도로 감시 완료를
    확인해야 한다.
+8. `drop_then_monitor` 성공 후에는 로봇을 정지 상태로 유지한 채 열화상 방문을
+   주기적으로 새로 수집한다. 정상 관측이 확인되어야
+   `admin_release_required`로 전환되고, 그 뒤에만 관리자가 순찰을 재개할 수 있다.
+9. 배출 성공 시 `map -> base_link` 위치와 후면 출구 오프셋으로 비콘 설치 위치를
+   기록한다. TF를 얻지 못하면 열원 위치로 대체하지 않고 위치 미확인으로 남긴다.
+   실물 출구 위치가 확정되면 `dispenser_rear_offset_m` launch 인자를
+   `base_link` X축 기준 실측값으로 조정한다(후면은 음수).
 
 ## 런타임 의존성
 
@@ -176,12 +185,12 @@ serial:
 서보 단독 시험은 운영 노드의 안전 경로를 우회하지 않고 별도 하드웨어 정비
 도구에서 수행한다.
 
-### 4. 문자열 전송 포맷 유지
+### 4. 운영 Action과 정비 문자열 토픽 분리
 
-현재 전송은 `std_msgs/String` JSON이지만 request ID, detection ID, HMAC,
-SQLite 멱등 원장과 상태 조회 서비스로 상관관계를 보완했다. 향후에는 이 JSON
-계약을 ROS Action으로 옮기면 타입 안정성과 취소 피드백을 더 강화할 수 있다.
-수동 `angle:NN`은 운영 환경에서 기본 차단된다.
+운영 배출은 `DispenseBeacon` Action으로 전환했다. 기존 문자열 토픽의 JSON
+배출 요청은 HMAC 검증을 유지하지만 WebUI 직접 배출 API에서는 호출하지 않는다.
+`angle:NN`, `home`, 설치 비콘 초기화는 정비 모드를 명시적으로 허용한 경우에만
+사용할 수 있다.
 
 ### 5. 상태 메시지가 곧바로 덮임
 
@@ -235,10 +244,10 @@ SQLite 멱등 원장과 상태 조회 서비스로 상관관계를 보완했다.
 
 ### C. ROS API
 
-- [ ] `hazard_guard_interfaces`에 배출 Action 또는 Service 설계
-- [ ] 문자열 `drop` 명령을 타입이 있는 API로 교체
-- [x] 진행 상태: accepted, dispensing, waiting, homing
-- [ ] ARM 전송 단계를 별도 `arming` 진행 상태로 발행
+- [x] `hazard_guard_interfaces`에 `DispenseBeacon` Action 설계
+- [x] 운영 문자열 `drop` 명령을 타입이 있는 Action으로 교체
+- [x] 진행 상태: accepted, arming, dispensing, waiting, homing
+- [x] ARM 전송 단계를 별도 `arming` 진행 상태로 발행
 - [x] 결과 상태: succeeded, jam_suspected, hardware_error, canceled 등
 - [x] 수동 각도 명령을 개발 모드에서만 허용
 - [ ] 상태 QoS와 마지막 결과 보존 정책 정의
@@ -259,7 +268,7 @@ SQLite 멱등 원장과 상태 조회 서비스로 상관관계를 보완했다.
 - [x] warning/critical에서 관리자 승인 대기 정책 정의
 - [x] correlation이 확인된 열화상 추세와 배출 결정 계층 연결
 - [x] 같은 `detection_id`에 대한 중복 배출 방지
-- [ ] 큐브 재고와 누적 배출 수 관리
+- [x] 낙하 확인된 큐브를 설치 상태로 영속화하고 재배출 후보에서 제외
 - [x] mission manager 상태와 배출 결과 연결
 - [x] 위험 탐지 자동 배출을 금지하고 관리자 승인만 허용
 

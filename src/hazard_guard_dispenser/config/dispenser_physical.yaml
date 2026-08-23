@@ -18,6 +18,7 @@ dispenser_node:
     battery_valid_min_voltage: 7.5
     battery_valid_max_voltage: 13.5
     allow_unknown_battery: false
+    installed_beacons_path: ~/.local/state/hazard_guard/dispenser/installed_beacons.json
     enable_physical_drop: false
     home_on_startup: false
     home_on_shutdown: false
