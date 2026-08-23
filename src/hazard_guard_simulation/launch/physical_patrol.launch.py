@@ -67,6 +67,9 @@ def generate_launch_description() -> LaunchDescription:
         "person_depth_registration_verified"
     )
     use_performance_monitor = LaunchConfiguration("use_performance_monitor")
+    use_dispenser = LaunchConfiguration("use_dispenser")
+    enable_physical_drop = LaunchConfiguration("enable_physical_drop")
+    enable_hazard_approval = LaunchConfiguration("enable_hazard_approval")
     performance_storage_path = LaunchConfiguration("performance_storage_path")
     enable_rgbd_mapping = LaunchConfiguration("enable_rgbd_mapping")
     start_hp60c_camera = IfCondition(
@@ -129,6 +132,27 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("enable_rgbd_mapping", default_value="false"),
             DeclareLaunchArgument("use_performance_monitor", default_value="true"),
             DeclareLaunchArgument("performance_storage_path", default_value=""),
+            DeclareLaunchArgument(
+                "use_dispenser",
+                default_value="false",
+                description="Start the rear beacon dispenser node.",
+            ),
+            DeclareLaunchArgument(
+                "enable_physical_drop",
+                default_value="false",
+                description=(
+                    "Enable real servo motion only after the physical safety "
+                    "checklist and approval secret are configured."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "enable_hazard_approval",
+                default_value="false",
+                description=(
+                    "Pause patrol on correlated thermal warning/critical "
+                    "results and require an authenticated operator decision."
+                ),
+            ),
             DeclareLaunchArgument(
                 "rtabmap_database_path",
                 default_value="/tmp/hazard_guard_physical_rgbd.db",
@@ -300,7 +324,15 @@ def generate_launch_description() -> LaunchDescription:
                         executable="mission_manager",
                         name="hazard_guard_mission_manager",
                         output="screen",
-                        parameters=[nav2_params_file],
+                        parameters=[
+                            nav2_params_file,
+                            {
+                                "hazard_approval_enabled": ParameterValue(
+                                    enable_hazard_approval,
+                                    value_type=bool,
+                                )
+                            },
+                        ],
                     ),
                     Node(
                         package="hazard_guard_performance_monitor",
@@ -316,6 +348,12 @@ def generate_launch_description() -> LaunchDescription:
                         ],
                     ),
                 ],
+            ),
+            include(
+                "hazard_guard_dispenser",
+                "dispenser.launch.py",
+                {"enable_physical_drop": enable_physical_drop},
+                condition=IfCondition(use_dispenser),
             ),
             include(
                 "hazard_guard_thermal_analysis",
