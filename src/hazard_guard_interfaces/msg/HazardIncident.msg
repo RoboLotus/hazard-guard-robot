@@ -1,0 +1,17 @@
+builtin_interfaces/Time stamp
+string incident_id
+string detection_id
+string mission_id
+string equipment_id
+string source
+string severity
+string state
+string decision
+string frame_id
+float32 x
+float32 y
+float32 z
+float32 temperature_c
+float32 confidence
+bool simulated
+string message

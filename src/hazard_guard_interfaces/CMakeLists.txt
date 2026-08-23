@@ -9,6 +9,7 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/RunPatrol.action"
   "msg/HazardDetection.msg"
+  "msg/HazardIncident.msg"
   "msg/PatrolWaypoint.msg"
   "msg/PersonObservation.msg"
   "msg/PersonObservationArray.msg"
@@ -17,6 +18,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/RobotCommand.srv"
   "srv/BagRecorderControl.srv"
   "srv/DispenserRequestStatus.srv"
+  "srv/HazardDecision.srv"
   DEPENDENCIES builtin_interfaces std_msgs
 )
 
