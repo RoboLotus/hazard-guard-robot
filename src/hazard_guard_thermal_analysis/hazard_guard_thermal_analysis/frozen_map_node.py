@@ -1,4 +1,4 @@
-"""ROS node that accumulates heat on an immutable exported 3D map."""
+"""ROS node for immutable static geometry plus persistent dynamic voxels."""
 
 from __future__ import annotations
 
@@ -24,7 +24,16 @@ from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header, String
 from tf2_ros import Buffer, TransformListener
 
-from .cloud import create_frozen_thermal_cloud, iter_thermal_cloud
+from .cloud import (
+    create_dynamic_thermal_cloud,
+    create_frozen_thermal_cloud,
+    iter_thermal_cloud,
+)
+from .dynamic_map import (
+    DynamicStateError,
+    DynamicUpdateResult,
+    DynamicVoxelLayer,
+)
 from .frozen_map import (
     FixedGeometry,
     FrozenThermalLayer,
@@ -51,12 +60,13 @@ def _iso_timestamp(nanoseconds: int) -> str:
 
 
 class FrozenThermalMapNode(Node):
-    """Match live calibrated thermal points to fixed PLY vertices only."""
+    """Keep the fixed PLY immutable and maintain a separate dynamic layer."""
 
     def __init__(self) -> None:
         super().__init__("hazard_guard_frozen_thermal_map")
         self.declare_parameter("map_cloud_path", "")
         self.declare_parameter("thermal_state_path", "")
+        self.declare_parameter("dynamic_state_path", "")
         self.declare_parameter("session_id", "")
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("base_frame", "base_footprint")
@@ -65,6 +75,9 @@ class FrozenThermalMapNode(Node):
         )
         self.declare_parameter("input_topic", "/hazard_guard/thermal/points")
         self.declare_parameter("output_topic", "/hazard_guard/thermal/map")
+        self.declare_parameter(
+            "dynamic_output_topic", "/hazard_guard/thermal/dynamic"
+        )
         self.declare_parameter(
             "status_topic", "/hazard_guard/thermal/map/status"
         )
@@ -92,6 +105,16 @@ class FrozenThermalMapNode(Node):
         self.declare_parameter("localization_stable_rotation_deg", 3.0)
         self.declare_parameter("color_min_c", 10.0)
         self.declare_parameter("color_max_c", 60.0)
+        self.declare_parameter("dynamic_voxel_size_m", 0.05)
+        self.declare_parameter("dynamic_minimum_component_voxels", 8)
+        self.declare_parameter("dynamic_minimum_hits", 2)
+        self.declare_parameter("dynamic_maximum_misses", 3)
+        self.declare_parameter("dynamic_maximum_voxels", 50_000)
+        self.declare_parameter("maximum_dynamic_published_voxels", 30_000)
+        self.declare_parameter(
+            "dynamic_visibility_angular_resolution_deg", 1.0
+        )
+        self.declare_parameter("dynamic_visibility_range_tolerance_m", 0.08)
         # Optional local alignment never publishes a TF and never modifies
         # AMCL/Nav2.  It is conservative and off unless explicitly requested.
         self.declare_parameter("enable_local_alignment", False)
@@ -109,6 +132,11 @@ class FrozenThermalMapNode(Node):
             str(self.get_parameter("output_topic").value),
             snapshot_qos,
         )
+        self._dynamic_cloud_publisher = self.create_publisher(
+            PointCloud2,
+            str(self.get_parameter("dynamic_output_topic").value),
+            snapshot_qos,
+        )
         self._status_publisher = self.create_publisher(
             String,
             str(self.get_parameter("status_topic").value),
@@ -117,15 +145,21 @@ class FrozenThermalMapNode(Node):
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
         self._layer: FrozenThermalLayer | None = None
+        self._dynamic_layer: DynamicVoxelLayer | None = None
+        self._last_dynamic_result: DynamicUpdateResult | None = None
         self._last_keyframe_pose: tuple[np.ndarray, np.ndarray] | None = None
         self._last_rejected_integration_monotonic = -math.inf
         self._last_successful_integration_monotonic = -math.inf
         self._last_observation_at_ns = 0
         self._last_published_voxel_count = 0
+        self._last_published_static_voxel_count = 0
+        self._last_published_dynamic_voxel_count = 0
         self._snapshot_truncated = False
         self._map_error = ""
         self._state_error = ""
+        self._dynamic_state_error = ""
         self._persistence_allowed = True
+        self._dynamic_persistence_allowed = True
         self._geometry_retryable = False
         self._pending_observation: tuple[PointCloud2, float] | None = None
         self._dropped_pending_observation_count = 0
@@ -186,6 +220,18 @@ class FrozenThermalMapNode(Node):
         value = str(self.get_parameter("thermal_state_path").value).strip()
         return Path(value).expanduser() if value else None
 
+    @property
+    def _dynamic_state_path(self) -> Path | None:
+        value = str(self.get_parameter("dynamic_state_path").value).strip()
+        if value:
+            return Path(value).expanduser()
+        thermal_path = self._state_path
+        if thermal_path is None:
+            return None
+        return thermal_path.with_name(
+            f"{thermal_path.stem}.dynamic{thermal_path.suffix or '.npz'}"
+        )
+
     def _try_load_geometry(self) -> None:
         if self._layer is not None:
             return
@@ -224,9 +270,49 @@ class FrozenThermalMapNode(Node):
                     self.get_parameter("alignment_search_radius_m").value
                 ),
             )
-            layer = FrozenThermalLayer(
+            static_index = VoxelHashIndex(geometry, lookup_cell_size)
+            layer = FrozenThermalLayer(geometry, static_index)
+            dynamic_layer = DynamicVoxelLayer(
                 geometry,
-                VoxelHashIndex(geometry, lookup_cell_size),
+                static_index,
+                voxel_size_m=float(
+                    self.get_parameter("dynamic_voxel_size_m").value
+                ),
+                static_association_radius_m=float(
+                    self.get_parameter("association_radius_m").value
+                ),
+                maximum_static_range_residual_m=float(
+                    self.get_parameter(
+                        "maximum_surface_range_residual_m"
+                    ).value
+                ),
+                minimum_component_voxels=int(
+                    self.get_parameter(
+                        "dynamic_minimum_component_voxels"
+                    ).value
+                ),
+                minimum_hits=int(
+                    self.get_parameter("dynamic_minimum_hits").value
+                ),
+                maximum_misses=int(
+                    self.get_parameter("dynamic_maximum_misses").value
+                ),
+                maximum_voxels=int(
+                    self.get_parameter("dynamic_maximum_voxels").value
+                ),
+                visibility_angular_resolution_deg=float(
+                    self.get_parameter(
+                        "dynamic_visibility_angular_resolution_deg"
+                    ).value
+                ),
+                visibility_range_tolerance_m=float(
+                    self.get_parameter(
+                        "dynamic_visibility_range_tolerance_m"
+                    ).value
+                ),
+                temperature_ema_alpha=float(
+                    self.get_parameter("temperature_ema_alpha").value
+                ),
             )
             state_path = self._state_path
             if state_path is not None and state_path.exists():
@@ -243,7 +329,19 @@ class FrozenThermalMapNode(Node):
                         "Thermal state was not restored and will not be "
                         f"overwritten: {exc}"
                     )
+            dynamic_state_path = self._dynamic_state_path
+            if dynamic_state_path is not None and dynamic_state_path.exists():
+                try:
+                    dynamic_layer.restore(dynamic_state_path)
+                except DynamicStateError as exc:
+                    self._dynamic_state_error = str(exc)
+                    self._dynamic_persistence_allowed = False
+                    self.get_logger().error(
+                        "Dynamic state was not restored and will not be "
+                        f"overwritten: {exc}"
+                    )
             self._layer = layer
+            self._dynamic_layer = dynamic_layer
             self._publish_geometry_indices = fixed_stride_indices(
                 int(geometry.points.shape[0]),
                 max(
@@ -260,7 +358,8 @@ class FrozenThermalMapNode(Node):
             self.get_logger().info(
                 "Frozen thermal geometry ready: "
                 f"{geometry.points.shape[0]} voxels, "
-                f"fingerprint={geometry.fingerprint[:12]}..."
+                f"fingerprint={geometry.fingerprint[:12]}...; persistent "
+                "dynamic layer ready"
             )
         except Exception as exc:
             # Parse errors and configured size-limit failures are permanent
@@ -515,6 +614,18 @@ class FrozenThermalMapNode(Node):
             return
         try:
             points, temperatures, confidence = self._sample_observations(message)
+            dynamic_result = (
+                self._dynamic_layer.integrate(
+                    points,
+                    temperatures,
+                    confidence,
+                    observed_at_ns=_stamp_nanoseconds(message.header.stamp),
+                    sensor_origin=pose[2],
+                )
+                if self._dynamic_layer is not None
+                else None
+            )
+            self._last_dynamic_result = dynamic_result
             result = self._layer.integrate(
                 points,
                 temperatures,
@@ -561,7 +672,14 @@ class FrozenThermalMapNode(Node):
                 "invalid_observation_cloud",
             )
             return
-        if result.accepted:
+        dynamic_updated = bool(
+            self._last_dynamic_result is not None
+            and (
+                self._last_dynamic_result.hit_voxel_count > 0
+                or self._last_dynamic_result.visible_miss_voxel_count > 0
+            )
+        )
+        if result.accepted or dynamic_updated:
             self._last_keyframe_pose = (pose[0], pose[1])
             self._last_successful_integration_monotonic = now_monotonic
             self._last_rejected_integration_monotonic = -math.inf
@@ -577,6 +695,33 @@ class FrozenThermalMapNode(Node):
         if layer is None:
             self._publish_status()
             return
+        maximum_total = max(
+            1, int(self.get_parameter("maximum_published_voxels").value)
+        )
+        maximum_dynamic = max(
+            1,
+            int(
+                self.get_parameter(
+                    "maximum_dynamic_published_voxels"
+                ).value
+            ),
+        )
+        dynamic = (
+            self._dynamic_layer.snapshot(
+                confirmed_only=True,
+                maximum_voxels=min(maximum_total, maximum_dynamic),
+            )
+            if self._dynamic_layer is not None
+            else (
+                np.empty((0, 3), dtype=np.float32),
+                np.empty(0, dtype=np.float32),
+                np.empty(0, dtype=np.float32),
+                np.empty(0, dtype=np.uint32),
+                np.empty(0, dtype=np.uint32),
+                np.empty(0, dtype=np.int64),
+            )
+        )
+        dynamic_count = int(dynamic[0].shape[0])
         all_observed_count = layer.observed_voxel_count
         # The subset is chosen once from canonical geometry.  Its membership
         # never changes as new areas are observed, so WebUI points do not
@@ -584,43 +729,94 @@ class FrozenThermalMapNode(Node):
         observed = self._publish_geometry_indices[
             layer.observation_count[self._publish_geometry_indices] > 0
         ]
-        self._snapshot_truncated = observed.shape[0] < all_observed_count
+        static_budget = max(0, maximum_total - dynamic_count)
+        observed = observed[:static_budget]
+        self._snapshot_truncated = bool(
+            observed.shape[0] < all_observed_count
+            or (
+                self._dynamic_layer is not None
+                and dynamic_count < self._dynamic_layer.confirmed_voxel_count
+            )
+        )
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = str(self.get_parameter("map_frame").value)
+        self._dynamic_cloud_publisher.publish(
+            create_dynamic_thermal_cloud(
+                header,
+                dynamic[0],
+                dynamic[1],
+                dynamic[2],
+                dynamic[3],
+                dynamic[4],
+                dynamic[5],
+                color_min_c=float(self.get_parameter("color_min_c").value),
+                color_max_c=float(self.get_parameter("color_max_c").value),
+            )
+        )
+        coordinates = np.concatenate(
+            (layer.geometry.points[observed], dynamic[0]), axis=0
+        )
+        temperatures = np.concatenate(
+            (layer.temperature_c[observed], dynamic[1]), axis=0
+        )
+        confidence = np.concatenate(
+            (layer.confidence[observed], dynamic[2]), axis=0
+        )
         message = create_frozen_thermal_cloud(
             header,
-            layer.geometry.points[observed],
-            layer.temperature_c[observed],
-            layer.confidence[observed],
+            coordinates,
+            temperatures,
+            confidence,
             color_min_c=float(self.get_parameter("color_min_c").value),
             color_max_c=float(self.get_parameter("color_max_c").value),
         )
         self._cloud_publisher.publish(message)
-        self._last_published_voxel_count = int(observed.shape[0])
+        self._last_published_static_voxel_count = int(observed.shape[0])
+        self._last_published_dynamic_voxel_count = dynamic_count
+        self._last_published_voxel_count = int(coordinates.shape[0])
         self._publish_status()
 
     def persist_if_dirty(self) -> None:
         layer = self._layer
         state_path = self._state_path
         if (
-            layer is None
-            or not layer.dirty
-            or state_path is None
-            or not self._persistence_allowed
+            layer is not None
+            and layer.dirty
+            and state_path is not None
+            and self._persistence_allowed
         ):
-            return
-        try:
-            layer.save_atomic(state_path)
-            self._state_error = ""
-        except Exception as exc:
-            self._state_error = str(exc)
-            self.get_logger().error(f"Failed to persist thermal layer: {exc}")
+            try:
+                layer.save_atomic(state_path)
+                self._state_error = ""
+            except Exception as exc:
+                self._state_error = str(exc)
+                self.get_logger().error(
+                    f"Failed to persist thermal layer: {exc}"
+                )
+        dynamic_path = self._dynamic_state_path
+        if (
+            self._dynamic_layer is not None
+            and self._dynamic_layer.dirty
+            and dynamic_path is not None
+            and self._dynamic_persistence_allowed
+        ):
+            try:
+                self._dynamic_layer.save_atomic(dynamic_path)
+                self._dynamic_state_error = ""
+            except Exception as exc:
+                self._dynamic_state_error = str(exc)
+                self.get_logger().error(
+                    f"Failed to persist dynamic layer: {exc}"
+                )
         self._publish_status()
 
     def _publish_status(self) -> None:
         layer = self._layer
+        dynamic_layer = self._dynamic_layer
+        dynamic_result = self._last_dynamic_result
         state_path = self._state_path
+        dynamic_state_path = self._dynamic_state_path
         status = {
             "schema_version": 1,
             "session_id": str(self.get_parameter("session_id").value),
@@ -634,6 +830,43 @@ class FrozenThermalMapNode(Node):
                 layer.observed_voxel_count if layer is not None else 0
             ),
             "published_voxel_count": self._last_published_voxel_count,
+            "published_static_voxel_count": (
+                self._last_published_static_voxel_count
+            ),
+            "published_dynamic_voxel_count": (
+                self._last_published_dynamic_voxel_count
+            ),
+            "dynamic_layer_available": dynamic_layer is not None,
+            "dynamic_active_voxel_count": (
+                dynamic_layer.active_voxel_count
+                if dynamic_layer is not None
+                else 0
+            ),
+            "dynamic_confirmed_voxel_count": (
+                dynamic_layer.confirmed_voxel_count
+                if dynamic_layer is not None
+                else 0
+            ),
+            "dynamic_candidate_voxel_count": (
+                dynamic_result.candidate_voxel_count
+                if dynamic_result is not None
+                else 0
+            ),
+            "dynamic_hit_voxel_count": (
+                dynamic_result.hit_voxel_count
+                if dynamic_result is not None
+                else 0
+            ),
+            "dynamic_visible_miss_voxel_count": (
+                dynamic_result.visible_miss_voxel_count
+                if dynamic_result is not None
+                else 0
+            ),
+            "dynamic_removed_voxel_count": (
+                dynamic_result.removed_voxel_count
+                if dynamic_result is not None
+                else 0
+            ),
             "snapshot_truncated": self._snapshot_truncated,
             "match_ratio": (
                 float(layer.last_match_ratio) if layer is not None else 0.0
@@ -667,15 +900,28 @@ class FrozenThermalMapNode(Node):
                 layer.persisted_at_ns if layer is not None else 0
             ),
             "state_path": str(state_path) if state_path is not None else "",
+            "dynamic_state_path": (
+                str(dynamic_state_path)
+                if dynamic_state_path is not None
+                else ""
+            ),
             "fingerprint": (
                 layer.geometry.fingerprint if layer is not None else ""
             ),
             "state_restored": bool(layer.restored) if layer is not None else False,
+            "dynamic_state_restored": bool(
+                dynamic_layer.restored if dynamic_layer is not None else False
+            ),
             "persistence_enabled": bool(
                 state_path is not None and self._persistence_allowed
             ),
+            "dynamic_persistence_enabled": bool(
+                dynamic_state_path is not None
+                and self._dynamic_persistence_allowed
+            ),
             "map_error": self._map_error,
             "state_error": self._state_error,
+            "dynamic_state_error": self._dynamic_state_error,
             "local_alignment_enabled": bool(
                 self.get_parameter("enable_local_alignment").value
             ),

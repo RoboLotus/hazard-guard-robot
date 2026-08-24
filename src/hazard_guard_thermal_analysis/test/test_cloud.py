@@ -1,10 +1,12 @@
 import struct
 
+import numpy as np
 import pytest
 from sensor_msgs.msg import Image, PointCloud2, PointField
 from std_msgs.msg import Header
 
 from hazard_guard_thermal_analysis.cloud import (
+    create_dynamic_thermal_cloud,
     create_frozen_thermal_cloud,
     create_thermal_cloud,
     decode_scalar_array,
@@ -106,3 +108,27 @@ def test_frozen_thermal_cloud_is_compact_and_uses_fixed_surface_fields() -> None
     assert rgb == temperature_rgb(42.0, 10.0, 60.0)
     assert temperature == pytest.approx(42.0)
     assert confidence == pytest.approx(0.75)
+
+
+def test_dynamic_thermal_cloud_exposes_voxel_persistence_metadata() -> None:
+    header = Header()
+    header.frame_id = "map"
+    cloud = create_dynamic_thermal_cloud(
+        header,
+        np.asarray([[1.0, 2.0, 3.0]], dtype=np.float32),
+        np.asarray([42.0], dtype=np.float32),
+        np.asarray([0.75], dtype=np.float32),
+        np.asarray([4], dtype=np.uint32),
+        np.asarray([1], dtype=np.uint32),
+        np.asarray([2_500_000_000], dtype=np.int64),
+    )
+    assert cloud.point_step == 40
+    assert [field.name for field in cloud.fields] == [
+        "x", "y", "z", "rgb", "temperature_c", "confidence",
+        "hit_count", "miss_count", "last_seen_sec",
+    ]
+    values = struct.unpack("<fffIffIId", bytes(cloud.data))
+    assert values[:3] == pytest.approx((1.0, 2.0, 3.0))
+    assert values[4:6] == pytest.approx((42.0, 0.75))
+    assert values[6:8] == (4, 1)
+    assert values[8] == pytest.approx(2.5)

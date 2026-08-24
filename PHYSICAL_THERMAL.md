@@ -34,11 +34,12 @@ History is stored by default at:
 ~/.local/share/hazard_guard/thermal_history.jsonl
 ```
 
-## Frozen-geometry cumulative thermal map
+## Immutable static map + persistent dynamic thermal layer
 
-After the RGB-D mapping pass has exported a fixed `cloud.ply`, patrol can add
-temperature attributes to that geometry without rebuilding or extending the
-3D surface:
+After the RGB-D mapping pass has exported `cloud.ply`, patrol keeps that file
+as an immutable static base. Calibrated thermal RGB-D points update thermal
+attributes on matching static voxels. A connected group that cannot be
+explained by the static surface is tracked in a separate dynamic voxel layer:
 
 ```bash
 ros2 launch hazard_guard_simulation physical_patrol.launch.py \
@@ -46,26 +47,37 @@ ros2 launch hazard_guard_simulation physical_patrol.launch.py \
   enable_frozen_thermal_map:=true \
   thermal_map_session_id:=facility-20260810-155822 \
   thermal_map_cloud_path:=/absolute/session/path/cloud.ply \
-  thermal_map_state_path:=/absolute/session/path/thermal_layer.npz
+  thermal_map_state_path:=/absolute/session/path/thermal_layer.npz \
+  thermal_dynamic_state_path:=/absolute/session/path/dynamic_layer.npz
 ```
 
 `enable_frozen_thermal_map` also starts the existing live thermal-depth fusion
-pipeline. The live `/hazard_guard/thermal/points` topic remains available for
-current-frame analysis. The accumulator validates that input is already in the
-`map` frame, matches only existing PLY voxels, and publishes a cumulative
-snapshot on `/hazard_guard/thermal/map`. Its fields are `x`, `y`, `z`, `rgb`,
-`temperature_c`, and `confidence`. Status is a transient-local JSON message on
-`/hazard_guard/thermal/map/status`.
+pipeline. `/hazard_guard/thermal/points` is the current calibrated RGB-D cloud
+in `map`; it contains actual depth geometry plus temperature and confidence.
+The static base is never modified. Confirmed dynamic geometry is published on
+`/hazard_guard/thermal/dynamic` with `temperature_c`, `confidence`,
+`hit_count`, `miss_count`, and `last_seen_sec` fields. For the existing Console
+contract,
+`/hazard_guard/thermal/map` contains the static thermal attributes plus the
+confirmed dynamic thermal voxels; deleting a dynamic voxel therefore reveals
+the independently rendered static base again. Status is a transient-local JSON
+message on `/hazard_guard/thermal/map/status`.
 
 The default policy requires three stable localization samples, a timestamped
 `map -> base_footprint` and `map -> thermal_camera_optical_frame` transform,
 at least a 30% surface match ratio, an 8 cm Euclidean association, and at most
 a 5 cm live/fixed range residual. A frame that fails any gate cannot modify
-the thermal layer. Motion keyframes use 10 cm or 6 degrees; stationary
-equipment is still refreshed every five seconds. The node never publishes TF
-or changes AMCL/Nav2.
+the static thermal layer. Dynamic candidates use 5 cm voxels, require a
+connected component of at least eight voxels and two hits, and are removed
+after three positive misses. A miss is counted only when a later depth ray
+actually covers the old voxel range. A voxel outside the observed FoV, behind
+a nearer return, or in a direction without valid depth keeps its state. Motion
+keyframes use 10 cm or 6 degrees; stationary equipment is still refreshed
+every five seconds. The node never publishes TF or changes AMCL/Nav2.
 
-`thermal_layer.npz` is atomically checkpointed and includes the fixed geometry
-fingerprint. A checkpoint from a different `cloud.ply` is rejected and is
-never overwritten automatically. Unseen voxels retain their prior
-temperature, count, confidence, and last-seen timestamp.
+Both NPZ files are atomically checkpointed and include the fixed geometry
+fingerprint. When `thermal_dynamic_state_path` is empty, the node derives a
+`.dynamic.npz` sibling from `thermal_map_state_path`. A checkpoint from a
+different `cloud.ply` is rejected and is never overwritten automatically.
+Each dynamic voxel persists its point, temperature statistics, `last_seen`,
+`hit_count`, `miss_count`, and confirmation state.

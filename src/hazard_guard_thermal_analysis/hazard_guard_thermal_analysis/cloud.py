@@ -52,6 +52,27 @@ FROZEN_THERMAL_POINT_FIELDS = (
     ),
 )
 
+DYNAMIC_THERMAL_POINT_DTYPE = np.dtype(
+    [
+        ("x", "<f4"),
+        ("y", "<f4"),
+        ("z", "<f4"),
+        ("rgb", "<u4"),
+        ("temperature_c", "<f4"),
+        ("confidence", "<f4"),
+        ("hit_count", "<u4"),
+        ("miss_count", "<u4"),
+        ("last_seen_sec", "<f8"),
+    ]
+)
+DYNAMIC_THERMAL_POINT_FIELDS = FROZEN_THERMAL_POINT_FIELDS + (
+    PointField(name="hit_count", offset=24, datatype=PointField.UINT32, count=1),
+    PointField(name="miss_count", offset=28, datatype=PointField.UINT32, count=1),
+    PointField(
+        name="last_seen_sec", offset=32, datatype=PointField.FLOAT64, count=1
+    ),
+)
+
 
 def temperature_rgb(temperature_c: float, low_c: float, high_c: float) -> int:
     """Return an opaque browser/PCL-compatible 0x00RRGGBB heat-map colour."""
@@ -120,6 +141,57 @@ def create_frozen_thermal_cloud(
     message.fields = list(FROZEN_THERMAL_POINT_FIELDS)
     message.is_bigendian = False
     message.point_step = FROZEN_THERMAL_POINT_DTYPE.itemsize
+    message.row_step = int(records.nbytes)
+    message.data = records.tobytes(order="C")
+    message.is_dense = True
+    return message
+
+
+def create_dynamic_thermal_cloud(
+    header: Header,
+    coordinates: np.ndarray,
+    temperatures_c: np.ndarray,
+    confidences: np.ndarray,
+    hit_counts: np.ndarray,
+    miss_counts: np.ndarray,
+    last_seen_ns: np.ndarray,
+    *,
+    color_min_c: float = 10.0,
+    color_max_c: float = 60.0,
+) -> PointCloud2:
+    """Create the dynamic layer contract including persistence metadata."""
+    points = np.asarray(coordinates, dtype=np.float32)
+    temperatures = np.asarray(temperatures_c, dtype=np.float32).reshape(-1)
+    confidence = np.asarray(confidences, dtype=np.float32).reshape(-1)
+    hits = np.asarray(hit_counts, dtype=np.uint32).reshape(-1)
+    misses = np.asarray(miss_counts, dtype=np.uint32).reshape(-1)
+    seen = np.asarray(last_seen_ns, dtype=np.int64).reshape(-1)
+    count = points.shape[0] if points.ndim == 2 else -1
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError("coordinates must have shape (N, 3)")
+    if any(values.shape[0] != count for values in (temperatures, confidence, hits, misses, seen)):
+        raise ValueError("dynamic point fields must have equal length")
+
+    records = np.empty(count, dtype=DYNAMIC_THERMAL_POINT_DTYPE)
+    records["x"] = points[:, 0]
+    records["y"] = points[:, 1]
+    records["z"] = points[:, 2]
+    records["rgb"] = temperature_rgb_array(
+        temperatures, color_min_c, color_max_c
+    )
+    records["temperature_c"] = temperatures
+    records["confidence"] = np.clip(confidence, 0.0, 1.0)
+    records["hit_count"] = hits
+    records["miss_count"] = misses
+    records["last_seen_sec"] = seen.astype(np.float64) / 1_000_000_000.0
+
+    message = PointCloud2()
+    message.header = header
+    message.height = 1
+    message.width = int(count)
+    message.fields = list(DYNAMIC_THERMAL_POINT_FIELDS)
+    message.is_bigendian = False
+    message.point_step = DYNAMIC_THERMAL_POINT_DTYPE.itemsize
     message.row_step = int(records.nbytes)
     message.data = records.tobytes(order="C")
     message.is_dense = True

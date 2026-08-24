@@ -171,6 +171,11 @@ def test_frozen_thermal_map_is_opt_in_and_uses_fixed_map_session_paths():
     assert '"map_cloud_path": LaunchConfiguration(' in source
     assert '"thermal_map_cloud_path"' in source
     assert '"thermal_state_path": LaunchConfiguration(' in source
+    assert '"dynamic_state_path": LaunchConfiguration(' in source
+    assert '"thermal_dynamic_state_path"' in source
+    assert '"dynamic_voxel_size_m": 0.05' in source
+    assert '"dynamic_minimum_hits": 2' in source
+    assert '"dynamic_maximum_misses": 3' in source
     assert '"thermal_map_state_path"' in source
     assert '"session_id": LaunchConfiguration(' in source
     assert '"thermal_map_session_id"' in source

@@ -179,8 +179,9 @@ def generate_launch_description() -> LaunchDescription:
                 "enable_frozen_thermal_map",
                 default_value="false",
                 description=(
-                    "Accumulate thermal attributes only on an existing fixed "
-                    "PLY map. This also starts the live thermal-depth pipeline."
+                    "Keep an existing PLY immutable, accumulate its thermal "
+                    "attributes, and track persistent dynamic thermal voxels. "
+                    "This also starts the live thermal-depth pipeline."
                 ),
             ),
             DeclareLaunchArgument(
@@ -193,6 +194,14 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="",
                 description=(
                     "Atomic NPZ checkpoint for the cumulative thermal layer"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_dynamic_state_path",
+                default_value="",
+                description=(
+                    "Atomic NPZ checkpoint for dynamic voxels. When empty, "
+                    "derive a .dynamic.npz sibling from thermal_map_state_path"
                 ),
             ),
             DeclareLaunchArgument(
@@ -450,6 +459,9 @@ def generate_launch_description() -> LaunchDescription:
                         "thermal_state_path": LaunchConfiguration(
                             "thermal_map_state_path"
                         ),
+                        "dynamic_state_path": LaunchConfiguration(
+                            "thermal_dynamic_state_path"
+                        ),
                         "session_id": LaunchConfiguration(
                             "thermal_map_session_id"
                         ),
@@ -460,8 +472,16 @@ def generate_launch_description() -> LaunchDescription:
                         "maximum_geometry_voxels": 250000,
                         "maximum_source_vertices": 1000000,
                         "maximum_published_voxels": 100000,
+                        "maximum_dynamic_published_voxels": 30000,
                         "association_radius_m": 0.08,
                         "maximum_surface_range_residual_m": 0.05,
+                        "dynamic_voxel_size_m": 0.05,
+                        "dynamic_minimum_component_voxels": 8,
+                        "dynamic_minimum_hits": 2,
+                        "dynamic_maximum_misses": 3,
+                        "dynamic_maximum_voxels": 50000,
+                        "dynamic_visibility_angular_resolution_deg": 1.0,
+                        "dynamic_visibility_range_tolerance_m": 0.08,
                         "minimum_match_ratio": 0.30,
                         "keyframe_translation_m": 0.10,
                         "keyframe_rotation_deg": 6.0,
