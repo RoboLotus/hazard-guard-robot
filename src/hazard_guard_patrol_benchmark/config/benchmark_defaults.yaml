@@ -1,0 +1,19 @@
+hazard_guard_patrol_benchmark:
+  ros__parameters:
+    use_sim_time: true
+    world_id: real_factory
+    simulation_env_path: ""
+    storage_path: ""
+    ground_truth_topic: /odom
+    amcl_pose_topic: /amcl_pose
+    collision_topic: ""
+    recovery_topic: ""
+    compare_localization: false
+    ground_truth_offset_x: 0.0
+    ground_truth_offset_y: 0.0
+    ground_truth_offset_yaw: 0.0
+    inspection_radius_m: 1.0
+    robot_clearance_m: 0.0
+    minimum_step_m: 0.01
+    maximum_step_m: 2.0
+    localization_max_age_sec: 0.25
