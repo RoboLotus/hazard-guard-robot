@@ -82,9 +82,9 @@ def test_physical_mission_alignment_uses_relaxed_sampled_policy():
     source = LAUNCH.read_text(encoding="utf-8")
 
     assert mission["position_tolerance_m"] == 0.10
-    assert mission["yaw_tolerance_rad"] == 0.10
+    assert mission["yaw_tolerance_rad"] == 0.087266
     assert mission["acceptable_position_tolerance_m"] == 0.15
-    assert mission["acceptable_yaw_tolerance_rad"] == 0.17
+    assert mission["acceptable_yaw_tolerance_rad"] == 0.087266
     assert mission["hard_position_tolerance_m"] == 0.25
     assert mission["hard_yaw_tolerance_rad"] == 0.261799
     assert mission["alignment_retries"] == 1
@@ -92,18 +92,18 @@ def test_physical_mission_alignment_uses_relaxed_sampled_policy():
     assert mission["pose_min_valid_samples"] == 3
     assert mission["pose_sample_interval_sec"] == 0.15
     assert mission["forward_approach_min_distance_m"] == 0.15
-    assert mission["pre_rotation_yaw_tolerance_rad"] == 0.10
+    assert mission["pre_rotation_yaw_tolerance_rad"] == 0.087266
     assert mission["pre_rotation_timeout_sec"] == 30.0
     assert mission["pre_rotation_retries"] == 1
     assert mission["thermal_service_timeout_sec"] == 5.0
     assert "parameters=[nav2_params_file]" in source
 
 
-def test_person_safety_defaults_on_and_gates_only_motor_facing_cmd_vel():
+def test_person_safety_defaults_off_and_gates_only_motor_facing_cmd_vel():
     source = LAUNCH.read_text(encoding="utf-8")
 
     assert 'DeclareLaunchArgument(\n                "use_person_safety"' in source
-    assert '"use_person_safety",\n                default_value="true"' in source
+    assert '"use_person_safety",\n                default_value="false"' in source
     assert 'DeclareLaunchArgument("person_device", default_value="0")' in source
     assert '"physical_m1_bringup.launch.py"' in source
     assert '"motor_cmd_vel_topic": "/cmd_vel_safe"' in source

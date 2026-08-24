@@ -113,11 +113,11 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("initial_pose_yaw", default_value="0.0"),
             DeclareLaunchArgument(
                 "use_person_safety",
-                default_value="true",
+                default_value="false",
                 description=(
                     "Enable YOLO person detection, Nav2 speed limiting, and "
-                    "the final fail-safe cmd_vel gate. Physical patrol keeps "
-                    "this enabled by default."
+                    "the final fail-safe cmd_vel gate after the RGB-D safety "
+                    "path has been validated."
                 ),
             ),
             DeclareLaunchArgument(
