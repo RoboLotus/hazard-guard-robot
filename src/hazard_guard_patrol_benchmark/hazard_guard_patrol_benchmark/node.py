@@ -8,11 +8,12 @@ from typing import Any
 
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from hazard_guard_interfaces.msg import HazardDetection
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path as NavigationPath
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String
+from sensor_msgs.msg import LaserScan
 
 from .coverage import MapGrid
 from .environment import (
@@ -112,6 +113,8 @@ class PatrolBenchmarkNode(Node):
             "amcl_pose_topic": "/amcl_pose",
             "collision_topic": "",
             "recovery_topic": "",
+            "scan_topic": "/scan",
+            "global_plan_topic": "/plan",
             "compare_localization": False,
             "ground_truth_offset_x": 0.0,
             "ground_truth_offset_y": 0.0,
@@ -121,6 +124,9 @@ class PatrolBenchmarkNode(Node):
             "minimum_step_m": 0.01,
             "maximum_step_m": 2.0,
             "localization_max_age_sec": 0.25,
+            "coverage_sample_interval_sec": 1.0,
+            "near_miss_threshold_m": 0.35,
+            "scan_self_filter_min_m": 0.15,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -143,6 +149,22 @@ class PatrolBenchmarkNode(Node):
             self._on_ground_truth,
             sensor_qos,
         )
+        scan_topic = str(self.get_parameter("scan_topic").value).strip()
+        if scan_topic:
+            self.create_subscription(
+                LaserScan,
+                scan_topic,
+                self._on_scan,
+                sensor_qos,
+            )
+        plan_topic = str(self.get_parameter("global_plan_topic").value).strip()
+        if plan_topic:
+            self.create_subscription(
+                NavigationPath,
+                plan_topic,
+                self._on_global_plan,
+                10,
+            )
         self.create_subscription(
             HazardDetection,
             "/hazard_guard/thermal_detections",
@@ -214,6 +236,19 @@ class PatrolBenchmarkNode(Node):
             maximum_step_m=max(
                 0.01, float(self.get_parameter("maximum_step_m").value)
             ),
+            coverage_sample_interval_sec=max(
+                0.1,
+                float(
+                    self.get_parameter("coverage_sample_interval_sec").value
+                ),
+            ),
+            near_miss_threshold_m=max(
+                0.0, float(self.get_parameter("near_miss_threshold_m").value)
+            ),
+            scan_self_filter_min_m=max(
+                0.0,
+                float(self.get_parameter("scan_self_filter_min_m").value),
+            ),
         )
 
     def _on_mission(self, message: String) -> None:
@@ -238,7 +273,15 @@ class PatrolBenchmarkNode(Node):
             self.get_logger().info(f"Benchmark started: {mission_id}")
         if self._session is None:
             return
-        self._session.observe_mission(mission)
+        self._session.observe_mission(
+            mission,
+            timestamp_sec=(
+                self._latest_ground_truth.timestamp_sec
+                if self._latest_ground_truth is not None
+                else None
+            ),
+            pose=self._latest_ground_truth,
+        )
         if status in TERMINAL_STATES:
             summary = self._session.finalize(status)
             self.get_logger().info(
@@ -296,7 +339,33 @@ class PatrolBenchmarkNode(Node):
 
     def _on_detection(self, message: HazardDetection) -> None:
         if self._session is not None and bool(message.simulated):
-            self._session.add_detection(str(message.detection_id))
+            timestamp = _stamp_seconds(message.stamp)
+            if timestamp <= 0.0 and self._latest_ground_truth is not None:
+                timestamp = self._latest_ground_truth.timestamp_sec
+            self._session.add_detection(
+                str(message.detection_id),
+                timestamp_sec=timestamp if timestamp > 0.0 else None,
+                robot_pose=self._latest_ground_truth,
+                source_x=float(message.x),
+                source_y=float(message.y),
+                temperature_c=float(message.temperature_c),
+                confidence=float(message.confidence),
+            )
+
+    def _on_scan(self, message: LaserScan) -> None:
+        if self._session is not None:
+            self._session.observe_scan(
+                list(message.ranges),
+                range_min=max(
+                    float(message.range_min),
+                    float(self.get_parameter("scan_self_filter_min_m").value),
+                ),
+                range_max=float(message.range_max),
+            )
+
+    def _on_global_plan(self, _message: NavigationPath) -> None:
+        if self._session is not None:
+            self._session.observe_global_plan()
 
     def _on_collision(self, message: Bool) -> None:
         if self._session is not None:

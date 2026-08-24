@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from hazard_guard_patrol_benchmark.coverage import MapGrid, read_pgm
+from hazard_guard_patrol_benchmark.coverage import (
+    CoverageAccumulator,
+    MapGrid,
+    read_pgm,
+)
 from hazard_guard_patrol_benchmark.metrics import PoseSample
 
 
@@ -68,3 +72,27 @@ def test_clearance_respects_map_boundary(tmp_path: Path) -> None:
     grid = MapGrid.from_yaml(_map(tmp_path, [[254] * 5 for _ in range(5)]))
     reachable = grid.reachable_mask(2.5, 2.5, clearance_m=1.0)
     assert sum(reachable) == 9
+
+
+def test_incremental_coverage_reports_progress_and_threshold_time(
+    tmp_path: Path,
+) -> None:
+    grid = MapGrid.from_yaml(_map(tmp_path, [[254] * 4]))
+    coverage = CoverageAccumulator(
+        grid,
+        start_x=0.5,
+        start_y=0.5,
+        inspection_radius_m=0.49,
+        sample_interval_sec=1.0,
+    )
+    coverage.add(PoseSample(10.0, 0.5, 0.5, 0.0))
+    coverage.add(PoseSample(11.0, 1.5, 0.5, 0.0))
+    coverage.add(PoseSample(12.0, 2.5, 0.5, 0.0))
+    result, detail = coverage.finalize(12.0)
+
+    assert result.coverage_percent == pytest.approx(75.0)
+    assert detail["time_to_25_percent_sec"] == 0.0
+    assert detail["time_to_50_percent_sec"] == 1.0
+    assert detail["time_to_75_percent_sec"] == 2.0
+    assert detail["time_to_90_percent_sec"] is None
+    assert len(coverage.samples) == 3

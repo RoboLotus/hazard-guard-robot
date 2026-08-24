@@ -8,6 +8,8 @@ hazard_guard_patrol_benchmark:
     amcl_pose_topic: /amcl_pose
     collision_topic: ""
     recovery_topic: ""
+    scan_topic: /scan
+    global_plan_topic: /plan
     compare_localization: false
     ground_truth_offset_x: 0.0
     ground_truth_offset_y: 0.0
@@ -17,3 +19,6 @@ hazard_guard_patrol_benchmark:
     minimum_step_m: 0.01
     maximum_step_m: 2.0
     localization_max_age_sec: 0.25
+    coverage_sample_interval_sec: 1.0
+    near_miss_threshold_m: 0.35
+    scan_self_filter_min_m: 0.15

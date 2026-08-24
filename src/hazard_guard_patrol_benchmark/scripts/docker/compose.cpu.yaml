@@ -1,0 +1,4 @@
+services:
+  dev:
+    environment:
+      LIBGL_ALWAYS_SOFTWARE: "1"

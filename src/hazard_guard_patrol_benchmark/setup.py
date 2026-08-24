@@ -17,7 +17,11 @@ setup(
         (f"share/{package_name}", ["package.xml", "README.md"]),
         (f"share/{package_name}/config", glob("config/*.yaml")),
         (f"share/{package_name}/launch", glob("launch/*.launch.py")),
-        (f"share/{package_name}/scripts", glob("scripts/*")),
+        (
+            f"share/{package_name}/scripts",
+            glob("scripts/*.py") + glob("scripts/*.ps1"),
+        ),
+        (f"share/{package_name}/scripts/docker", glob("scripts/docker/*.yaml")),
     ],
     install_requires=["setuptools"],
     tests_require=["pytest"],
@@ -31,6 +35,8 @@ setup(
             "patrol_benchmark = hazard_guard_patrol_benchmark.node:main",
             "patrol_benchmark_run = hazard_guard_patrol_benchmark.runner:main",
             "patrol_benchmark_aggregate = hazard_guard_patrol_benchmark.aggregate:main",
+            "docker_profile_probe = hazard_guard_patrol_benchmark.profile_probe:main",
+            "docker_profile_select = hazard_guard_patrol_benchmark.profile_select:main",
         ]
     },
 )

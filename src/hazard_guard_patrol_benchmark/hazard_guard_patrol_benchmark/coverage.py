@@ -5,7 +5,7 @@ from collections import deque
 from dataclasses import dataclass
 import math
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from .metrics import PoseSample
 
@@ -334,3 +334,199 @@ class MapGrid:
             patrolable_cell_count=patrolable_cells,
             observed_cell_count=observed_cells,
         )
+
+
+@dataclass(frozen=True)
+class CoverageSample:
+    elapsed_sec: float
+    observed_area_m2: float
+    coverage_percent: float
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "elapsed_sec": round(self.elapsed_sec, 3),
+            "observed_area_m2": round(self.observed_area_m2, 3),
+            "coverage_percent": round(self.coverage_percent, 3),
+        }
+
+
+class CoverageAccumulator:
+    """Incrementally tracks unique observable map area over simulation time."""
+
+    def __init__(
+        self,
+        grid: MapGrid,
+        *,
+        start_x: float,
+        start_y: float,
+        inspection_radius_m: float,
+        clearance_m: float = 0.0,
+        sample_interval_sec: float = 1.0,
+    ) -> None:
+        self.grid = grid
+        self.reachable = grid.reachable_mask(start_x, start_y, clearance_m)
+        self.observed = bytearray(grid.width * grid.height)
+        radius_cells = max(0, math.ceil(inspection_radius_m / grid.resolution))
+        self.disk = [
+            (delta_x, delta_y)
+            for delta_y in range(-radius_cells, radius_cells + 1)
+            for delta_x in range(-radius_cells, radius_cells + 1)
+            if math.hypot(delta_x, delta_y) * grid.resolution
+            <= inspection_radius_m
+        ]
+        self.sample_interval_sec = max(0.1, sample_interval_sec)
+        self.patrolable_cells = int(sum(self.reachable))
+        self.observed_cells = 0
+        self.samples: list[CoverageSample] = []
+        self._visited_centres: set[int] = set()
+        self._centre_visit_count = 0
+        self._last_centre_index: int | None = None
+        self._start_time: float | None = None
+        self._previous: PoseSample | None = None
+        self._last_snapshot_time: float | None = None
+        self._last_growth_time: float | None = None
+        self._longest_stagnation_sec = 0.0
+
+    def _mark(self, x: float, y: float, timestamp_sec: float) -> None:
+        cell = self.grid.world_to_cell(x, y)
+        if cell is None:
+            return
+        column, row = cell
+        centre_index = self.grid.index(column, row)
+        if centre_index == self._last_centre_index:
+            return
+        self._last_centre_index = centre_index
+        self._centre_visit_count += 1
+        if centre_index in self._visited_centres:
+            return
+        self._visited_centres.add(centre_index)
+        new_cells = 0
+        for delta_x, delta_y in self.disk:
+            target_column = column + delta_x
+            target_row = row + delta_y
+            if not (
+                0 <= target_column < self.grid.width
+                and 0 <= target_row < self.grid.height
+            ):
+                continue
+            index = self.grid.index(target_column, target_row)
+            if self.reachable[index] and not self.observed[index]:
+                self.observed[index] = 1
+                new_cells += 1
+        if not new_cells:
+            return
+        self.observed_cells += new_cells
+        if self._last_growth_time is not None:
+            self._longest_stagnation_sec = max(
+                self._longest_stagnation_sec,
+                timestamp_sec - self._last_growth_time,
+            )
+        self._last_growth_time = timestamp_sec
+
+    def _append_snapshot(self, timestamp_sec: float, *, force: bool = False) -> None:
+        if self._start_time is None:
+            return
+        if (
+            not force
+            and self._last_snapshot_time is not None
+            and timestamp_sec - self._last_snapshot_time < self.sample_interval_sec
+        ):
+            return
+        elapsed = max(0.0, timestamp_sec - self._start_time)
+        sample = CoverageSample(
+            elapsed_sec=elapsed,
+            observed_area_m2=self.observed_cells * self.grid.cell_area_m2,
+            coverage_percent=(
+                self.observed_cells / self.patrolable_cells * 100.0
+                if self.patrolable_cells
+                else 0.0
+            ),
+        )
+        if self.samples and self.samples[-1].elapsed_sec == sample.elapsed_sec:
+            self.samples[-1] = sample
+        else:
+            self.samples.append(sample)
+        self._last_snapshot_time = timestamp_sec
+
+    def add(self, sample: PoseSample) -> None:
+        if self._start_time is None:
+            self._start_time = sample.timestamp_sec
+        previous = self._previous
+        if previous is None:
+            self._mark(sample.x, sample.y, sample.timestamp_sec)
+        else:
+            length = math.hypot(sample.x - previous.x, sample.y - previous.y)
+            steps = max(
+                1,
+                math.ceil(length / max(self.grid.resolution / 2.0, 0.001)),
+            )
+            for step in range(1, steps + 1):
+                ratio = step / steps
+                self._mark(
+                    previous.x + (sample.x - previous.x) * ratio,
+                    previous.y + (sample.y - previous.y) * ratio,
+                    previous.timestamp_sec
+                    + (sample.timestamp_sec - previous.timestamp_sec) * ratio,
+                )
+        self._previous = sample
+        self._append_snapshot(sample.timestamp_sec)
+
+    def finalize(self, timestamp_sec: float) -> tuple[CoverageResult, dict[str, Any]]:
+        self._append_snapshot(timestamp_sec, force=True)
+        if self._last_growth_time is not None:
+            self._longest_stagnation_sec = max(
+                self._longest_stagnation_sec,
+                timestamp_sec - self._last_growth_time,
+            )
+        map_cells = self.grid.width * self.grid.height
+        free_cells = int(sum(self.grid.free_mask))
+        result = CoverageResult(
+            map_area_m2=map_cells * self.grid.cell_area_m2,
+            free_area_m2=free_cells * self.grid.cell_area_m2,
+            patrolable_area_m2=self.patrolable_cells * self.grid.cell_area_m2,
+            observed_area_m2=self.observed_cells * self.grid.cell_area_m2,
+            coverage_percent=(
+                self.observed_cells / self.patrolable_cells * 100.0
+                if self.patrolable_cells
+                else 0.0
+            ),
+            map_cell_count=map_cells,
+            free_cell_count=free_cells,
+            patrolable_cell_count=self.patrolable_cells,
+            observed_cell_count=self.observed_cells,
+        )
+        elapsed = self.samples[-1].elapsed_sec if self.samples else 0.0
+        thresholds: dict[str, float | None] = {}
+        for threshold in (25, 50, 75, 90):
+            reached = next(
+                (
+                    sample.elapsed_sec
+                    for sample in self.samples
+                    if sample.coverage_percent >= threshold
+                ),
+                None,
+            )
+            thresholds[f"time_to_{threshold}_percent_sec"] = (
+                round(reached, 3) if reached is not None else None
+            )
+        unique_centres = len(self._visited_centres)
+        revisits = max(0, self._centre_visit_count - unique_centres)
+        detail: dict[str, Any] = {
+            **thresholds,
+            "coverage_rate_m2_per_min": round(
+                result.observed_area_m2 / elapsed * 60.0,
+                3,
+            )
+            if elapsed > 0.0
+            else 0.0,
+            "centre_visit_count": self._centre_visit_count,
+            "unique_centre_count": unique_centres,
+            "revisit_percent": round(
+                revisits / self._centre_visit_count * 100.0
+                if self._centre_visit_count
+                else 0.0,
+                3,
+            ),
+            "longest_stagnation_sec": round(self._longest_stagnation_sec, 3),
+        }
+        return result, detail

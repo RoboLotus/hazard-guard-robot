@@ -13,11 +13,34 @@ from .report import default_storage_root
 
 METRICS = {
     "simulation_sec": ("time", "simulation_sec"),
+    "wall_sec": ("time", "wall_sec"),
+    "real_time_factor": ("time", "real_time_factor"),
     "actual_distance_m": ("trajectory", "actual_distance_m"),
     "path_efficiency_percent": ("trajectory", "path_efficiency_percent"),
+    "observed_area_m2": ("coverage", "observed_area_m2"),
     "space_coverage_percent": ("coverage", "coverage_percent"),
+    "coverage_rate_m2_per_min": ("coverage", "coverage_rate_m2_per_min"),
+    "time_to_90_percent_sec": ("coverage", "time_to_90_percent_sec"),
+    "coverage_revisit_percent": ("coverage", "revisit_percent"),
     "waypoint_completion_percent": ("waypoints", "completion_percent"),
+    "waypoint_position_error_p95_m": (
+        "segments",
+        "arrival_position_error_m",
+        "p95",
+    ),
+    "waypoint_yaw_error_p95_deg": (
+        "segments",
+        "arrival_yaw_error_deg",
+        "p95",
+    ),
     "thermal_coverage_percent": ("thermal", "coverage_percent"),
+    "thermal_precision": ("thermal", "precision"),
+    "first_thermal_detection_sec": ("thermal", "first_expected_detection_sec"),
+    "collision_count": ("safety", "collision_count"),
+    "near_miss_count": ("safety", "near_miss_count"),
+    "minimum_clearance_m": ("safety", "minimum_clearance_m"),
+    "recovery_count": ("safety", "recovery_count"),
+    "global_plan_update_count": ("safety", "global_plan_update_count"),
 }
 
 
@@ -34,11 +57,16 @@ def _value(document: dict[str, Any], path: tuple[str, ...]) -> float | None:
 
 def aggregate_summaries(paths: list[Path]) -> dict[str, Any]:
     documents = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    success_count = sum(
+        1 for document in documents if document.get("status") == "completed"
+    )
     return {
         "schema_version": 1,
         "run_count": len(documents),
-        "success_count": sum(
-            1 for document in documents if document.get("status") == "completed"
+        "success_count": success_count,
+        "success_rate_percent": round(
+            success_count / len(documents) * 100.0 if documents else 0.0,
+            3,
         ),
         "metrics": {
             name: summarize(

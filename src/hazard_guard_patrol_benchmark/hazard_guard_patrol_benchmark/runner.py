@@ -11,6 +11,42 @@ from .environment import load_world_assets, resolve_environment_root
 from .report import default_storage_root
 
 
+def _run_patrol_script(
+    script_path: str,
+    mission_id: str,
+    environment: dict[str, str],
+) -> tuple[int, bool, str]:
+    """Run one patrol while preserving logs and validating the Action result.
+
+    ``ros2 action send_goal`` may exit with code 0 even when the server returns an
+    application-level failure.  The generated Simulation_env scripts print the
+    RunPatrol result, so a benchmark run is accepted only when both the process
+    and the Action result report success.
+    """
+    process = subprocess.Popen(
+        ["bash", script_path, mission_id],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    output_lines: list[str] = []
+    assert process.stdout is not None
+    for line in process.stdout:
+        output_lines.append(line)
+        print(line, end="", flush=True)
+    exit_code = process.wait()
+    output = "".join(output_lines)
+    action_succeeded = "success: true" in output.lower()
+    reason = "completed"
+    if exit_code != 0:
+        reason = f"patrol script exit code {exit_code}"
+    elif not action_succeeded:
+        reason = "RunPatrol Action did not report success: true"
+    return exit_code, action_succeeded, reason
+
+
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run an existing Simulation_env patrol route repeatedly."
@@ -47,14 +83,19 @@ def main() -> None:
     for index in range(1, args.runs + 1):
         mission_id = f"{batch_id}-run-{index:03d}"
         print(f"[{index}/{args.runs}] {mission_id}", flush=True)
-        completed = subprocess.run(
-            ["bash", str(assets.patrol_script_path), mission_id],
-            env=environment,
-            check=False,
+        exit_code, action_succeeded, reason = _run_patrol_script(
+            str(assets.patrol_script_path),
+            mission_id,
+            environment,
         )
-        result = {"mission_id": mission_id, "exit_code": completed.returncode}
+        result = {
+            "mission_id": mission_id,
+            "exit_code": exit_code,
+            "action_succeeded": action_succeeded,
+            "reason": reason,
+        }
         results.append(result)
-        if completed.returncode != 0 and not args.continue_on_failure:
+        if (exit_code != 0 or not action_succeeded) and not args.continue_on_failure:
             break
     batch_root = default_storage_root() / "batches"
     batch_root.mkdir(parents=True, exist_ok=True)
@@ -64,7 +105,10 @@ def main() -> None:
         encoding="utf-8",
     )
     print(f"Batch manifest: {output}")
-    if any(item["exit_code"] != 0 for item in results):
+    if any(
+        item["exit_code"] != 0 or not item["action_succeeded"]
+        for item in results
+    ):
         sys.exit(1)
 
 

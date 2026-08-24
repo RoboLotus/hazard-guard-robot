@@ -67,6 +67,9 @@ def test_session_writes_portable_reports(tmp_path: Path) -> None:
     assert summary["thermal"]["coverage_percent"] == 100.0
     assert (session.directory / "metrics.csv").is_file()
     assert (session.directory / "trajectory.csv").is_file()
+    assert (session.directory / "coverage_timeseries.csv").is_file()
+    assert (session.directory / "segments.csv").is_file()
+    assert (session.directory / "detections.csv").is_file()
     assert (session.directory / "report.md").is_file()
     written = json.loads(
         (session.directory / "summary.json").read_text(encoding="utf-8")

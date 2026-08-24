@@ -1,0 +1,21 @@
+# 2026-08-24, Windows 11 + Docker Desktop + WSL2 + RTX 3070 측정 결과.
+# 다른 PC에서는 run_docker_profile_matrix.ps1로 다시 측정한 뒤 선택한다.
+docker_simulation_profiles:
+  automated:
+    id: gpu-ogre-headless
+    gpu: true
+    render_engine: ogre
+    gui: false
+    purpose: 반복 순찰 및 지표 수집
+  visual:
+    id: cpu-ogre2-gui
+    gpu: false
+    render_engine: ogre2
+    gui: true
+    purpose: Gazebo 화면을 보며 수행하는 단일 검증
+  health_gate_sim_hz:
+    scan: 7.0
+    rgb: 5.0
+    depth: 5.0
+    points: 0.2
+    thermal: 5.5

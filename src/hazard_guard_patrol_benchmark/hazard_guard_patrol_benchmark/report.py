@@ -9,12 +9,15 @@ import re
 import time
 from typing import Any
 
-from .coverage import MapGrid
+from .coverage import CoverageAccumulator, MapGrid
 from .environment import WorldAssets
 from .metrics import (
+    DetectionAccumulator,
     LocalizationAccumulator,
     PhaseTimer,
     PoseSample,
+    SafetyAccumulator,
+    SegmentAccumulator,
     TrajectoryAccumulator,
 )
 
@@ -62,6 +65,9 @@ class BenchmarkSession:
         robot_clearance_m: float,
         minimum_step_m: float,
         maximum_step_m: float,
+        coverage_sample_interval_sec: float = 1.0,
+        near_miss_threshold_m: float = 0.35,
+        scan_self_filter_min_m: float = 0.15,
     ) -> None:
         started = utc_now()
         mission_id = safe_id(str(mission.get("mission_id") or "mission"))
@@ -103,37 +109,103 @@ class BenchmarkSession:
             minimum_step_m=minimum_step_m,
             maximum_step_m=maximum_step_m,
         )
+        self.coverage = CoverageAccumulator(
+            map_grid,
+            start_x=assets.spawn["x"],
+            start_y=assets.spawn["y"],
+            inspection_radius_m=inspection_radius_m,
+            clearance_m=robot_clearance_m,
+            sample_interval_sec=coverage_sample_interval_sec,
+        )
         self.localization = LocalizationAccumulator()
+        self.segments = SegmentAccumulator()
+        self.safety = SafetyAccumulator(
+            near_miss_threshold_m=near_miss_threshold_m,
+            self_filter_min_m=scan_self_filter_min_m,
+        )
+        self.detections = DetectionAccumulator(set(expected_heat_sources))
         self.phases = PhaseTimer()
         self.collision_count = 0
         self.recovery_count = 0
         self.collision_available = False
         self.recovery_available = False
         self._collision_active = False
+        self.global_plan_update_count = 0
         self._start_wall = time.monotonic()
         self._start_sim: float | None = None
         self._last_sim: float | None = None
         _atomic_json(self.directory / "metadata.json", self.metadata)
 
-    def observe_mission(self, mission: dict[str, Any]) -> None:
+    def observe_mission(
+        self,
+        mission: dict[str, Any],
+        *,
+        timestamp_sec: float | None = None,
+        pose: PoseSample | None = None,
+    ) -> None:
         self.mission = dict(mission)
+        self.segments.observe(
+            mission,
+            timestamp_sec=timestamp_sec,
+            pose=pose,
+            distance_m=self.trajectory.distance_m,
+        )
 
     def add_ground_truth(self, sample: PoseSample) -> bool:
         if self._start_sim is None:
             self._start_sim = sample.timestamp_sec
         self._last_sim = sample.timestamp_sec
+        self.detections.set_start(sample.timestamp_sec)
         self.phases.observe(
             str(self.mission.get("status") or "unknown"),
             sample.timestamp_sec,
         )
-        return self.trajectory.add(sample)
+        accepted = self.trajectory.add(sample)
+        self.segments.seed_origin(sample, self.trajectory.distance_m)
+        self.coverage.add(sample)
+        return accepted
 
     def add_localization(self, ground_truth: PoseSample, estimate: PoseSample) -> None:
         self.localization.add(ground_truth, estimate)
 
-    def add_detection(self, detection_id: str) -> None:
+    def add_detection(
+        self,
+        detection_id: str,
+        *,
+        timestamp_sec: float | None = None,
+        robot_pose: PoseSample | None = None,
+        source_x: float | None = None,
+        source_y: float | None = None,
+        temperature_c: float | None = None,
+        confidence: float | None = None,
+    ) -> None:
         if detection_id:
             self.detected_heat_sources.add(detection_id)
+            self.detections.add(
+                detection_id,
+                timestamp_sec=timestamp_sec,
+                robot_pose=robot_pose,
+                source_x=source_x,
+                source_y=source_y,
+                temperature_c=temperature_c,
+                confidence=confidence,
+            )
+
+    def observe_scan(
+        self,
+        ranges: list[float],
+        *,
+        range_min: float,
+        range_max: float,
+    ) -> None:
+        self.safety.add_scan(
+            ranges,
+            range_min=range_min,
+            range_max=range_max,
+        )
+
+    def observe_global_plan(self) -> None:
+        self.global_plan_update_count += 1
 
     def observe_collision(self, active: bool) -> None:
         self.collision_available = True
@@ -185,12 +257,13 @@ class BenchmarkSession:
             if self._last_sim is not None
             else {}
         )
-        coverage = self.map_grid.coverage(
-            self.trajectory.samples,
-            start_x=self.assets.spawn["x"],
-            start_y=self.assets.spawn["y"],
-            inspection_radius_m=self.inspection_radius_m,
-            clearance_m=self.robot_clearance_m,
+        self.segments.finalize(
+            self._last_sim,
+            self.trajectory.samples[-1] if self.trajectory.samples else None,
+            self.trajectory.distance_m,
+        )
+        coverage, coverage_detail = self.coverage.finalize(
+            self._last_sim if self._last_sim is not None else 0.0
         )
         planned_distance = self.mission.get("total_distance_m")
         planned_distance_m = (
@@ -208,10 +281,8 @@ class BenchmarkSession:
             )
             else None
         )
-        detected_expected = (
-            self.detected_heat_sources & self.expected_heat_sources
-        )
-        expected_count = len(self.expected_heat_sources)
+        thermal_summary = self.detections.summary()
+        safety_summary = self.safety.summary()
         summary: dict[str, Any] = {
             "schema_version": 1,
             "id": self.report_id,
@@ -238,24 +309,10 @@ class BenchmarkSession:
                 "sample_count": len(self.trajectory.samples),
                 "dropped_jump_count": self.trajectory.dropped_jump_count,
             },
-            "coverage": coverage.as_dict(),
+            "coverage": {**coverage.as_dict(), **coverage_detail},
             "waypoints": self._waypoint_summary(),
-            "thermal": {
-                "expected": expected_count,
-                "detected": len(detected_expected),
-                "coverage_percent": round(
-                    len(detected_expected) / expected_count * 100.0
-                    if expected_count
-                    else 0.0,
-                    3,
-                ),
-                "missing_ids": sorted(
-                    self.expected_heat_sources - detected_expected
-                ),
-                "unexpected_ids": sorted(
-                    self.detected_heat_sources - self.expected_heat_sources
-                ),
-            },
+            "segments": self.segments.summary(),
+            "thermal": thermal_summary,
             "safety": {
                 "collision_count": self.collision_count
                 if self.collision_available
@@ -263,12 +320,17 @@ class BenchmarkSession:
                 "recovery_count": self.recovery_count
                 if self.recovery_available
                 else None,
+                "global_plan_update_count": self.global_plan_update_count,
+                **safety_summary,
             },
             "localization": self.localization.summary(),
             "reproducibility": self.metadata.get("reproducibility", {}),
         }
         _atomic_json(self.directory / "summary.json", summary)
         self._write_trajectory()
+        self._write_coverage_timeseries()
+        self._write_segments()
+        self._write_detections()
         self._write_metrics_csv(summary)
         self._write_markdown(summary)
         return summary
@@ -289,6 +351,56 @@ class BenchmarkSession:
                     ]
                 )
 
+    def _write_coverage_timeseries(self) -> None:
+        with (self.directory / "coverage_timeseries.csv").open(
+            "w", encoding="utf-8-sig", newline=""
+        ) as stream:
+            writer = csv.DictWriter(
+                stream,
+                fieldnames=["elapsed_sec", "observed_area_m2", "coverage_percent"],
+            )
+            writer.writeheader()
+            writer.writerows(sample.as_dict() for sample in self.coverage.samples)
+
+    def _write_segments(self) -> None:
+        fieldnames = [
+            "cycle",
+            "index",
+            "waypoint_id",
+            "waypoint_name",
+            "status",
+            "travel_time_sec",
+            "dwell_time_sec",
+            "total_time_sec",
+            "direct_distance_m",
+            "actual_distance_m",
+            "path_efficiency_percent",
+            "arrival_position_error_m",
+            "arrival_yaw_error_deg",
+        ]
+        with (self.directory / "segments.csv").open(
+            "w", encoding="utf-8-sig", newline=""
+        ) as stream:
+            writer = csv.DictWriter(stream, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(self.segments.records)
+
+    def _write_detections(self) -> None:
+        fieldnames = [
+            "detection_id",
+            "expected",
+            "elapsed_sec",
+            "distance_m",
+            "temperature_c",
+            "confidence",
+        ]
+        with (self.directory / "detections.csv").open(
+            "w", encoding="utf-8-sig", newline=""
+        ) as stream:
+            writer = csv.DictWriter(stream, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(self.detections.events)
+
     def _write_metrics_csv(self, summary: dict[str, Any]) -> None:
         rows = [
             ["metric", "value", "unit"],
@@ -301,10 +413,20 @@ class BenchmarkSession:
             ["patrolable_area", summary["coverage"]["patrolable_area_m2"], "m2"],
             ["observed_area", summary["coverage"]["observed_area_m2"], "m2"],
             ["space_coverage", summary["coverage"]["coverage_percent"], "%"],
+            ["coverage_rate", summary["coverage"]["coverage_rate_m2_per_min"], "m2/min"],
+            ["time_to_90_percent", summary["coverage"]["time_to_90_percent_sec"], "sec"],
+            ["coverage_revisit", summary["coverage"]["revisit_percent"], "%"],
             ["waypoint_completion", summary["waypoints"]["completion_percent"], "%"],
+            ["waypoint_arrival_position_error_p95", summary["segments"]["arrival_position_error_m"]["p95"], "m"],
+            ["waypoint_arrival_yaw_error_p95", summary["segments"]["arrival_yaw_error_deg"]["p95"], "deg"],
             ["thermal_coverage", summary["thermal"]["coverage_percent"], "%"],
+            ["thermal_precision", summary["thermal"]["precision"], "ratio"],
+            ["thermal_first_detection", summary["thermal"]["first_expected_detection_sec"], "sec"],
             ["collision_count", summary["safety"]["collision_count"], "count"],
             ["recovery_count", summary["safety"]["recovery_count"], "count"],
+            ["near_miss_count", summary["safety"]["near_miss_count"], "count"],
+            ["minimum_clearance", summary["safety"]["minimum_clearance_m"], "m"],
+            ["global_plan_updates", summary["safety"]["global_plan_update_count"], "count"],
         ]
         with (self.directory / "metrics.csv").open(
             "w", encoding="utf-8-sig", newline=""
@@ -335,11 +457,17 @@ class BenchmarkSession:
             f"- 공간 커버리지: {summary['coverage']['coverage_percent']}%",
             f"- 관측 면적: {summary['coverage']['observed_area_m2']}m² / "
             f"{summary['coverage']['patrolable_area_m2']}m²",
+            f"- 커버리지 증가 속도: {summary['coverage']['coverage_rate_m2_per_min']}m²/min",
+            f"- 90% 관측 도달 시간: {summary['coverage']['time_to_90_percent_sec']}초",
+            f"- 중복 방문 비율: {summary['coverage']['revisit_percent']}%",
             "",
             "## 안전 및 품질",
             "",
             f"- 충돌 횟수: {summary['safety']['collision_count']}",
             f"- Nav2 복구 횟수: {summary['safety']['recovery_count']}",
+            f"- 근접 위험 횟수: {summary['safety']['near_miss_count']}",
+            f"- 최소 장애물 거리: {summary['safety']['minimum_clearance_m']}m",
+            f"- 전역 경로 갱신 횟수: {summary['safety']['global_plan_update_count']}",
             f"- 비정상 좌표 점프: {summary['trajectory']['dropped_jump_count']}회",
             f"- 누락 열원: {', '.join(summary['thermal']['missing_ids']) or '없음'}",
         ]

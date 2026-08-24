@@ -1,0 +1,13 @@
+services:
+  dev:
+    volumes:
+      - type: bind
+        source: ${HAZARD_GUARD_SIM_ENV_HOST_PATH}
+        target: /workspace/Simulation_env
+        read_only: true
+    environment:
+      HAZARD_GUARD_SIMULATION_ENV: /workspace/Simulation_env
+      HAZARD_GUARD_WORKSPACE: /workspace/hazard_guard_robot
+      HAZARD_GUARD_BENCHMARK_DIR: /workspace/hazard_guard_robot/runtime/benchmarks
+      IGN_GAZEBO_RESOURCE_PATH: /workspace/Simulation_env/gazebo/models
+      GZ_SIM_RESOURCE_PATH: /workspace/Simulation_env/gazebo/models
