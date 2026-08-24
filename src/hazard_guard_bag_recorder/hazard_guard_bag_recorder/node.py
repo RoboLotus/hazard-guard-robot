@@ -10,6 +10,7 @@ import time
 from ament_index_python.packages import get_package_share_directory
 from nav_msgs.msg import Odometry
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
@@ -345,6 +346,14 @@ def main(args=None) -> None:
     node = BagSessionManager()
     try:
         rclpy.spin(node)
+    except ExternalShutdownException:
+        # The launch service has already completed the shared ROS context
+        # shutdown. This is the normal path for the desktop stop launcher.
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        # ROS launch may already have shut the context down before spin exits.
+        # Avoid turning a normal desktop-launcher stop into a second-shutdown
+        # traceback and a misleading non-zero process exit.
+        if rclpy.ok():
+            rclpy.shutdown()

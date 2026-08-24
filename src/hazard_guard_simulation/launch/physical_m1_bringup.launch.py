@@ -25,7 +25,7 @@ def generate_launch_description() -> LaunchDescription:
     description_share = get_package_share_path("yahboomcar_description")
     bringup_share = Path(get_package_share_directory("yahboomcar_bringup"))
     localization_share = Path(get_package_share_directory("robot_localization"))
-    lidar_share = Path(get_package_share_directory("sllidar_ros2"))
+    lidar_share = Path(get_package_share_directory("ydlidar_ros2_driver"))
 
     model = LaunchConfiguration("model")
     gui = LaunchConfiguration("gui")
@@ -95,7 +95,7 @@ def generate_launch_description() -> LaunchDescription:
             Node(package="joy", executable="joy_node"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
-                    str(lidar_share / "launch" / "sllidar_c1_launch.py")
+                    str(lidar_share / "launch" / "ydlidar_launch.py")
                 )
             ),
             Node(

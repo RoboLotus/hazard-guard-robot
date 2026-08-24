@@ -73,11 +73,28 @@ def generate_launch_description() -> LaunchDescription:
     dispenser_rear_offset_m = LaunchConfiguration("dispenser_rear_offset_m")
     performance_storage_path = LaunchConfiguration("performance_storage_path")
     enable_rgbd_mapping = LaunchConfiguration("enable_rgbd_mapping")
+    enable_thermal_pipeline = LaunchConfiguration("enable_thermal_pipeline")
+    enable_frozen_thermal_map = LaunchConfiguration(
+        "enable_frozen_thermal_map"
+    )
+    start_thermal_pipeline = IfCondition(
+        PythonExpression(
+            [
+                "'true' if '",
+                enable_thermal_pipeline,
+                "'.lower() == 'true' or '",
+                enable_frozen_thermal_map,
+                "'.lower() == 'true' else 'false'",
+            ]
+        )
+    )
     start_hp60c_camera = IfCondition(
         PythonExpression(
             [
                 "'true' if '",
                 enable_rgbd_mapping,
+                "'.lower() == 'true' or '",
+                enable_frozen_thermal_map,
                 "'.lower() == 'true' or ('",
                 use_person_safety,
                 "'.lower() == 'true' and '",
@@ -103,7 +120,8 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="false",
                 description=(
                     "Enable YOLO person detection, Nav2 speed limiting, and "
-                    "the final fail-safe cmd_vel gate."
+                    "the final fail-safe cmd_vel gate after the RGB-D safety "
+                    "path has been validated."
                 ),
             ),
             DeclareLaunchArgument(
@@ -115,7 +133,7 @@ def generate_launch_description() -> LaunchDescription:
                 ),
             ),
             DeclareLaunchArgument("person_model_path", default_value="yolo11n.pt"),
-            DeclareLaunchArgument("person_device", default_value=""),
+            DeclareLaunchArgument("person_device", default_value="0"),
             DeclareLaunchArgument("person_confidence", default_value="0.4"),
             DeclareLaunchArgument("person_image_size", default_value="640"),
             DeclareLaunchArgument(
@@ -167,6 +185,14 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="/tmp/hazard_guard_physical_rgbd.db",
             ),
             DeclareLaunchArgument(
+                "rtabmap_reset_database",
+                default_value="false",
+                description=(
+                    "Reset only rtabmap_database_path when starting the "
+                    "optional RGB-D capture"
+                ),
+            ),
+            DeclareLaunchArgument(
                 "rtabmap_storage_path",
                 default_value="/tmp",
             ),
@@ -181,6 +207,40 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument(
                 "enable_thermal_pipeline", default_value="false"
+            ),
+            DeclareLaunchArgument(
+                "enable_frozen_thermal_map",
+                default_value="false",
+                description=(
+                    "Keep an existing PLY immutable, accumulate its thermal "
+                    "attributes, and track persistent dynamic thermal voxels. "
+                    "This also starts the live thermal-depth pipeline."
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_map_cloud_path",
+                default_value="",
+                description="Fixed RTAB-Map PLY used as immutable geometry",
+            ),
+            DeclareLaunchArgument(
+                "thermal_map_state_path",
+                default_value="",
+                description=(
+                    "Atomic NPZ checkpoint for the cumulative thermal layer"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_dynamic_state_path",
+                default_value="",
+                description=(
+                    "Atomic NPZ checkpoint for dynamic voxels. When empty, "
+                    "derive a .dynamic.npz sibling from thermal_map_state_path"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "thermal_map_session_id",
+                default_value="",
+                description="Owning map session identifier for status routing",
             ),
             DeclareLaunchArgument("thermal_roi_config", default_value=""),
             DeclareLaunchArgument(
@@ -264,6 +324,9 @@ def generate_launch_description() -> LaunchDescription:
                     "database_path": LaunchConfiguration(
                         "rtabmap_database_path"
                     ),
+                    "reset_database": LaunchConfiguration(
+                        "rtabmap_reset_database"
+                    ),
                     "storage_path": LaunchConfiguration(
                         "rtabmap_storage_path"
                     ),
@@ -303,6 +366,12 @@ def generate_launch_description() -> LaunchDescription:
                 "person_safety.launch.py",
                 {"use_sim_time": "false"},
                 condition=IfCondition(use_person_safety),
+            ),
+            include(
+                "hazard_guard_simulation",
+                "physical_thermal_camera.launch.py",
+                {"show_gui": "false"},
+                condition=start_thermal_pipeline,
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -416,10 +485,65 @@ def generate_launch_description() -> LaunchDescription:
                     "thermal_offset_c": LaunchConfiguration(
                         "thermal_offset_c"
                     ),
+                    # HP60C and ThermoEye keep independent header clocks. Pair
+                    # on local arrival, then publish z-up coordinates for WebUI.
+                    "fusion_sync_by_receipt_time": "true",
+                    "fusion_output_frame": "map",
+                    "fusion_transform_at_latest": "true",
+                    "fusion_color_min_c": "10.0",
+                    "fusion_color_max_c": "60.0",
                 },
-                condition=IfCondition(
-                    LaunchConfiguration("enable_thermal_pipeline")
-                ),
+                condition=start_thermal_pipeline,
+            ),
+            Node(
+                package="hazard_guard_thermal_analysis",
+                executable="frozen_thermal_map",
+                name="hazard_guard_frozen_thermal_map",
+                output="screen",
+                condition=IfCondition(enable_frozen_thermal_map),
+                parameters=[
+                    {
+                        "use_sim_time": False,
+                        "map_cloud_path": LaunchConfiguration(
+                            "thermal_map_cloud_path"
+                        ),
+                        "thermal_state_path": LaunchConfiguration(
+                            "thermal_map_state_path"
+                        ),
+                        "dynamic_state_path": LaunchConfiguration(
+                            "thermal_dynamic_state_path"
+                        ),
+                        "session_id": LaunchConfiguration(
+                            "thermal_map_session_id"
+                        ),
+                        "map_frame": "map",
+                        "base_frame": "base_footprint",
+                        "sensor_frame": "thermal_camera_optical_frame",
+                        "geometry_voxel_size_m": 0.03,
+                        "maximum_geometry_voxels": 250000,
+                        "maximum_source_vertices": 1000000,
+                        "maximum_published_voxels": 100000,
+                        "maximum_dynamic_published_voxels": 30000,
+                        "association_radius_m": 0.08,
+                        "maximum_surface_range_residual_m": 0.05,
+                        "dynamic_voxel_size_m": 0.05,
+                        "dynamic_minimum_component_voxels": 8,
+                        "dynamic_minimum_hits": 2,
+                        "dynamic_maximum_misses": 3,
+                        "dynamic_maximum_voxels": 50000,
+                        "dynamic_visibility_angular_resolution_deg": 1.0,
+                        "dynamic_visibility_range_tolerance_m": 0.08,
+                        "minimum_match_ratio": 0.30,
+                        "keyframe_translation_m": 0.10,
+                        "keyframe_rotation_deg": 6.0,
+                        "stationary_refresh_interval_sec": 5.0,
+                        "rejected_frame_retry_sec": 2.0,
+                        "localization_stable_samples": 3,
+                        "localization_stable_translation_m": 0.05,
+                        "localization_stable_rotation_deg": 3.0,
+                        "enable_local_alignment": False,
+                    }
+                ],
             ),
             TimerAction(
                 period=5.0,

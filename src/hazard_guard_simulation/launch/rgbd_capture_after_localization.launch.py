@@ -99,6 +99,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
         launch_arguments={
             "database_path": database_path,
+            "reset_database": reset_database,
             "storage_path": storage_path,
             "cloud_stamp_mode": LaunchConfiguration("cloud_stamp_mode"),
             "cloud_stamp_offset_sec": LaunchConfiguration(

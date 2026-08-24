@@ -448,6 +448,12 @@ RTAB-Map 자체의 `/rtabmap/cloud_map`은 이 구성에서 Z=0인 장애물 점
 각 점은 X/Y/Z와 RGB를 포함하며 WebUI 백엔드가 이를 다운샘플링해 브라우저로
 전송합니다. RViz는 이 데이터를 보는 도구일 뿐 WebUI의 데이터 원본은 아닙니다.
 
+실물 2차 RGB-D 수집의 `rtabmap_reset_database` 기본값은 `false`입니다. 수동
+launch는 사용자가 지정한 기존 DB를 자동 삭제하지 않습니다. WebUI는 전용
+`rgbd-map.db`를 선택하고 이전 파일을 복구 가능한 위치로 격리한 뒤에만
+`rtabmap_reset_database:=true`를 명시합니다. 직접 실행할 때도 전용 DB임을
+확인하고 백업한 경우에만 이 값을 `true`로 설정하십시오.
+
 실제 로봇 전환 시 RTAB-Map 알고리즘 코드를 다시 만들 필요는 없지만,
 Gazebo 카메라 토픽 대신 실제 RGB·Depth·CameraInfo·Odometry·TF를 연결해야
 합니다. 특히 RGB 카메라와 Depth 카메라의 내부 파라미터 및 센서와
@@ -487,6 +493,27 @@ WebUI 백엔드는 그 전체 지도에 복셀화를 다시 적용하지 않고,
 ```bash
 ros2 topic echo /hazard_guard/rtabmap/cloud_guard/status
 ```
+
+WebUI에서 `2D + RGB-D 3D` 실물 맵 생성을 선택하면 같은 launch가 열화상
+퍼블리셔와 depth-to-thermal fusion도 함께 실행합니다. HP60C의 `16UC1` depth는
+mm에서 m로 자동 변환하며, 캘리브레이션 TF로 각 depth 표면을 열화상 픽셀에
+투영한 결과를 Console 기본 입력과 같은 토픽으로 발행합니다.
+
+```text
+/hazard_guard/thermal/points  sensor_msgs/PointCloud2
+                              (map frame, XYZ + 온도색 RGB + temperature °C)
+```
+
+캘리브레이션 파일이 아직 없으면 열화상 퍼블리셔는 임시 CameraInfo만 발행하고
+fusion은 필요한 TF를 찾을 수 없어 점을 누적하지 않습니다. 캘리브레이션을 끝낸
+뒤 WebUI의 맵 생성을 다시 시작하면 저장된 intrinsic/extrinsic이 자동 적용됩니다.
+실물 순찰/분석 fusion은 HP60C와 ThermoEye의 독립 clock을 고려해 Jetson 수신
+시각이 가장 가까운 프레임을 짝지으며, 열화상 `plumb_bob` 왜곡까지 적용합니다.
+WebUI 공개 cloud는 `map` 좌표와 같은 `frame_id`를 사용하고 분석 필드
+(`temperature_c`, `confidence`, thermal pixel)와 고정 온도 범위 packed `rgb`를
+함께 유지합니다.
+열화상 3D 처리를 끄거나 이미 별도로 실행한 카메라를 재사용하려면 각각
+`enable_thermal_mapping:=false`, `start_thermal_camera:=false`를 사용합니다.
 
 실제 로봇 launch의 기본값은 필요하면 인자로 조정할 수 있습니다.
 
@@ -689,6 +716,107 @@ xacro ... thermal_mount_y:=0.073 thermal_mount_yaw:=0.035   # 5 mm, 2° 틀기
 
 ### 카메라 스트림 보기
 
+실물 ThermoEye TMC160F는 공식 TmSDK ARM64 패키지와 Python 바인딩을 설치한
+뒤 다음 launch로 실행합니다. `show_gui:=true`이면 TmSDK의 Inferno 컬러맵,
+noise filtering, `to_bitmap()` 변환을 사용한 영상을 `rqt_image_view`에 바로
+표시합니다. 이 컬러 영상은 표시용이며 원시 온도 단위는 바꾸지 않습니다.
+
+```bash
+ros2 launch hazard_guard_simulation physical_thermal_camera.launch.py \
+  show_gui:=true
+```
+
+기본 `color_scale_mode:=sdk`는 제조사 SDK 예제와 같은 렌더링 경로입니다.
+서로 다른 시점에도 같은 색이 같은 절대온도를 뜻해야 하는 기록·비교 용도에는
+`color_scale_mode:=fixed min_temp_c:=10.0 max_temp_c:=60.0`을 사용합니다.
+
+실물 퍼블리셔의 ROS 인터페이스는 다음과 같습니다.
+
+| 토픽 | 인코딩 | 내용 |
+|---|---|---|
+| `/thermal_camera/image_sensor_raw` | `16UC1` | TmSDK Y16 원본 |
+| `/thermal_camera/image_raw` | `mono16` | Kelvin × 100 표준 입력 |
+| `/thermal_camera/image_color` | `bgr8` | TmSDK Inferno(기본) 또는 수동 범위 컬러 영상 |
+| `/thermal_camera/camera_info` | `CameraInfo` | 열화상 내부파라미터 |
+
+`calibration_file`을 지정하지 않으면 `camera_info`는 57° FOV와 무왜곡을 사용한
+임시값입니다. 실물 내부파라미터 캘리브레이션 후 표준 ROS camera YAML 경로를
+`calibration_file:=...`로 전달해야 합니다.
+
+### 실물 RGB-D ↔ 열화상 캘리브레이션
+
+실물 도구는 6×4칸 체커보드의 5×3 내부 코너와 47.5 mm 칸을 기본값으로
+사용합니다. HP60C와 열화상 카메라를 먼저 실행한 다음 터미널에서 한 번만
+실행합니다.
+
+```bash
+ros2 run hazard_guard_simulation physical_thermal_calibration.py
+```
+
+실행하면 RGB, 컬러 depth, 열화상의 3분할 실시간 미리보기 창이 열립니다.
+기본 동작은 수동 저장입니다. 열화상 패널의 1~9 격자를 기준으로 판의 중심을
+옮기고 RGB와 열화상 패널에 각각 `corners OK`가 표시될 때 `Space`를 누르면 현재
+프레임을 바로 저장합니다. 수동 저장에는 정지 시간·중복·포즈 이상치 검사를
+적용하지 않고, 이 선별은 `S` 계산 단계에서 수행합니다. 키는 실행 터미널과
+미리보기 창 어느 쪽에 포커스가 있어도 동작합니다. GUI가 없는 환경에서는
+`--no-gui`를 사용할 수 있습니다. `D`는 마지막 자세를 삭제하고, 최소 15개
+(권장 25~40개)를 모은 뒤 `S`를 누르면 계산·저장하고 종료합니다. `Q`는 계산하지
+않고 종료하지만 수집한 원본은 보존합니다.
+
+`S` 계산은 저장된 사진을 전부 비싼 최적화에 넣지 않습니다. 열화상 화면을
+3×3 구역으로 나눈 뒤 화면 위치, 보드 거리, 좌우/상하 기울기와 면내 회전이
+서로 다른 사진을 최대 40장 자동 선택합니다. 1차 계산 후 프레임별 재투영 RMS가
+robust 한계 또는 4 px를 넘는 사진을 제외하고 남은 사진으로 최종 재계산합니다.
+입력·선택 사진 수, 선택 인덱스, 제외 사유와 프레임별 RMS는 `report.json`과
+`latest_report.json`에 기록합니다. 제외된 원본 NPZ는 삭제하지 않아 기준을
+바꾸거나 캘리브레이션을 재처리할 수 있습니다.
+
+필요할 때만 자동 저장을 켜려면 다음처럼 실행합니다.
+
+```bash
+# 5초마다 자동 저장 후보 검사
+ros2 run hazard_guard_simulation physical_thermal_calibration.py --auto-capture-interval-sec 5
+```
+
+```text
+SPACE  코너가 검출된 현재 RGB·Depth·Thermal을 바로 저장
+D      마지막 저장 삭제
+S      thermal intrinsic과 thermal↔RGB extrinsic 계산·저장
+Q      종료
+```
+
+결과와 자세별 압축 원본은 다음 위치에 영구 저장됩니다. 기존 결과가 있으면 새
+결과를 쓰기 전에 날짜가 붙은 백업을 만듭니다.
+
+```text
+~/.local/share/hazard_guard/calibration/
+├── thermal_intrinsics.yaml
+├── thermal_rgb_extrinsic.yaml
+├── latest_report.json
+└── sessions/physical-YYYYMMDD-HHMMSS/
+```
+
+`physical_thermal_camera.launch.py`는 위 두 YAML을 기본 경로에서 자동으로 읽고,
+HP60C RGB optical frame을 부모로 하는 `thermal_camera_optical_frame` 정적 TF를
+발행합니다. 캘리브레이션이 끝난 뒤 열화상 launch를 한 번 재시작해야 새 결과가
+적용됩니다. 이 TF는 센서 사이의 고정 변환만 담당하며 `map -> odom`을 발행하지
+않습니다.
+
+계산 결과는 `latest_report.json`의 thermal/stereo RMS로 먼저 확인하고, 구독
+전용 검증 GUI로 실제 투영을 확인합니다. 이 노드는 토픽이나 TF를 발행하지 않아
+주행·SLAM·Nav2에 영향을 주지 않습니다.
+
+```bash
+ros2 run hazard_guard_simulation physical_calibration_validator.py
+```
+
+RGB와 Depth 화면의 십자가는 각각 영상 중앙입니다. Thermal 화면에는 같은 중심
+광선을 중앙 depth 거리의 3D 점으로 만든 뒤 저장된 extrinsic으로 투영하여
+RGB는 자홍색 `R`, Depth는 청록색 `D`로 표시합니다. 두 점이 거의 겹치는 것은
+HP60C의 RGB-depth registration이 정상이라는 뜻입니다. `Q`는 종료, `S`는 현재
+검증 화면을 PNG로 저장합니다. 중앙 depth가 비어 있으면 1 m를 임시 사용하므로
+화면 하단의 `measured`/`fallback` 표시도 함께 확인합니다.
+
 시뮬레이션이 떠 있는 상태에서 창을 띄웁니다. 기본은 열화상과 뎁스 2개이고,
 `show_rgb:=true` 로 RGB도 함께 볼 수 있습니다.
 
@@ -716,6 +844,117 @@ ros2 launch hazard_guard_simulation camera_view.launch.py show_rgb:=true
 열화상-뎁스 캘리브레이션은 카메라별 intrinsics 가 있어야 성립하므로 명시가
 필수입니다. `test/test_camera_topics.py` 가 `<camera_info_topic>` 누락, 토픽
 충돌, 브리지 목록 누락을 검사합니다.
+
+## 논문 기반 열화상-RGB 캘리브레이션
+
+`tools/paper_calib/` 는 Król 외 *On RGB-TIR Stereo Calibration under Extreme
+Resolution Asymmetry* (arXiv:2605.15860) 의 방식입니다. 기존 원형격자
+(`tools/calibrate_thermal_rgb.py`) 는 그대로 두고 나란히 비교합니다.
+
+해상도가 크게 다른 두 카메라에 하나의 패턴을 쓸 수 없다는 것이 요지입니다. 타일
+96개가 RGB 로는 12×8 체커보드, 열화상으로는 6×4 체커보드로 동시에 보이고, 대응
+규칙 `rgb = 2*tir + 1` 이 측정이 아니라 구성으로 참이 됩니다.
+
+### 터미널 세 개
+
+| 터미널 | 눈으로 확인 | 헤드리스 (빠름) |
+|---|---|---|
+| 1 | `simulation.launch.py gui:=true` | `simulation.launch.py gui:=false` |
+| 2 | `camera_view.launch.py` | (비워둠) |
+| 3 | 판 생성·수집·최적화 | 같음 |
+
+`thermal_camera_info.py` 는 `simulation.launch.py` 가 직접 띄웁니다. 열화상 3D
+지도가 그 내부 파라미터를 쓰므로 뷰어와 무관하게 항상 떠 있고, 따로 실행하면 같은
+토픽에 발행자가 둘이 됩니다.
+
+**Gazebo 서버는 반드시 하나만.** 둘이면 카메라 영상은 한쪽에서 오고 판 이동
+명령은 다른 쪽에 꽂혀서, 같은 자세인데 검출이 됐다 안 됐다 합니다.
+
+```bash
+pgrep -af "ign gazebo"    # sh 래퍼 1 + 서버 1 = 두 줄이면 정상
+```
+
+### 데이터 수집
+
+판을 다시 만들고 월드의 옛 판을 지우는 두 줄은 capture 와 한 덩어리입니다.
+떼어놓으면 작은 판을 먼 거리에서 찍은 엉뚱한 데이터가 만들어지고, 채택률은
+멀쩡해서 알아채기 어렵습니다.
+
+```bash
+# 근거리 33뷰 (0.50 / 0.65 / 0.80 m, 300 × 200 mm 판)
+python3 tools/paper_calib/target.py
+ign service -s /world/demo_facility_scaled/remove \
+  --reqtype ignition.msgs.Entity --reptype ignition.msgs.Boolean \
+  --timeout 3000 --req 'name: "paper_cal_target", type: MODEL'
+python3 tools/paper_calib/capture.py --out runtime/calibration/paper_views_near.npz
+
+# 원거리 25뷰 (1.1 / 1.4 / 1.7 m, 600 × 400 mm 판)
+python3 tools/paper_calib/target.py --square 0.05
+ign service -s /world/demo_facility_scaled/remove \
+  --reqtype ignition.msgs.Entity --reptype ignition.msgs.Boolean \
+  --timeout 3000 --req 'name: "paper_cal_target", type: MODEL'
+python3 tools/paper_calib/capture.py --near 1.1 --mid 1.4 --far 1.7 \
+    --out runtime/calibration/paper_views_far.npz
+```
+
+거리 다양성이 이동과 회전을 분리합니다. 한 판으로는 넓은 거리를 못 덮습니다 —
+0.5 m 까지 오는 작은 판은 1.7 m 에서 열화상 정사각형이 4.6 px 로 떨어져 읽히지
+않습니다. 그래서 판 두 개를 쓰고, 최적화기가 뷰별 물체점을 들고 다닙니다.
+
+### 최적화
+
+여기부터 시뮬레이터가 필요 없습니다. npz 만 있으면 됩니다.
+
+```bash
+# Mode A, 두 데이터셋을 하나의 문제로
+python3 tools/calibrate_paper.py solve \
+    --views runtime/calibration/paper_views_far.npz \
+            runtime/calibration/paper_views_near.npz
+
+# 데이터셋 나란히 비교 (쉼표로 묶은 항목은 합쳐서 한 열)
+python3 tools/calibrate_paper.py compare --views a.npz b.npz a.npz,b.npz --labels ...
+
+# Mode A / B / C1 / C2
+python3 tools/calibrate_paper.py modes --views a.npz b.npz
+```
+
+결과는 `runtime/calibration/*.json` 에 남습니다. npz 는 용량이 커서 제외되고
+JSON 만 저장소에 남깁니다.
+
+### 열화상 주점
+
+`thermal_camera_info.py` 는 `cx = width/2 = 80.0` 을 발행하지만, Gazebo 가 실제로
+렌더링하는 주점은 `width/2 − 0.32 px` 입니다. 0.32 px 은 `atan(0.32/147.3)` =
+0.12° 의 회전으로 보이고, **전부 외부파라미터 회전으로 흡수됩니다.** 열화상 재투영
+RMS 는 0.0005 px 밖에 안 움직여서 잔차로는 구별할 수 없습니다.
+
+캘리브레이션 도구는 `optimize.MEASURED_PRINCIPAL_POINT` 로 보정값을 쓰고,
+발행되는 `camera_info` 는 건드리지 않습니다.
+
+**이 값은 실기기에 그대로 쓸 수 없습니다.** 정답 회전이 0 이라는 사실을 이용해
+역산한 것이고 실물에는 그런 기준이 없습니다. 실기기에서는 열화상 내부파라미터
+캘리브레이션을 별도로 수행해 `fx, fy, cx, cy` 와 왜곡을 직접 구해야 합니다.
+건너뛰면 그 오차가 전부 외부파라미터로 흘러갑니다 — fx 3 % 오차가 tz 로 약 50 mm,
+주점 0.32 px 이 회전 0.17° 로 새는 것을 측정했습니다.
+
+### 보정값 적용
+
+푸는 것과 꽂는 것은 다른 단계입니다. `tools/apply_calibration.py` 가 결과 JSON 을 읽어
+`config/thermal_extrinsic.yaml` 로 쓰고, `simulation.launch.py` 가 그 파일이 있으면
+xacro 인자로 넘깁니다. 파일을 지우면 도면 기본값으로 돌아갑니다.
+
+```bash
+python3 tools/apply_calibration.py            # 가장 최근 결과, --dry-run 으로 미리보기
+colcon build --packages-select hazard_guard_simulation
+```
+
+보정값은 마운트가 아니라 **광학 조인트** (`thermal_camera_optical_joint`) 에 씁니다.
+`<sensor>` 에 `<pose>` 가 없어 Fortress 가 링크 원점에서 렌더하므로, 마운트를 옮기면
+렌더되는 카메라도 따라 움직여 보정이 제 꼬리를 뭅니다. 광학 조인트는 렌더러의 하류이자
+TF 의 상류라 링크를 그대로 둔 채 TF 만 측정값을 따르게 합니다. 실기기에서도 브래킷은
+도면이고 캘리브레이션이 재는 것은 하우징 안 광학 중심이라 의미가 맞습니다.
+
+절차 전체와 눈검사 방법은 `docs/paper_calibration_runbook.md` 7장에 있습니다.
 
 ## 검증
 

@@ -1,9 +1,9 @@
 {
   "fine_columns": 12,
   "fine_rows": 8,
-  "square_m": 0.05,
+  "square_m": 0.025,
   "coarse_factor": 2,
-  "tir_square_m": 0.1,
+  "tir_square_m": 0.05,
   "rgb_corners": [
     11,
     7
@@ -165,8 +165,8 @@
       ]
     }
   ],
-  "width_m": 0.6,
-  "height_m": 0.4,
+  "width_m": 0.3,
+  "height_m": 0.2,
   "cold_c": 15.0,
   "hot_c": 45.0
 }

@@ -22,29 +22,70 @@ ROOT = Path(__file__).resolve().parent.parent
 RESULTS = ROOT / "runtime" / "calibration"
 sys.path.insert(0, str(ROOT / "tools"))
 
+from paper_calib import compare as cmp  # noqa: E402
 from paper_calib import optimize as opt  # noqa: E402
 
 
 def load(path: Path) -> dict:
     raw = np.load(path, allow_pickle=False)
+    views = len(raw["rgb_matched"])
+    # Stored once because every view of one capture shares a board, but carried
+    # per view from here on: two captures made with different board sizes have
+    # to be usable together, and the corner count is the same either way.
+    object_points = np.broadcast_to(
+        raw["object_points"].astype(np.float64),
+        (views,) + raw["object_points"].shape).copy()
     return {
-        "views": len(raw["rgb_matched"]),
+        "views": views,
         "labels": [str(v) for v in raw["labels"]],
         "tir_how": [str(v) for v in raw["tir_how"]],
         "rgb_corners": raw["rgb_corners"].astype(np.float64),
         "rgb_matched": raw["rgb_matched"].astype(np.float64),
         "tir_matched": raw["tir_matched"].astype(np.float64),
-        "object_points": raw["object_points"].astype(np.float64),
+        "object_points": object_points,
         "object_matched": raw["object_matched"].astype(np.float64),
         "rgb_k": raw["rgb_k"].reshape(3, 3),
         "thermal_k": raw["thermal_k"].reshape(3, 3),
         "rgb_size": tuple(int(v) for v in raw["rgb_size"]),
         "thermal_size": tuple(int(v) for v in raw["thermal_size"]),
+        "attempted": int(raw["poses_attempted"]) if "poses_attempted" in raw else None,
     }
 
 
+def merge(datasets: list) -> dict:
+    """Stack captures into one problem.
+
+    Range is what separates translation from rotation, and no single board
+    covers a wide range: a board small enough to come to 0.5 m has thermal
+    squares too small to read at 1.7 m. Two boards can, so long as the
+    optimiser is told which one each view was looking at - which is what the
+    per-view object points are for.
+    """
+    first = datasets[0]
+    for other in datasets[1:]:
+        if not np.allclose(first["rgb_k"], other["rgb_k"]) or \
+                not np.allclose(first["thermal_k"], other["thermal_k"]):
+            raise RuntimeError("카메라 내부파라미터가 다른 데이터셋은 합칠 수 없습니다")
+        if first["object_points"].shape[1] != other["object_points"].shape[1]:
+            raise RuntimeError("코너 개수가 다른 데이터셋은 합칠 수 없습니다")
+    merged = dict(first)
+    merged["views"] = sum(d["views"] for d in datasets)
+    for key in ("labels", "tir_how"):
+        merged[key] = [v for d in datasets for v in d[key]]
+    for key in ("rgb_corners", "rgb_matched", "tir_matched",
+                "object_points", "object_matched"):
+        merged[key] = np.concatenate([d[key] for d in datasets])
+    merged["attempted"] = sum(d["attempted"] or d["views"] for d in datasets)
+    return merged
+
+
+def load_all(paths) -> dict:
+    datasets = [load(Path(p)) for p in paths]
+    return datasets[0] if len(datasets) == 1 else merge(datasets)
+
+
 def solve(arguments) -> int:
-    data = load(Path(arguments.views))
+    data = load_all(arguments.views)
     print(f"뷰 {data['views']} 개, RGB {data['rgb_size']}, "
           f"열화상 {data['thermal_size']}")
     print(f"뷰당 대응점 {data['tir_matched'].shape[1]} 개, "
@@ -121,6 +162,88 @@ def solve(arguments) -> int:
     return 0
 
 
+def compare(arguments) -> int:
+    names, results = [], []
+    for index, group in enumerate(arguments.views):
+        data = load_all(group.split(","))
+        label = (arguments.labels[index] if arguments.labels
+                 and index < len(arguments.labels) else Path(group).stem)
+        print(f"{label}: 뷰 {data['views']}, 열화상 {data['thermal_size']}")
+        names.append(label)
+        results.append(cmp.evaluate(data))
+    print()
+    cmp.render(names, results)
+    return 0
+
+
+def modes(arguments) -> int:
+    """Mode A/B/C1/C2 on one dataset, with the corrected principal point."""
+    data = load_all(arguments.views)
+    point = (opt.MEASURED_PRINCIPAL_POINT if arguments.principal_point == "measured"
+             else opt.PUBLISHED_PRINCIPAL_POINT)
+    data = opt.with_principal_point(data, point)
+    print(f"뷰 {data['views']}개, 열화상 주점 ({point[0]}, {point[1]})")
+
+    labels = {"A": "A 무구속", "B": "B 소프트 사전",
+              "C1": "C1 회전=0 (유효)", "C2": "C2 tz=0 (무효)"}
+    rows = {}
+    for mode, label in labels.items():
+        params, report = opt.solve(data, mode=mode, verbose=False,
+                                   prior_sigma_mm=arguments.prior_sigma_mm)
+        _, sens = opt.sensitivity(params, data)
+        translation = np.array(report["translation_mm"])
+        rpy = np.array(report["rpy_deg"])
+        rows[label] = {
+            "translation_mm": translation.tolist(),
+            "translation_error_mm": (translation - opt.GROUND_TRUTH_MM).tolist(),
+            "translation_error_norm_mm": float(
+                np.linalg.norm(translation - opt.GROUND_TRUTH_MM)),
+            "rpy_deg": rpy.tolist(),
+            "rotation_error_norm_deg": float(np.linalg.norm(rpy)),
+            "rgb_rms_px": report["rgb_rms_px"],
+            "tir_rms_px": report["tir_rms_px"],
+            "total_rms_px": report["total_rms_px"],
+            "sensitivity": {r["parameter"]: r["delta_tir_rms_px"] for r in sens},
+        }
+
+    names = list(rows)
+    def line(title, values):
+        print(f"  {title:24s}" + "".join(f"{v:>16}" for v in values))
+    print("=" * (26 + 16 * len(names)))
+    line("", names)
+    print("-" * (26 + 16 * len(names)))
+    for index, axis in enumerate(("tx", "ty", "tz")):
+        line(f"{axis} 오차 mm",
+             [f"{rows[n]['translation_error_mm'][index]:+.2f}" for n in names])
+    line("이동 오차 크기 mm",
+         [f"{rows[n]['translation_error_norm_mm']:.2f}" for n in names])
+    for index, axis in enumerate(("roll", "pitch", "yaw")):
+        line(f"{axis} 오차 deg", [f"{rows[n]['rpy_deg'][index]:+.3f}" for n in names])
+    line("회전 오차 크기 deg",
+         [f"{rows[n]['rotation_error_norm_deg']:.3f}" for n in names])
+    for key, title in (("rgb_rms_px", "RGB RMS px"),
+                       ("tir_rms_px", "열화상 RMS px"),
+                       ("total_rms_px", "전체 RMS px")):
+        line(title, [f"{rows[n][key]:.4f}" for n in names])
+    for parameter in ("tx", "ty", "tz", "roll", "pitch", "yaw"):
+        step = "+1mm" if parameter in ("tx", "ty", "tz") else "+0.1deg"
+        line(f"민감도 {parameter} {step}",
+             [f"{rows[n]['sensitivity'][parameter]:+.4f}" for n in names])
+    print("=" * (26 + 16 * len(names)))
+
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    path = RESULTS / f"paper_modes_{time.strftime('%Y%m%d-%H%M%S')}.json"
+    path.write_text(json.dumps({
+        "views": data["views"],
+        "principal_point": list(point),
+        "ground_truth_mm": opt.GROUND_TRUTH_MM.tolist(),
+        "prior_sigma_mm": arguments.prior_sigma_mm,
+        "modes": rows,
+    }, indent=2) + "\n")
+    print(f"\n저장  {path.relative_to(ROOT)}")
+    return 0
+
+
 def capture(arguments) -> int:
     sys.argv = ["capture.py"] + arguments.rest
     runpy.run_path(str(ROOT / "tools" / "paper_calib" / "capture.py"),
@@ -137,10 +260,24 @@ def main() -> int:
     c.set_defaults(run=capture)
 
     s = sub.add_parser("solve", help="수집한 뷰로 외부파라미터 추정")
-    s.add_argument("--views", default=str(RESULTS / "paper_views.npz"))
+    s.add_argument("--views", nargs="+", default=[str(RESULTS / "paper_views.npz")],
+                   help="여러 개를 주면 하나의 문제로 합쳐 푼다")
     s.add_argument("--init", choices=("stereo", "cad"), default="stereo",
                    help="stereo = 논문과 같은 stereoCalibrate 워밍, cad = 도면값")
     s.set_defaults(run=solve)
+
+    c = sub.add_parser("compare", help="여러 데이터셋을 같은 최적화로 비교")
+    c.add_argument("--views", nargs="+", required=True,
+                   help="한 항목에 쉼표로 여러 npz 를 주면 합쳐서 하나로 센다")
+    c.add_argument("--labels", nargs="*", default=None)
+    c.set_defaults(run=compare)
+
+    m = sub.add_parser("modes", help="Mode A/B/C1/C2 비교")
+    m.add_argument("--views", nargs="+", required=True)
+    m.add_argument("--principal-point", choices=("measured", "published"),
+                   default="measured")
+    m.add_argument("--prior-sigma-mm", type=float, default=10.0)
+    m.set_defaults(run=modes)
 
     arguments = parser.parse_args()
     return arguments.run(arguments)

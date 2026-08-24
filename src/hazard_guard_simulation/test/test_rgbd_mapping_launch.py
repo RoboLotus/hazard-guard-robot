@@ -99,6 +99,24 @@ def test_physical_capture_reuses_field_tested_patrol_stack():
     assert '"readiness_timeout_sec": "60.0"' in patrol
 
 
+def test_physical_second_pass_reset_reaches_only_selected_rtabmap_database():
+    wrapper = PHYSICAL_CAPTURE.read_text(encoding="utf-8")
+    patrol = PHYSICAL_PATROL.read_text(encoding="utf-8")
+    gate = CAPTURE_GATE.read_text(encoding="utf-8")
+    rtabmap = REAL_RTABMAP.read_text(encoding="utf-8")
+
+    assert '"rtabmap_reset_database",\n                default_value="false"' in wrapper
+    assert '"rtabmap_reset_database",' in wrapper.split("forwarded =", 1)[1]
+    assert '"rtabmap_reset_database",\n                default_value="false"' in patrol
+    assert '"reset_database": LaunchConfiguration(' in patrol
+    assert '"rtabmap_reset_database"' in patrol
+    assert '"reset_database": reset_database' in gate
+    assert 'DeclareLaunchArgument(\n                "reset_database"' in rtabmap
+    assert 'arguments=["-d"] if reset_database else []' in rtabmap
+    assert 'IfCondition(LaunchConfiguration("reset_database"))' in rtabmap
+    assert 'UnlessCondition(LaunchConfiguration("reset_database"))' in rtabmap
+
+
 def test_capture_gate_starts_rtabmap_only_after_successful_readiness():
     source = CAPTURE_GATE.read_text(encoding="utf-8")
 

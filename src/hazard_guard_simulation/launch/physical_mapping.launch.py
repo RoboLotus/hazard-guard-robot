@@ -16,7 +16,9 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def include(
@@ -43,6 +45,27 @@ def generate_launch_description() -> LaunchDescription:
     database_path = LaunchConfiguration("database_path")
     storage_path = LaunchConfiguration("storage_path")
     enable_rtabmap = LaunchConfiguration("enable_rtabmap")
+    enable_thermal_mapping = LaunchConfiguration("enable_thermal_mapping")
+    start_thermal_camera = LaunchConfiguration("start_thermal_camera")
+    thermal_mapping_condition = IfCondition(
+        PythonExpression(
+            [
+                "'true' if '", enable_rtabmap,
+                "'.lower() == 'true' and '", enable_thermal_mapping,
+                "'.lower() == 'true' else 'false'",
+            ]
+        )
+    )
+    thermal_camera_condition = IfCondition(
+        PythonExpression(
+            [
+                "'true' if '", enable_rtabmap,
+                "'.lower() == 'true' and '", enable_thermal_mapping,
+                "'.lower() == 'true' and '", start_thermal_camera,
+                "'.lower() == 'true' else 'false'",
+            ]
+        )
+    )
     cloud_arguments = {
         name: LaunchConfiguration(name)
         for name in (
@@ -122,6 +145,25 @@ def generate_launch_description() -> LaunchDescription:
                 default_value=str(workspace / "runtime" / "maps"),
             ),
             DeclareLaunchArgument("enable_rtabmap", default_value="true"),
+            DeclareLaunchArgument(
+                "enable_thermal_mapping",
+                default_value=os.getenv(
+                    "HAZARD_GUARD_THERMAL_MAPPING_ENABLED", "true"
+                ),
+                description=(
+                    "Publish the calibrated physical thermal 3D cloud when "
+                    "the RGB-D mapping profile is active"
+                ),
+            ),
+            DeclareLaunchArgument("start_thermal_camera", default_value="true"),
+            DeclareLaunchArgument(
+                "thermal_output_topic",
+                default_value="/hazard_guard/thermal/points",
+            ),
+            DeclareLaunchArgument("thermal_map_frame", default_value="map"),
+            DeclareLaunchArgument("thermal_min_temp_c", default_value="10.0"),
+            DeclareLaunchArgument("thermal_max_temp_c", default_value="60.0"),
+            DeclareLaunchArgument("thermal_voxel_size", default_value="0.05"),
             DeclareLaunchArgument(
                 "cloud_normal_points",
                 default_value=cloud_defaults["cloud_normal_points"],
@@ -208,6 +250,58 @@ def generate_launch_description() -> LaunchDescription:
                 "rtabmap_real.launch.py",
                 rtabmap_arguments,
                 condition=IfCondition(enable_rtabmap),
+            ),
+            include(
+                "hazard_guard_simulation",
+                "physical_thermal_camera.launch.py",
+                {"show_gui": "false"},
+                condition=thermal_camera_condition,
+            ),
+            Node(
+                package="hazard_guard_simulation",
+                executable="thermal_cloud.py",
+                name="physical_thermal_cloud",
+                output="screen",
+                condition=thermal_mapping_condition,
+                parameters=[
+                    {
+                        "use_sim_time": False,
+                        "depth_image": (
+                            "/ascamera_hp60c/camera_publisher/depth0/image_raw"
+                        ),
+                        "depth_info": (
+                            "/ascamera_hp60c/camera_publisher/depth0/camera_info"
+                        ),
+                        "thermal_image": "/thermal_camera/image_raw",
+                        "thermal_info": "/thermal_camera/camera_info",
+                        "output_topic": LaunchConfiguration(
+                            "thermal_output_topic"
+                        ),
+                        "map_frame": LaunchConfiguration("thermal_map_frame"),
+                        # 0 selects 0.001 automatically for HP60C 16UC1.
+                        "depth_scale": 0.0,
+                        # Keep raw vendor stamps but pair the independently
+                        # clocked physical cameras by local receipt time.
+                        "sync_by_receipt_time": True,
+                        "min_temp_c": ParameterValue(
+                            LaunchConfiguration("thermal_min_temp_c"),
+                            value_type=float,
+                        ),
+                        "max_temp_c": ParameterValue(
+                            LaunchConfiguration("thermal_max_temp_c"),
+                            value_type=float,
+                        ),
+                        "voxel_size": ParameterValue(
+                            LaunchConfiguration("thermal_voxel_size"),
+                            value_type=float,
+                        ),
+                        # Bound the secondary visualization map so it cannot
+                        # starve SLAM Toolbox/Nav2 on the Jetson.
+                        "max_voxels": 120000,
+                        "stride": 4,
+                        "publish_period_sec": 1.0,
+                    }
+                ],
             ),
         ]
     )
