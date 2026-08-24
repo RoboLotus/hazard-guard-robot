@@ -1,11 +1,13 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from hazard_guard_patrol_benchmark.environment import (
     load_heat_source_ids,
     load_world_assets,
+    repository_commit,
     resolve_environment_root,
 )
 
@@ -62,3 +64,21 @@ def test_rejects_asset_path_outside_repository(tmp_path: Path) -> None:
     catalog.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(ValueError, match="밖을 가리킵니다"):
         load_world_assets(tmp_path, "test")
+
+
+def test_repository_commit_allows_docker_bind_mount_ownership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[str] = []
+
+    def fake_run(command: list[str], **_: object) -> SimpleNamespace:
+        captured.extend(command)
+        return SimpleNamespace(stdout="abc123\n")
+
+    monkeypatch.setattr(
+        "hazard_guard_patrol_benchmark.environment.subprocess.run",
+        fake_run,
+    )
+
+    assert repository_commit(tmp_path) == "abc123"
+    assert f"safe.directory={tmp_path}" in captured

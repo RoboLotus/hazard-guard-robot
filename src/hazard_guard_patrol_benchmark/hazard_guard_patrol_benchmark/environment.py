@@ -27,7 +27,15 @@ class WorldAssets:
 def _git_commit(repository: Path) -> str | None:
     try:
         return subprocess.run(
-            ["git", "-C", str(repository), "rev-parse", "HEAD"],
+            [
+                "git",
+                "-c",
+                f"safe.directory={repository}",
+                "-C",
+                str(repository),
+                "rev-parse",
+                "HEAD",
+            ],
             capture_output=True,
             check=True,
             text=True,

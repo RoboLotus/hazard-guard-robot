@@ -201,7 +201,11 @@ class BenchmarkSession:
         actual_distance_m = self.trajectory.distance_m
         path_efficiency = (
             planned_distance_m / actual_distance_m * 100.0
-            if planned_distance_m is not None and actual_distance_m > 0.0
+            if (
+                result_status == "completed"
+                and planned_distance_m is not None
+                and actual_distance_m > 0.0
+            )
             else None
         )
         detected_expected = (
@@ -308,6 +312,10 @@ class BenchmarkSession:
             csv.writer(stream).writerows(rows)
 
     def _write_markdown(self, summary: dict[str, Any]) -> None:
+        path_efficiency = summary["trajectory"]["path_efficiency_percent"]
+        path_efficiency_text = (
+            f"{path_efficiency}%" if path_efficiency is not None else "N/A"
+        )
         lines = [
             f"# {summary['mission_name'] or summary['id']}",
             "",
@@ -321,7 +329,7 @@ class BenchmarkSession:
             "",
             f"- 실제 이동 거리: {summary['trajectory']['actual_distance_m']:.2f}m",
             f"- 계획 이동 거리: {summary['trajectory']['planned_distance_m']}m",
-            f"- 경로 효율: {summary['trajectory']['path_efficiency_percent']}%",
+            f"- 경로 효율: {path_efficiency_text}",
             f"- 점검점 완료율: {summary['waypoints']['completion_percent']}%",
             f"- 열원 관측률: {summary['thermal']['coverage_percent']}%",
             f"- 공간 커버리지: {summary['coverage']['coverage_percent']}%",
