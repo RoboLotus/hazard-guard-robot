@@ -34,3 +34,12 @@ def test_sim_localization_has_the_same_person_safety_contract() -> None:
     assert '"rgb_topic": "/camera/image_raw"' in source
     assert '"depth_topic": "/depth_camera/image_raw"' in source
     assert '"cmd_vel_ros_topic": bridge_velocity_topic' in source
+
+
+def test_sim_patrol_launches_can_opt_in_to_hazard_approval() -> None:
+    for launch_name in ("navigation.launch.py", "localization.launch.py"):
+        source = (PACKAGE / "launch" / launch_name).read_text(encoding="utf-8")
+
+        assert 'LaunchConfiguration("enable_hazard_approval")' in source
+        assert 'DeclareLaunchArgument(\n                "enable_hazard_approval"' in source
+        assert '"hazard_approval_enabled": ParameterValue(' in source
