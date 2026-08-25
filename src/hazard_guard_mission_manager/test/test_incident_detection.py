@@ -10,6 +10,7 @@ class IncidentDetectionTests(unittest.TestCase):
     def test_builds_stable_incident_from_completed_visit(self):
         payload = {
             "frame_id": "map",
+            "simulated": True,
             "trend_analysis": {"visit_index": 7},
             "equipment": [
                 {
@@ -33,6 +34,7 @@ class IncidentDetectionTests(unittest.TestCase):
         )
         self.assertEqual(result[0]["severity"], "critical")
         self.assertEqual(result[0]["mission_id"], "mission-1")
+        self.assertTrue(result[0]["simulated"])
         self.assertTrue(result[0]["detection_id"].startswith("thermal:"))
         replay = thermal_observations(payload, mission_id="mission-1")
         other_visit = thermal_observations(

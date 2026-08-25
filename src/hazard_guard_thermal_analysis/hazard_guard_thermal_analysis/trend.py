@@ -663,4 +663,8 @@ def evaluate_visit(
         "config": decision_config,
         "equipment": summaries,
     }
+    # Preserve the acquisition origin in the persisted/published visit payload.
+    # The mission manager builds its approval incident from this top-level field,
+    # so omitting it made simulated thermal incidents look like physical ones.
+    result["simulated"] = bool(simulated)
     return result
