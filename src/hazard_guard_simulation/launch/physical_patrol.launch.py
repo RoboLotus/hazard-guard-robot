@@ -469,6 +469,15 @@ def generate_launch_description() -> LaunchDescription:
                     # Reject odom-scoped ROIs instead of silently analyzing a
                     # drifting facility region after localization corrections.
                     "required_frame_id": "map",
+                    "required_map_session_id": LaunchConfiguration(
+                        "thermal_map_session_id"
+                    ),
+                    # Analyze only current observations associated with the
+                    # immutable PLY. Dynamic people and other transient points
+                    # remain visible on their separate display layer.
+                    "analysis_input_topic": (
+                        "/hazard_guard/thermal/static_observations"
+                    ),
                     "thermal_image_topic": LaunchConfiguration(
                         "thermal_image_topic"
                     ),

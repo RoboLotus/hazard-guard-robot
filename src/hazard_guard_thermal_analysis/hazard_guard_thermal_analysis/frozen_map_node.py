@@ -27,8 +27,10 @@ from tf2_ros import Buffer, TransformListener
 from .cloud import (
     create_dynamic_thermal_cloud,
     create_frozen_thermal_cloud,
+    create_thermal_cloud,
     iter_thermal_cloud,
 )
+from .projection import ThermalPoint
 from .dynamic_map import (
     DynamicStateError,
     DynamicUpdateResult,
@@ -77,6 +79,10 @@ class FrozenThermalMapNode(Node):
         self.declare_parameter("output_topic", "/hazard_guard/thermal/map")
         self.declare_parameter(
             "dynamic_output_topic", "/hazard_guard/thermal/dynamic"
+        )
+        self.declare_parameter(
+            "static_observation_output_topic",
+            "/hazard_guard/thermal/static_observations",
         )
         self.declare_parameter(
             "status_topic", "/hazard_guard/thermal/map/status"
@@ -136,6 +142,15 @@ class FrozenThermalMapNode(Node):
             PointCloud2,
             str(self.get_parameter("dynamic_output_topic").value),
             snapshot_qos,
+        )
+        self._static_observation_publisher = self.create_publisher(
+            PointCloud2,
+            str(
+                self.get_parameter(
+                    "static_observation_output_topic"
+                ).value
+            ),
+            qos_profile_sensor_data,
         )
         self._status_publisher = self.create_publisher(
             String,
@@ -377,7 +392,7 @@ class FrozenThermalMapNode(Node):
     def _sample_observations(
         self,
         message: PointCloud2,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[ThermalPoint]]:
         total_records = max(0, int(message.width) * int(message.height))
         maximum = max(
             1,
@@ -394,6 +409,7 @@ class FrozenThermalMapNode(Node):
                 np.empty((0, 3), dtype=np.float32),
                 np.empty(0, dtype=np.float32),
                 np.empty(0, dtype=np.float32),
+                [],
             )
         points = np.asarray(
             [(point.x, point.y, point.z) for point in selected],
@@ -409,7 +425,74 @@ class FrozenThermalMapNode(Node):
             dtype=np.float32,
             count=len(selected),
         )
-        return points, temperatures, confidence
+        return points, temperatures, confidence, selected
+
+    def _publish_static_observations(
+        self,
+        header: Header,
+        points: np.ndarray,
+        temperatures: np.ndarray,
+        confidence: np.ndarray,
+        source_points: list[ThermalPoint],
+        sensor_origin: np.ndarray,
+    ) -> None:
+        """Publish only current samples that agree with immutable geometry."""
+
+        layer = self._layer
+        if layer is None or not source_points:
+            return
+        alignment = np.asarray(layer.last_alignment_translation, dtype=np.float32)
+        aligned = points + alignment
+        valid = (
+            np.all(np.isfinite(aligned), axis=1)
+            & np.isfinite(temperatures)
+            & np.isfinite(confidence)
+            & (confidence > 0.0)
+        )
+        if not np.any(valid):
+            return
+        valid_indices = np.flatnonzero(valid)
+        aligned_valid = aligned[valid]
+        indices, _ = layer.index.nearest(
+            aligned_valid,
+            float(self.get_parameter("association_radius_m").value),
+        )
+        matched = indices >= 0
+        if np.any(matched):
+            origin = np.asarray(sensor_origin, dtype=np.float32) + alignment
+            candidates = np.flatnonzero(matched)
+            fixed_ranges = np.linalg.norm(
+                layer.geometry.points[indices[matched]] - origin,
+                axis=1,
+            )
+            observed_ranges = np.linalg.norm(
+                aligned_valid[matched] - origin,
+                axis=1,
+            )
+            inconsistent = np.abs(observed_ranges - fixed_ranges) > float(
+                self.get_parameter("maximum_surface_range_residual_m").value
+            )
+            matched[candidates[inconsistent]] = False
+        filtered = [
+            ThermalPoint(
+                float(aligned[source_index, 0]),
+                float(aligned[source_index, 1]),
+                float(aligned[source_index, 2]),
+                float(temperatures[source_index]),
+                float(confidence[source_index]),
+                float(source_points[source_index].pixel_u),
+                float(source_points[source_index].pixel_v),
+            )
+            for source_index in valid_indices[np.flatnonzero(matched)]
+        ]
+        self._static_observation_publisher.publish(
+            create_thermal_cloud(
+                header,
+                filtered,
+                color_min_c=float(self.get_parameter("color_min_c").value),
+                color_max_c=float(self.get_parameter("color_max_c").value),
+            )
+        )
 
     def _lookup_observation_context(
         self,
@@ -613,7 +696,9 @@ class FrozenThermalMapNode(Node):
             self._publish_status()
             return
         try:
-            points, temperatures, confidence = self._sample_observations(message)
+            points, temperatures, confidence, source_points = (
+                self._sample_observations(message)
+            )
             dynamic_result = (
                 self._dynamic_layer.integrate(
                     points,
@@ -686,6 +771,20 @@ class FrozenThermalMapNode(Node):
             self._last_observation_at_ns = _stamp_nanoseconds(
                 message.header.stamp
             )
+            if result.accepted:
+                output_header = Header()
+                output_header.stamp = message.header.stamp
+                output_header.frame_id = str(
+                    self.get_parameter("map_frame").value
+                )
+                self._publish_static_observations(
+                    output_header,
+                    points,
+                    temperatures,
+                    confidence,
+                    source_points,
+                    pose[2],
+                )
         else:
             self._last_rejected_integration_monotonic = now_monotonic
         self._publish_status()
