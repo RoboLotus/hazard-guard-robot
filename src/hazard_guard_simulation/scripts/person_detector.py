@@ -19,7 +19,11 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool
-from ultralytics import YOLO
+
+try:
+    from ultralytics import YOLO
+except ImportError:  # pragma: no cover - optional deployment dependency
+    YOLO = None
 
 # COCO class 0 is "person"; the model is not retrained, so this is fixed.
 PERSON_CLASS_ID = 0
@@ -41,6 +45,11 @@ def person_boxes(result, conf: float) -> list[tuple[float, float, float, float, 
 
 class PersonDetector(Node):
     def __init__(self) -> None:
+        if YOLO is None:
+            raise RuntimeError(
+                "ultralytics is not installed. Install the project YOLO "
+                "runtime before starting the person detector node."
+            )
         super().__init__("person_detector")
         self.declare_parameter("image_topic", "/camera/image_raw")
         self.declare_parameter("detected_topic", "/person_detector/detected")
