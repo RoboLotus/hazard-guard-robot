@@ -473,18 +473,27 @@ class FrozenThermalMapNode(Node):
                 self.get_parameter("maximum_surface_range_residual_m").value
             )
             matched[candidates[inconsistent]] = False
-        filtered = [
-            ThermalPoint(
-                float(aligned[source_index, 0]),
-                float(aligned[source_index, 1]),
-                float(aligned[source_index, 2]),
-                float(temperatures[source_index]),
-                float(confidence[source_index]),
-                float(source_points[source_index].pixel_u),
-                float(source_points[source_index].pixel_v),
+        matched_positions = np.flatnonzero(matched)
+        source_indices = valid_indices[matched_positions]
+        geometry_indices = indices[matched_positions]
+        filtered = []
+        for source_index, geometry_index in zip(
+            source_indices,
+            geometry_indices,
+            strict=True,
+        ):
+            fixed_point = layer.geometry.points[geometry_index]
+            filtered.append(
+                ThermalPoint(
+                    float(fixed_point[0]),
+                    float(fixed_point[1]),
+                    float(fixed_point[2]),
+                    float(temperatures[source_index]),
+                    float(confidence[source_index]),
+                    float(source_points[source_index].pixel_u),
+                    float(source_points[source_index].pixel_v),
+                )
             )
-            for source_index in valid_indices[np.flatnonzero(matched)]
-        ]
         self._static_observation_publisher.publish(
             create_thermal_cloud(
                 header,
