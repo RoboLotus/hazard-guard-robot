@@ -668,12 +668,21 @@ WebUI에서 모드를 관리하는 동안에는 같은 launch를 별도 터미�
 | 3D 지도 부하 상태 | `/hazard_guard/rtabmap/cloud_guard/status` |
 | 열화상 | `/thermal_camera/image_raw`, `/thermal_camera/camera_info` |
 | IMU | `/imu/data_raw` |
+| 구동 배터리 원본 전압 | `/voltage` |
+| 구동 배터리 상태 | `/hazard_guard/battery` |
 | 로봇 상태 | `/hazard_guard/telemetry` |
 | 열원 탐지 | `/hazard_guard/thermal_detections` |
 | 단일 목적지 | `/navigate_to_pose` |
 | HazardGuard 순찰 임무 | `/hazard_guard/run_patrol` |
 | 순찰 상태 | `/hazard_guard/mission/status` |
 | 순찰 강제 취소 서비스 | `/hazard_guard/mission/cancel` |
+
+실물 M1의 `Mcnamu_driver_M1`이 제어보드에서 읽은 `/voltage`를 발행합니다.
+`hazard_guard_robot_telemetry`는 최근 20개 전압을 평균내고 기본 10.5~12.6 V
+범위를 대시보드용 0~100%로 환산하여 `/hazard_guard/battery`에 표준
+`sensor_msgs/msg/BatteryState`로 발행합니다. 이 값은 구동부와 Jetson이 함께
+사용하는 주 배터리의 참고용 잔량입니다. 전압 범위와 평균 창은
+`physical_m1_bringup.launch.py`의 launch 인자로 조정할 수 있습니다.
 
 열화상 시뮬레이션은 ThermoEye TMC160B의 160×120 해상도, 수평 57° FOV,
 8.7 Hz를 반영합니다. 지도에 보이는 5 m 부채꼴 길이는 화면 표현을 위한

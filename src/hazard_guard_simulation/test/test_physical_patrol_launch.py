@@ -250,3 +250,14 @@ def test_only_physical_motor_driver_consumes_gated_velocity() -> None:
     assert '"ydlidar_launch.py"' in source
     assert "sllidar_c1_launch.py" not in source
     assert "SetRemap" not in source
+
+
+def test_physical_bringup_normalizes_vendor_battery_voltage() -> None:
+    source = (PACKAGE / "launch" / "physical_m1_bringup.launch.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'package="hazard_guard_robot_telemetry"' in source
+    assert 'executable="battery_telemetry"' in source
+    assert '"battery_voltage_topic", default_value="/voltage"' in source
+    assert '"battery_state_topic", default_value="/hazard_guard/battery"' in source
