@@ -27,11 +27,10 @@ import yaml
 try:
     from TmCore import TmCamera
     from TmCore.TmTypes import ColorOrder, ColormapTypes
-except ImportError as exc:  # pragma: no cover - depends on the vendor install
-    raise RuntimeError(
-        "TmSDK Python bindings are not installed. Install the ThermoEye "
-        "ARM64 native package and Python wheel before starting this node."
-    ) from exc
+except ImportError:  # pragma: no cover - depends on the vendor install
+    TmCamera = None
+    ColorOrder = None
+    ColormapTypes = None
 
 
 KELVIN_PER_COUNT = 0.01
@@ -197,6 +196,12 @@ def color_scale_bounds(
 
 class ThermalCameraPublisher(Node):
     def __init__(self) -> None:
+        if TmCamera is None or ColorOrder is None or ColormapTypes is None:
+            raise RuntimeError(
+                "TmSDK Python bindings are not installed. Install the "
+                "ThermoEye ARM64 native package and Python wheel before "
+                "starting this node."
+            )
         super().__init__("thermal_camera_publisher")
         self.declare_parameter("model", "TMC160F")
         self.declare_parameter("frame_id", "thermal_camera_optical_frame")
