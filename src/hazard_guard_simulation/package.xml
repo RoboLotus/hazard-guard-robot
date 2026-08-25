@@ -23,6 +23,7 @@
   <exec_depend>hazard_guard_dispenser</exec_depend>
   <exec_depend>hazard_guard_mock_robot</exec_depend>
   <exec_depend>hazard_guard_performance_monitor</exec_depend>
+  <exec_depend>hazard_guard_robot_telemetry</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>message_filters</exec_depend>
