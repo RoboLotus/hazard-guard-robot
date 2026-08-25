@@ -7,9 +7,7 @@
   "thermal_statistics": {
     "min_points_per_voxel": 5,
     "min_points_per_roi_for_p95": 40,
-    "recommended_points_per_roi_for_p95": 100,
-    "min_hot_cluster_pixels": 9,
-    "min_adjacent_hot_voxels": 2
+    "recommended_points_per_roi_for_p95": 100
   },
   "quality": {
     "min_confidence_mode": "calibrated_in_production",
@@ -24,7 +22,7 @@
     "environment_reference_enabled": true,
     "minimum_environment_points": 40
   },
-  "note": "Schema 3 keeps Critical on absolute P95 and uses the environment-compensated P95 for Trend and Adaptive when the reference quality is valid. One signal produces watch/recheck. Simulation baselines are test fixtures only.",
+  "note": "Schema 3 keeps Critical on absolute per-voxel P95 and uses the environment-compensated P95 for Trend and Adaptive when the reference quality is valid. A valid single voxel may trigger Critical; pixel-cluster and adjacent-voxel counts are not decision gates. One trend/adaptive signal produces watch/recheck. Simulation baselines are test fixtures only.",
   "equipment_rois": [
     {
       "id": "bunker_waste_pile",

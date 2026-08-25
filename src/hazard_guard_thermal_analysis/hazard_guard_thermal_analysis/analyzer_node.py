@@ -15,7 +15,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2, Temperature
 from std_msgs.msg import Header, String
 from std_srvs.srv import Trigger
-from tf2_ros import Buffer, TransformListener
+from tf2_ros import Buffer, TransformException, TransformListener
 
 from .baseline import EquipmentBaseline, load_baselines
 from .baseline_builder import (
@@ -50,6 +50,7 @@ class ThermalVoxelAnalyzer(Node):
         )
         self.declare_parameter("publish_detections", True)
         self.declare_parameter("simulated", True)
+        self.declare_parameter("stationary_latest_transform_fallback", True)
         self._config: AnalysisConfig | None = None
         self._trend_config = None
         self._baselines: dict[str, EquipmentBaseline] = {}
@@ -505,6 +506,45 @@ class ThermalVoxelAnalyzer(Node):
             simulated=bool(self.get_parameter("simulated").value),
         )
 
+    def _lookup_target_transform(self, target_frame: str, source_frame: str, stamp):
+        """Resolve a cloud transform without weakening moving-robot geometry.
+
+        Exact-time TF remains mandatory while the robot is moving. During a
+        focused waypoint dwell the robot is stationary, so using the newest
+        available transform is preferable to discarding the complete thermal
+        inspection because a camera frame arrived slightly ahead of TF.
+        """
+
+        timeout = Duration(seconds=0.15)
+        try:
+            return self._tf_buffer.lookup_transform(
+                target_frame,
+                source_frame,
+                Time.from_msg(stamp),
+                timeout=timeout,
+            )
+        except TransformException:
+            allow_latest = bool(
+                self.get_parameter("stationary_latest_transform_fallback").value
+            )
+            if not (
+                allow_latest
+                and self._visit.active
+                and self._visit.focus_equipment_id
+            ):
+                raise
+            self.get_logger().warning(
+                "Exact thermal TF is unavailable during a stationary equipment "
+                "dwell; using the latest transform",
+                throttle_duration_sec=5.0,
+            )
+            return self._tf_buffer.lookup_transform(
+                target_frame,
+                source_frame,
+                Time(),
+                timeout=timeout,
+            )
+
     def _on_cloud(self, cloud: PointCloud2) -> None:
         if self._config is None or self._trend_config is None:
             return
@@ -516,11 +556,10 @@ class ThermalVoxelAnalyzer(Node):
             if source_frame == self._config.frame_id:
                 target_from_source = RigidTransform()
             else:
-                transform = self._tf_buffer.lookup_transform(
+                transform = self._lookup_target_transform(
                     self._config.frame_id,
                     source_frame,
-                    Time.from_msg(cloud.header.stamp),
-                    timeout=Duration(seconds=0.15),
+                    cloud.header.stamp,
                 )
                 target_from_source = self._rigid_transform(transform)
             transformed = []

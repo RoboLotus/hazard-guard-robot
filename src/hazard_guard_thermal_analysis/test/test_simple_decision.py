@@ -80,6 +80,24 @@ def test_critical_temperature_is_immediate_without_other_signals() -> None:
     assert current["critical"] is True
 
 
+def test_single_observed_voxel_can_detect_a_small_local_hotspot() -> None:
+    current_visit = visit(50.0, 0.0)
+    current_visit["equipment"][0]["voxels"][0].update(
+        {
+            "point_count": 5,
+            "max_hot_cluster_pixels": 1,
+        }
+    )
+
+    result = evaluate_visit(current_visit, [], config())
+
+    assert len(result["equipment"][0]["voxels"]) == 1
+    assert decision(result)["status"] == "critical"
+    assert result["trend_analysis"]["config"]["spatial_cluster_gate_enabled"] is False
+    assert "min_hot_cluster_pixels" not in result["trend_analysis"]["config"]
+    assert "min_adjacent_hot_voxels" not in result["trend_analysis"]["config"]
+
+
 def test_trend_only_requests_recheck_without_baseline() -> None:
     history = [visit(30.0, 0.0), visit(30.5, 60.0)]
     current = decision(evaluate_visit(visit(32.0, 120.0), history, config()))
