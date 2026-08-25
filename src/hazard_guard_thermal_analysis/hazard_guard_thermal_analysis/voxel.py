@@ -284,6 +284,9 @@ def apply_equipment_settings(
 ) -> AnalysisConfig:
     """Apply Web UI equipment changes while preserving advanced policy fields."""
 
+    frame_id = str(document.get("frame_id", config.frame_id)).strip()
+    if not frame_id:
+        raise ValueError("equipment settings need a non-empty frame_id")
     raw_equipment = document.get("equipment")
     if not isinstance(raw_equipment, Sequence) or isinstance(raw_equipment, (str, bytes)):
         raise ValueError("equipment settings must contain an equipment list")
@@ -351,7 +354,11 @@ def apply_equipment_settings(
                     "equipment ROIs overlap or are closer than "
                     f"{clearance_m:.2f} m: {first.roi_id!r}, {second.roi_id!r}"
                 )
-    return replace(config, equipment_rois=tuple(configured))
+    return replace(
+        config,
+        frame_id=frame_id,
+        equipment_rois=tuple(configured),
+    )
 
 
 def percentile(values: Sequence[float], percentage: float) -> float:
@@ -606,17 +613,26 @@ def analyze_points(
             }
         )
 
+    quality = {
+        "min_points_per_voxel": config.min_points_per_voxel,
+        "min_points_per_roi_for_p95": config.min_points_per_roi_for_p95,
+        "recommended_points_per_roi_for_p95": config.recommended_points_per_roi_for_p95,
+    }
+    if config.schema_version >= 3:
+        quality["spatial_cluster_gate_enabled"] = False
+    else:
+        quality.update(
+            {
+                "min_hot_cluster_pixels": config.min_hot_cluster_pixels,
+                "min_adjacent_hot_voxels": config.min_adjacent_hot_voxels,
+            }
+        )
+
     return {
         "schema_version": config.schema_version,
         "frame_id": config.frame_id,
         "ambient": ambient,
         "references": references,
-        "quality": {
-            "min_points_per_voxel": config.min_points_per_voxel,
-            "min_points_per_roi_for_p95": config.min_points_per_roi_for_p95,
-            "recommended_points_per_roi_for_p95": config.recommended_points_per_roi_for_p95,
-            "min_hot_cluster_pixels": config.min_hot_cluster_pixels,
-            "min_adjacent_hot_voxels": config.min_adjacent_hot_voxels,
-        },
+        "quality": quality,
         "equipment": equipment_results,
     }

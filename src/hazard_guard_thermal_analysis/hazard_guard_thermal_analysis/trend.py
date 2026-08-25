@@ -651,11 +651,16 @@ def evaluate_visit(
         equipment["trend_voxel_counts"] = {name: statuses.count(name) for name in SEVERITY}
         summaries.append({"equipment_id": equipment_id, "status": status, "voxel_counts": dict(equipment["trend_voxel_counts"])})
 
+    decision_config = asdict(config)
+    if config.schema_version >= 3:
+        decision_config.pop("min_hot_cluster_pixels", None)
+        decision_config.pop("min_adjacent_hot_voxels", None)
+        decision_config["spatial_cluster_gate_enabled"] = False
     result["trend_analysis"] = {
         "schema_version": config.schema_version,
         "visit_index": _next_visit_index(history),
         "decision_rule": "Absolute Critical always; per-equipment adaptive mode adds environment-compensated Trend AND Adaptive; one signal means watch/recheck",
-        "config": asdict(config),
+        "config": decision_config,
         "equipment": summaries,
     }
     return result
