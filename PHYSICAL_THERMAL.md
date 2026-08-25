@@ -5,6 +5,23 @@ current Jetson/Nav2 stack can run before the thermal camera is installed.
 Enable it only after the TmSDK ROS bridge publishes a temperature image,
 CameraInfo, and a registered depth stream.
 
+## Map-bound equipment contract
+
+Physical equipment is registered only after the same session has a saved 2D
+map and a `map`-frame `cloud.ply`. The console stores `equipment.json` and
+`route.json` beside that session under `runtime/maps/<world>/<session>/`.
+Configuration schema 2 includes `world_id`, `map_session_id`, and
+`frame_id=map`; the analyzer rejects another session or frame. A newly created
+2D session intentionally starts with no equipment or route, so demo/legacy
+`odom` ROIs are never activated automatically.
+
+During patrol the frozen-map node publishes current samples that match the
+immutable PLY on `/hazard_guard/thermal/static_observations`. The equipment
+analyzer consumes this topic. Transient geometry is still available through
+`/hazard_guard/thermal/dynamic` for visualization, but does not contribute to
+fixed-equipment temperature statistics. Enabled equipment AABBs must not
+overlap and retain at least 0.03 m clearance.
+
 ```bash
 ros2 launch hazard_guard_simulation physical_patrol.launch.py \
   map:=/absolute/path/to/map.yaml \
