@@ -165,3 +165,32 @@ def test_web_equipment_settings_update_name_roi_and_thresholds() -> None:
     assert motor.adaptive_delta_c == 8.0
     assert motor.adaptive_threshold_enabled is False
     assert updated.min_points_per_roi_for_p95 == config.min_points_per_roi_for_p95
+
+
+def test_web_equipment_settings_allow_empty_new_map_and_reject_overlap() -> None:
+    path = Path(__file__).parents[1] / "config" / "demo_facility_scaled_rois.json"
+    config = load_config(path)
+    assert apply_equipment_settings(config, {"equipment": []}).equipment_rois == ()
+
+    with pytest.raises(ValueError, match="overlap"):
+        apply_equipment_settings(
+            config,
+            {
+                "equipment": [
+                    {
+                        "id": "motor",
+                        "display_name": "Motor",
+                        "critical_temperature_c": 80,
+                        "adaptive_delta_c": 10,
+                        "roi": {"min": [0, 0, 0], "max": [0.4, 0.4, 0.4]},
+                    },
+                    {
+                        "id": "pump",
+                        "display_name": "Pump",
+                        "critical_temperature_c": 80,
+                        "adaptive_delta_c": 10,
+                        "roi": {"min": [0.39, 0, 0], "max": [0.8, 0.4, 0.4]},
+                    },
+                ]
+            },
+        )

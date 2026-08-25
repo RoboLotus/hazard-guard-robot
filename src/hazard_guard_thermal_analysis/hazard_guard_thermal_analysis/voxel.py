@@ -338,8 +338,19 @@ def apply_equipment_settings(
                 adaptive_threshold_enabled=adaptive_enabled,
             )
         configured.append(base)
-    if not configured:
-        raise ValueError("at least one enabled equipment item is required")
+    clearance_m = 0.03
+    for index, first in enumerate(configured):
+        for second in configured[index + 1 :]:
+            conflict = all(
+                first.maximum[axis] + clearance_m > second.minimum[axis]
+                and second.maximum[axis] + clearance_m > first.minimum[axis]
+                for axis in range(3)
+            )
+            if conflict:
+                raise ValueError(
+                    "equipment ROIs overlap or are closer than "
+                    f"{clearance_m:.2f} m: {first.roi_id!r}, {second.roi_id!r}"
+                )
     return replace(config, equipment_rois=tuple(configured))
 
 

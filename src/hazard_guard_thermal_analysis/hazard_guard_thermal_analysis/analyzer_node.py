@@ -44,6 +44,10 @@ class ThermalVoxelAnalyzer(Node):
         self.declare_parameter("oil_temperature_topic", "")
         self.declare_parameter("sensor_timeout_sec", 5.0)
         self.declare_parameter("required_frame_id", "")
+        self.declare_parameter("required_map_session_id", "")
+        self.declare_parameter(
+            "input_topic", "/hazard_guard/thermal/points"
+        )
         self.declare_parameter("publish_detections", True)
         self.declare_parameter("simulated", True)
         self._config: AnalysisConfig | None = None
@@ -191,7 +195,12 @@ class ThermalVoxelAnalyzer(Node):
             String, "/hazard_guard/thermal/equipment_config",
             self._on_equipment_config, config_qos,
         )
-        self.create_subscription(PointCloud2, "/hazard_guard/thermal/points", self._on_cloud, qos_profile_sensor_data)
+        self.create_subscription(
+            PointCloud2,
+            str(self.get_parameter("input_topic").value),
+            self._on_cloud,
+            qos_profile_sensor_data,
+        )
         self.create_subscription(String, "/hazard_guard/thermal/inspection_control", self._on_inspection_control, 10)
         self.create_service(Trigger, "/hazard_guard/thermal/start_visit", self._start_visit)
         self.create_service(Trigger, "/hazard_guard/thermal/record_visit", self._record_visit)
@@ -301,6 +310,28 @@ class ThermalVoxelAnalyzer(Node):
             document = json.loads(message.data)
             if not isinstance(document, dict) or self._config is None:
                 raise ValueError("equipment configuration must be a JSON object")
+            if int(document.get("schema_version", 1)) >= 2:
+                if str(document.get("frame_id", "")) != "map":
+                    raise ValueError("map-bound equipment requires frame_id='map'")
+                required_session = str(
+                    self.get_parameter("required_map_session_id").value
+                ).strip()
+                received_session = str(
+                    document.get("map_session_id", "")
+                ).strip()
+                equipment = document.get("equipment")
+                empty_disable = isinstance(equipment, list) and not equipment
+                if not received_session and not empty_disable:
+                    raise ValueError("map-bound equipment needs map_session_id")
+                if (
+                    received_session
+                    and required_session
+                    and received_session != required_session
+                ):
+                    raise ValueError(
+                        "equipment map_session_id does not match active patrol "
+                        f"session: {received_session!r} != {required_session!r}"
+                    )
             candidate = apply_equipment_settings(self._config, document)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             self.get_logger().error(f"Rejected equipment configuration: {exc}")
@@ -334,7 +365,11 @@ class ThermalVoxelAnalyzer(Node):
         if topology_changed:
             prepared_collector = None
             prepared_baselines = {}
-            if self._baseline_path is not None and self._trend_config is not None:
+            if (
+                self._baseline_path is not None
+                and self._trend_config is not None
+                and candidate.equipment_rois
+            ):
                 collection_path = self._baseline_collection_path
                 if collection_path is None:
                     collection_path = self._baseline_path.with_name(
