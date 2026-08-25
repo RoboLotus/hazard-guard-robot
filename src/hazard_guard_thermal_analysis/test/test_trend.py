@@ -72,6 +72,18 @@ def decision(result):
     return result["equipment"][0]["voxels"][0]["trend_analysis"]
 
 
+def test_visit_payload_preserves_acquisition_origin():
+    simulated = evaluate_visit(
+        make_visit(66.0), [], TrendConfig(), simulated=True
+    )
+    physical = evaluate_visit(
+        make_visit(66.0), [], TrendConfig(), simulated=False
+    )
+
+    assert simulated["simulated"] is True
+    assert physical["simulated"] is False
+
+
 def baseline(equipment_id="motor", *, sigma_normal=1.0, sigma_repeat=0.2, sigma_residual=1.0):
     stats = BaselineStats(
         temperature_c=30.0,
