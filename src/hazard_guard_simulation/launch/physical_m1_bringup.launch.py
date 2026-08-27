@@ -29,6 +29,7 @@ def generate_launch_description() -> LaunchDescription:
 
     model = LaunchConfiguration("model")
     gui = LaunchConfiguration("gui")
+    start_joystick = LaunchConfiguration("start_joystick")
     motor_cmd_vel_topic = LaunchConfiguration("motor_cmd_vel_topic")
     pub_odom_tf = LaunchConfiguration("pub_odom_tf")
     battery_voltage_topic = LaunchConfiguration("battery_voltage_topic")
@@ -50,6 +51,7 @@ def generate_launch_description() -> LaunchDescription:
                 ),
             ),
             DeclareLaunchArgument("gui", default_value="false"),
+            DeclareLaunchArgument("start_joystick", default_value="true"),
             DeclareLaunchArgument("pub_odom_tf", default_value="false"),
             DeclareLaunchArgument("motor_cmd_vel_topic", default_value="/cmd_vel"),
             DeclareLaunchArgument(
@@ -130,8 +132,16 @@ def generate_launch_description() -> LaunchDescription:
                     str(localization_share / "launch" / "ekf_M1_launch.py")
                 )
             ),
-            Node(package="yahboomcar_ctrl", executable="yahboom_joy_M1"),
-            Node(package="joy", executable="joy_node"),
+            Node(
+                package="yahboomcar_ctrl",
+                executable="yahboom_joy_M1",
+                condition=IfCondition(start_joystick),
+            ),
+            Node(
+                package="joy",
+                executable="joy_node",
+                condition=IfCondition(start_joystick),
+            ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     str(lidar_share / "launch" / "ydlidar_launch.py")

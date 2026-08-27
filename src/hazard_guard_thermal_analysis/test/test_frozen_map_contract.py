@@ -22,6 +22,10 @@ def test_frozen_map_node_contract_is_cumulative_and_does_not_publish_tf() -> Non
     assert '"/hazard_guard/thermal/dynamic"' in source
     assert '"/hazard_guard/thermal/map/status"' in source
     assert '"cumulative": True' in source
+    assert '"analysis_input_route"' in source
+    assert "self._static_observation_publisher.publish(message)" in source
+    assert "if self._layer is None:" in source
+    assert "if not self._localization_gate.ready:" in source
     assert 'message.header.frame_id != expected_frame' in source
     assert "Time.from_msg(message.header.stamp)" in source
     assert "TransformBroadcaster" not in source
@@ -66,3 +70,18 @@ def test_last_observation_timestamp_changes_only_after_accepted_update() -> None
     rejected = rejected.split("        self._publish_status()\n", 1)[0]
     assert "self._last_observation_at_ns" in accepted
     assert "self._last_observation_at_ns" not in rejected
+
+
+def test_stale_receipt_is_consumed_instead_of_retried() -> None:
+    source = (
+        PACKAGE
+        / "hazard_guard_thermal_analysis"
+        / "fusion_node.py"
+    ).read_text(encoding="utf-8")
+
+    stale_branch = source.index("if pair_delta > tolerance:")
+    consume = source.index(
+        "self._last_used_depth_receipt = depth_receipt", stale_branch
+    )
+    warning = source.index("self.get_logger().warning(", stale_branch)
+    assert stale_branch < consume < warning

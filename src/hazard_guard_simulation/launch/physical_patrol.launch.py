@@ -77,6 +77,7 @@ def generate_launch_description() -> LaunchDescription:
     enable_frozen_thermal_map = LaunchConfiguration(
         "enable_frozen_thermal_map"
     )
+    active_map_session_id = LaunchConfiguration("active_map_session_id")
     start_thermal_pipeline = IfCondition(
         PythonExpression(
             [
@@ -87,6 +88,13 @@ def generate_launch_description() -> LaunchDescription:
                 "'.lower() == 'true' else 'false'",
             ]
         )
+    )
+    thermal_analysis_input_topic = PythonExpression(
+        [
+            "'/hazard_guard/thermal/static_observations' if '",
+            enable_frozen_thermal_map,
+            "'.lower() == 'true' else '/hazard_guard/thermal/points'",
+        ]
     )
     start_hp60c_camera = IfCondition(
         PythonExpression(
@@ -244,6 +252,15 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="",
                 description="Owning map session identifier for status routing",
             ),
+            DeclareLaunchArgument(
+                "active_map_session_id",
+                default_value=LaunchConfiguration("thermal_map_session_id"),
+                description=(
+                    "Active saved 2D map session used to validate map-bound "
+                    "equipment. Defaults to the legacy frozen thermal "
+                    "session argument for current WebUI compatibility."
+                ),
+            ),
             DeclareLaunchArgument("thermal_roi_config", default_value=""),
             DeclareLaunchArgument(
                 "thermal_baseline_path",
@@ -295,18 +312,41 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("thermal_scale", default_value="1.0"),
             DeclareLaunchArgument("thermal_offset_c", default_value="0.0"),
             SetLaunchConfiguration("use_sim_time", "false"),
-            # Preserve the field-tested vendor bringup exactly when the new
-            # safety feature is disabled.
-            include(
-                "yahboomcar_nav",
-                "laser_bringup_launch.py",
-                condition=UnlessCondition(use_person_safety),
-            ),
             include(
                 "hazard_guard_simulation",
                 "physical_m1_bringup.launch.py",
-                {"motor_cmd_vel_topic": "/cmd_vel_safe"},
-                condition=IfCondition(use_person_safety),
+                {
+                    # Every patrol command passes through a timeout gate. This
+                    # actively writes zero if Nav2/velocity_smoother stops.
+                    "motor_cmd_vel_topic": "/cmd_vel_safe",
+                    # The vendor joystick publishes idle zero at about 51 Hz
+                    # and otherwise races Nav2 Spin on the same input topic.
+                    "start_joystick": "false",
+                },
+            ),
+            Node(
+                package="hazard_guard_safety_supervisor",
+                executable="cmd_vel_safety_gate",
+                # Keep the configured node name so the YAML timeout profile
+                # applies in watchdog-only mode as well.
+                name="cmd_vel_safety_gate",
+                output="screen",
+                condition=UnlessCondition(use_person_safety),
+                parameters=[
+                    PathJoinSubstitution(
+                        [
+                            FindPackageShare(
+                                "hazard_guard_safety_supervisor"
+                            ),
+                            "config",
+                            "person_safety.yaml",
+                        ]
+                    ),
+                    {
+                        "use_sim_time": False,
+                        "require_safety_state": False,
+                    },
+                ],
             ),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -471,15 +511,12 @@ def generate_launch_description() -> LaunchDescription:
                     # Reject odom-scoped ROIs instead of silently analyzing a
                     # drifting facility region after localization corrections.
                     "required_frame_id": "map",
-                    "required_map_session_id": LaunchConfiguration(
-                        "thermal_map_session_id"
-                    ),
-                    # Analyze only current observations associated with the
-                    # immutable PLY. Dynamic people and other transient points
-                    # remain visible on their separate display layer.
-                    "analysis_input_topic": (
-                        "/hazard_guard/thermal/static_observations"
-                    ),
+                    "required_map_session_id": active_map_session_id,
+                    # When an immutable PLY is available, analyze only current
+                    # observations associated with that surface. Keep the raw
+                    # live-cloud fallback for patrols whose saved 3D export is
+                    # unavailable; otherwise the analyzer receives no data.
+                    "analysis_input_topic": thermal_analysis_input_topic,
                     "thermal_image_topic": LaunchConfiguration(
                         "thermal_image_topic"
                     ),
@@ -496,7 +533,15 @@ def generate_launch_description() -> LaunchDescription:
                     "thermal_offset_c": LaunchConfiguration(
                         "thermal_offset_c"
                     ),
+                    # Preserve the field-tuned dense sampling from be14782;
+                    # bound Jetson work by output rate instead of discarding
+                    # three out of every four pixels in both image axes.
                     "fusion_stride": "2",
+                    # Receipt time and latest map TF are the alignment policy.
+                    # Bound the original depth receipt age independently so a
+                    # current output stamp/TF cannot hide a stale source frame.
+                    "fusion_receipt_freshness_sec": "0.2",
+                    "fusion_output_rate_hz": "1.0",
                     # HP60C and ThermoEye keep independent header clocks. Pair
                     # on local arrival, then publish z-up coordinates for WebUI.
                     "fusion_sync_by_receipt_time": "true",

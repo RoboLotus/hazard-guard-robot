@@ -14,6 +14,7 @@ from std_msgs.msg import Header
 from tf2_ros import Buffer, TransformListener
 
 from .cloud import create_thermal_cloud, decode_scalar_array
+from .pairing import newest_unconsumed_receipt, receipt_age_seconds
 from .projection import (
     CameraIntrinsics,
     RigidTransform,
@@ -60,6 +61,7 @@ class ThermalDepthFusion(Node):
         self.declare_parameter("max_depth_m", 4.0)
         self.declare_parameter("sync_tolerance_sec", 0.2)
         self.declare_parameter("sync_by_receipt_time", False)
+        self.declare_parameter("receipt_freshness_sec", 0.2)
         self.declare_parameter("output_frame", "")
         self.declare_parameter("transform_at_latest", False)
         self.declare_parameter("output_rate_hz", 2.0)
@@ -73,6 +75,7 @@ class ThermalDepthFusion(Node):
         self._depth_info: CameraInfo | None = None
         self._thermal_info: CameraInfo | None = None
         self._last_publish_monotonic = -math.inf
+        self._last_used_depth_receipt = -math.inf
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
         self._publisher = self.create_publisher(
@@ -130,11 +133,17 @@ class ThermalDepthFusion(Node):
 
         receipt_sync = bool(self.get_parameter("sync_by_receipt_time").value)
         if receipt_sync:
-            depth_receipt, depth_image = min(
+            selected_depth = newest_unconsumed_receipt(
                 self._depth_images,
-                key=lambda sample: abs(sample[0] - now_monotonic),
+                after_receipt=self._last_used_depth_receipt,
             )
-            pair_delta = abs(depth_receipt - now_monotonic)
+            if selected_depth is None:
+                return
+            depth_receipt, depth_image = selected_depth
+            pair_delta = receipt_age_seconds(
+                receipt=depth_receipt,
+                now=now_monotonic,
+            )
         else:
             thermal_seconds = _seconds(thermal_image.header.stamp)
             depth_receipt, depth_image = min(
@@ -146,12 +155,30 @@ class ThermalDepthFusion(Node):
             pair_delta = abs(
                 _seconds(depth_image.header.stamp) - thermal_seconds
             )
-        tolerance = float(self.get_parameter("sync_tolerance_sec").value)
+        tolerance = float(
+            self.get_parameter(
+                "receipt_freshness_sec"
+                if receipt_sync
+                else "sync_tolerance_sec"
+            ).value
+        )
         if pair_delta > tolerance:
+            if receipt_sync:
+                # A stale source frame is deliberately consumed as a drop.
+                # Otherwise every new thermal frame would retry the same old
+                # depth receipt until another depth image happened to arrive.
+                self._last_used_depth_receipt = depth_receipt
+            timing_detail = (
+                "receipt age; "
+                f"depth_receipt={depth_receipt:.6f}, "
+                f"thermal_receipt={now_monotonic:.6f}"
+                if receipt_sync
+                else "header time"
+            )
             self.get_logger().warning(
                 "Thermal/depth pairing delta exceeded tolerance: "
                 f"{pair_delta:.3f}s > {tolerance:.3f}s "
-                f"({'receipt' if receipt_sync else 'header'} time)",
+                f"({timing_detail})",
                 throttle_duration_sec=5.0,
             )
             return
@@ -290,6 +317,8 @@ class ThermalDepthFusion(Node):
             color_min_c=float(self.get_parameter("color_min_c").value),
             color_max_c=float(self.get_parameter("color_max_c").value),
         ))
+        if receipt_sync:
+            self._last_used_depth_receipt = depth_receipt
         self._last_publish_monotonic = now_monotonic
 
 

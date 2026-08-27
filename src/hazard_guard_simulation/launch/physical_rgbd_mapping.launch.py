@@ -60,7 +60,10 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("initial_pose_x", default_value="0.0"),
             DeclareLaunchArgument("initial_pose_y", default_value="0.0"),
             DeclareLaunchArgument("initial_pose_yaw", default_value="0.0"),
-            DeclareLaunchArgument("rtabmap_database_path"),
+            DeclareLaunchArgument(
+                "rtabmap_database_path",
+                default_value="/tmp/hazard_guard_physical_rgbd.db",
+            ),
             DeclareLaunchArgument(
                 "rtabmap_reset_database",
                 default_value="false",
@@ -70,7 +73,10 @@ def generate_launch_description() -> LaunchDescription:
                     "selected and quarantined a dedicated second-pass DB."
                 ),
             ),
-            DeclareLaunchArgument("rtabmap_storage_path"),
+            DeclareLaunchArgument(
+                "rtabmap_storage_path",
+                default_value="/tmp",
+            ),
             DeclareLaunchArgument(
                 "rgbd_cloud_stamp_mode",
                 default_value="offset",

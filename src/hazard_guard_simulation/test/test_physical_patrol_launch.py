@@ -1,5 +1,6 @@
 import ast
 from pathlib import Path
+import re
 
 import yaml
 
@@ -152,6 +153,10 @@ def test_person_safety_defaults_off_and_gates_only_motor_facing_cmd_vel():
     assert 'DeclareLaunchArgument("person_device", default_value="0")' in source
     assert '"physical_m1_bringup.launch.py"' in source
     assert '"motor_cmd_vel_topic": "/cmd_vel_safe"' in source
+    assert '"motor_cmd_vel_topic": "/cmd_vel"' not in source
+    assert source.count('"start_joystick": "false"') == 1
+    assert 'name="cmd_vel_safety_gate"' in source
+    assert '"require_safety_state": False' in source
     assert 'condition=UnlessCondition(use_person_safety)' in source
     assert 'condition=IfCondition(use_person_safety)' in source
     assert '"hazard_guard_person_detection"' in source
@@ -192,8 +197,18 @@ def test_physical_thermal_policy_forwards_local_baseline_collection():
     assert '"physical_thermal_camera.launch.py"' in source
     assert '{"show_gui": "false"}' in source
     assert '"fusion_sync_by_receipt_time": "true"' in source
+    assert '"fusion_sync_tolerance_sec": "1.5"' not in source
+    assert '"fusion_receipt_freshness_sec": "0.2"' in source
+    assert '"fusion_output_rate_hz": "1.0"' in source
+    assert '"fusion_stride": "2"' in source
+    assert "dense sampling from be14782" in source
     assert '"fusion_output_frame": "map"' in source
     assert '"fusion_transform_at_latest": "true"' in source
+    assert "original depth receipt age independently" in source
+    assert "thermal_analysis_input_topic = PythonExpression(" in source
+    assert "'/hazard_guard/thermal/static_observations' if '" in source
+    assert "else '/hazard_guard/thermal/points'" in source
+    assert '"analysis_input_topic": thermal_analysis_input_topic' in source
     for argument in (
         "thermal_baseline_path",
         "thermal_baseline_collection_path",
@@ -205,6 +220,54 @@ def test_physical_thermal_policy_forwards_local_baseline_collection():
         assert f'"{argument}"' in source
     assert '"simulated": "false"' in source
     assert '"required_frame_id": "map"' in source
+    assert 'active_map_session_id = LaunchConfiguration(' in source
+    assert (
+        'default_value=LaunchConfiguration("thermal_map_session_id")'
+        in source
+    )
+    assert '"required_map_session_id": active_map_session_id' in source
+
+
+def test_optional_thermal_selections_have_omittable_defaults() -> None:
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    for argument in (
+        "thermal_map_cloud_path",
+        "thermal_map_state_path",
+        "thermal_dynamic_state_path",
+        "thermal_map_session_id",
+        "thermal_roi_config",
+        "thermal_air_temperature_topic",
+        "thermal_oil_temperature_topic",
+    ):
+        assert f'"{argument}", default_value=""' in source or (
+            f'"{argument}",\n                default_value=""' in source
+        )
+
+
+def test_thermal_pipeline_exposes_and_types_physical_fusion_limits() -> None:
+    source = (
+        PACKAGE.parent
+        / "hazard_guard_thermal_analysis"
+        / "launch"
+        / "thermal_pipeline.launch.py"
+    ).read_text(encoding="utf-8")
+
+    for argument, default in (
+        ("fusion_sync_tolerance_sec", "0.2"),
+        ("fusion_receipt_freshness_sec", "0.2"),
+        ("fusion_output_rate_hz", "2.0"),
+    ):
+        assert re.search(
+            rf'DeclareLaunchArgument\(\s*"{argument}",\s*'
+            rf'default_value="{default}"\s*\)',
+            source,
+        )
+        assert f'LaunchConfiguration("{argument}")' in source
+    assert '"sync_tolerance_sec": ParameterValue(' in source
+    assert '"receipt_freshness_sec": ParameterValue(' in source
+    assert '"output_rate_hz": ParameterValue(' in source
+    assert source.count("value_type=float") >= 7
 
 
 def test_optional_rgbd_capture_preserves_database_unless_explicitly_reset():
@@ -250,6 +313,39 @@ def test_frozen_thermal_map_is_opt_in_and_uses_fixed_map_session_paths():
     assert '"enable_local_alignment": False' in source
 
 
+def test_disabled_yolo_and_dispenser_nodes_remain_launch_gated() -> None:
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    person_start = source.index('"hazard_guard_person_detection"')
+    person_include = source[person_start:source.index(
+        '"hazard_guard_safety_supervisor"', person_start
+    )]
+    assert "condition=IfCondition(use_person_safety)" in person_include
+
+    dispenser_include = source[source.index(
+        '"hazard_guard_dispenser"'
+    ):source.index(
+        '"hazard_guard_thermal_analysis"'
+    )]
+    assert "condition=IfCondition(use_dispenser)" in dispenser_include
+
+
+def test_mapping_keeps_manual_vendor_control_but_not_frozen_accumulation() -> None:
+    mapping = (
+        PACKAGE / "launch" / "physical_mapping.launch.py"
+    ).read_text(encoding="utf-8")
+    bringup = (
+        PACKAGE / "launch" / "physical_m1_bringup.launch.py"
+    ).read_text(encoding="utf-8")
+    patrol = LAUNCH.read_text(encoding="utf-8")
+
+    assert 'include("yahboomcar_nav", "map_slam_toolbox_launch.py")' in mapping
+    assert "frozen_thermal_map" not in mapping
+    assert 'DeclareLaunchArgument("start_joystick", default_value="true")' in bringup
+    assert '"start_joystick": "false"' in patrol
+    assert 'condition=IfCondition(enable_frozen_thermal_map)' in patrol
+
+
 def test_only_physical_motor_driver_consumes_gated_velocity() -> None:
     source = (PACKAGE / "launch" / "physical_m1_bringup.launch.py").read_text(
         encoding="utf-8"
@@ -257,7 +353,9 @@ def test_only_physical_motor_driver_consumes_gated_velocity() -> None:
 
     assert 'executable="Mcnamu_driver_M1"' in source
     assert 'remappings=[("cmd_vel", motor_cmd_vel_topic)]' in source
-    assert 'Node(package="yahboomcar_ctrl", executable="yahboom_joy_M1")' in source
+    assert 'DeclareLaunchArgument("start_joystick", default_value="true")' in source
+    assert 'executable="yahboom_joy_M1"' in source
+    assert 'condition=IfCondition(start_joystick)' in source
     assert 'get_package_share_directory("ydlidar_ros2_driver")' in source
     assert '"ydlidar_launch.py"' in source
     assert "sllidar_c1_launch.py" not in source
