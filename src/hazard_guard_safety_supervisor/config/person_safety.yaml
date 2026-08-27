@@ -25,3 +25,7 @@ cmd_vel_safety_gate:
     safety_state_timeout_sec: 0.75
     cmd_vel_timeout_sec: 0.5
     zero_publish_rate_hz: 10.0
+    require_safety_state: true
+    shutdown_zero_count: 5
+    shutdown_zero_interval_sec: 0.02
+    shutdown_settle_sec: 0.10

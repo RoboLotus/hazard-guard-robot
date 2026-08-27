@@ -11,6 +11,7 @@ from nav2_msgs.msg import SpeedLimit
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 
 from hazard_guard_safety_supervisor.gate_node import CmdVelSafetyGateNode
 from hazard_guard_safety_supervisor.node import PersonSafetySupervisorNode
@@ -98,6 +99,18 @@ def test_observation_drives_nav2_limit_and_final_velocity_gate() -> None:
             timeout_sec=1.5,
         )
 
+        safe_commands.clear()
+        gate.publish_stop_burst(
+            zero_count=3,
+            interval_sec=0.02,
+            settle_sec=0.05,
+        )
+        _wait_until(lambda: len(safe_commands) >= 3)
+        assert all(
+            message.linear.x == 0.0 and message.angular.z == 0.0
+            for message in safe_commands
+        )
+
         observations.publish(_observation(0.5))
         _wait_until(
             lambda: states and states[-1].state == PersonSafetyState.STOP
@@ -154,4 +167,48 @@ def test_depth_health_failure_becomes_sensor_fault() -> None:
         thread.join(timeout=1.0)
         probe.destroy_node()
         supervisor.destroy_node()
+        rclpy.shutdown()
+
+
+def test_watchdog_mode_stops_motor_topic_when_nav2_goes_silent() -> None:
+    rclpy.init()
+    gate = CmdVelSafetyGateNode(
+        parameter_overrides=[
+            Parameter("require_safety_state", value=False),
+        ]
+    )
+    probe = Node("cmd_vel_watchdog_integration_probe")
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(gate)
+    executor.add_node(probe)
+    safe_commands = []
+    probe.create_subscription(
+        Twist,
+        "/cmd_vel_safe",
+        safe_commands.append,
+        10,
+    )
+    velocity = probe.create_publisher(Twist, "/cmd_vel", 10)
+    thread = threading.Thread(target=executor.spin, daemon=True)
+    thread.start()
+    try:
+        command = Twist()
+        command.linear.x = 0.2
+        for _ in range(3):
+            velocity.publish(command)
+            time.sleep(0.05)
+        _wait_until(
+            lambda: any(message.linear.x == 0.2 for message in safe_commands)
+        )
+
+        safe_commands.clear()
+        _wait_until(
+            lambda: safe_commands and safe_commands[-1].linear.x == 0.0,
+            timeout_sec=1.5,
+        )
+    finally:
+        executor.shutdown()
+        thread.join(timeout=1.0)
+        probe.destroy_node()
+        gate.destroy_node()
         rclpy.shutdown()

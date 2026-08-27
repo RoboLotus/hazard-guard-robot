@@ -16,3 +16,23 @@ def motion_is_allowed(
         SafetyState.CAUTION,
         SafetyState.SLOW,
     }
+
+
+def command_path_is_allowed(
+    state: SafetyState,
+    *,
+    state_fresh: bool,
+    command_fresh: bool = True,
+    require_safety_state: bool = True,
+) -> bool:
+    """Apply the command watchdog even when person supervision is disabled."""
+
+    if not command_fresh:
+        return False
+    if not require_safety_state:
+        return True
+    return motion_is_allowed(
+        state,
+        state_fresh=state_fresh,
+        command_fresh=True,
+    )
