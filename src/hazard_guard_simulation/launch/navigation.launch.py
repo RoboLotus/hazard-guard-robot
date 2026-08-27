@@ -32,6 +32,7 @@ def generate_launch_description() -> LaunchDescription:
     include_dispenser = LaunchConfiguration("include_dispenser")
     dispenser_mass = LaunchConfiguration("dispenser_mass")
     use_person_safety = LaunchConfiguration("use_person_safety")
+    enable_hazard_approval = LaunchConfiguration("enable_hazard_approval")
     person_model_path = LaunchConfiguration("person_model_path")
     person_device = LaunchConfiguration("person_device")
     bridge_velocity_topic = PythonExpression(
@@ -72,6 +73,14 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("include_dispenser", default_value="true"),
             DeclareLaunchArgument("dispenser_mass", default_value="1.2"),
             DeclareLaunchArgument("use_person_safety", default_value="false"),
+            DeclareLaunchArgument(
+                "enable_hazard_approval",
+                default_value="false",
+                description=(
+                    "Pause simulated patrols when a correlated thermal "
+                    "warning or critical result needs administrator approval."
+                ),
+            ),
             DeclareLaunchArgument("person_model_path", default_value="yolo11n.pt"),
             DeclareLaunchArgument("person_device", default_value=""),
             DeclareLaunchArgument("heat_source_profile", default_value=""),
@@ -165,6 +174,10 @@ def generate_launch_description() -> LaunchDescription:
                                 "use_sim_time": True,
                                 "safety_supervision_enabled": ParameterValue(
                                     use_person_safety,
+                                    value_type=bool,
+                                ),
+                                "hazard_approval_enabled": ParameterValue(
+                                    enable_hazard_approval,
                                     value_type=bool,
                                 ),
                             }

@@ -46,6 +46,99 @@ def validate_launch_configuration(context):
     return []
 
 
+def _rtabmap_node(
+    database_path: LaunchConfiguration,
+    odom_frame_id: LaunchConfiguration,
+    map_frame_id: LaunchConfiguration,
+    cloud_voxel_size: LaunchConfiguration,
+    *,
+    reset_database: bool,
+) -> Node:
+    """Build the physical RTAB-Map node with an explicit DB reset policy."""
+
+    return Node(
+        package="rtabmap_slam",
+        executable="rtabmap",
+        namespace="rtabmap",
+        name="rtabmap",
+        output="screen",
+        parameters=[
+            {
+                "use_sim_time": False,
+                "frame_id": "base_link",
+                "odom_frame_id": odom_frame_id,
+                "map_frame_id": map_frame_id,
+                "database_path": database_path,
+                # SLAM Toolbox exclusively owns map -> odom for Nav2.
+                # Publishing rtabmap_map -> odom would give odom two
+                # parents and corrupt the physical robot TF tree.
+                "publish_tf": False,
+                "subscribe_rgbd": True,
+                "subscribe_scan": ParameterValue(
+                    LaunchConfiguration("subscribe_scan"),
+                    value_type=bool,
+                ),
+                "approx_sync": True,
+                "qos_image": 2,
+                "qos_camera_info": 2,
+                "qos_scan": 2,
+                "qos_odom": 2,
+                "Reg/Strategy": ParameterValue(
+                    LaunchConfiguration("rtabmap_registration_strategy"),
+                    # RTAB-Map exposes core parameters as strings even
+                    # when their documented values are numeric.
+                    value_type=str,
+                ),
+                "Reg/Force3DoF": "true",
+                "RGBD/NeighborLinkRefining": ParameterValue(
+                    LaunchConfiguration("neighbor_link_refining"),
+                    value_type=str,
+                ),
+                "RGBD/ProximityByTime": "false",
+                "RGBD/ProximityBySpace": ParameterValue(
+                    LaunchConfiguration("proximity_by_space"),
+                    value_type=str,
+                ),
+                "RGBD/ProximityPathMaxNeighbors": "0",
+                "RGBD/AggressiveLoopThr": "1.0",
+                "Rtabmap/LoopThr": ParameterValue(
+                    LaunchConfiguration("loop_closure_threshold"),
+                    value_type=str,
+                ),
+                "RGBD/OptimizeMaxError": ParameterValue(
+                    LaunchConfiguration("optimize_max_error"),
+                    value_type=str,
+                ),
+                "Vis/MinInliers": "20",
+                "Grid/FromDepth": "true",
+                "Grid/3D": "true",
+                "Grid/RangeMin": "0.2",
+                "Grid/RangeMax": "4.0",
+                # Generate per-node local grids at the same resolution used
+                # by map_assembler. Otherwise cached 5 cm grids would silently
+                # override the requested 3 cm output.
+                "Grid/CellSize": ParameterValue(
+                    cloud_voxel_size,
+                    value_type=str,
+                ),
+                "Mem/IncrementalMemory": "true",
+                "Rtabmap/DetectionRate": "2.0",
+            }
+        ],
+        remappings=[
+            ("rgbd_image", "rgbd_image"),
+            ("scan", "/scan"),
+            ("odom", "/odom"),
+        ],
+        arguments=["-d"] if reset_database else [],
+        condition=(
+            IfCondition(LaunchConfiguration("reset_database"))
+            if reset_database
+            else UnlessCondition(LaunchConfiguration("reset_database"))
+        ),
+    )
+
+
 def generate_launch_description() -> LaunchDescription:
     database_path = LaunchConfiguration("database_path")
     odom_frame_id = LaunchConfiguration("odom_frame_id")
@@ -84,6 +177,14 @@ def generate_launch_description() -> LaunchDescription:
                 "storage_path",
                 default_value=str(
                     Path.home() / "RoboLotus/hazard-guard-robot/runtime/maps"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "reset_database",
+                default_value="false",
+                description=(
+                    "Delete only database_path before RTAB-Map starts. "
+                    "Leave false for normal physical mapping."
                 ),
             ),
             DeclareLaunchArgument(
@@ -251,83 +352,19 @@ def generate_launch_description() -> LaunchDescription:
                 ],
                 remappings=common_camera_remaps,
             ),
-            Node(
-                package="rtabmap_slam",
-                executable="rtabmap",
-                namespace="rtabmap",
-                name="rtabmap",
-                output="screen",
-                parameters=[
-                    {
-                        "use_sim_time": False,
-                        "frame_id": "base_link",
-                        "odom_frame_id": odom_frame_id,
-                        "map_frame_id": map_frame_id,
-                        "database_path": database_path,
-                        # SLAM Toolbox exclusively owns map -> odom for Nav2.
-                        # Publishing rtabmap_map -> odom would give odom two
-                        # parents and corrupt the physical robot TF tree.
-                        "publish_tf": False,
-                        "subscribe_rgbd": True,
-                        "subscribe_scan": ParameterValue(
-                            LaunchConfiguration("subscribe_scan"),
-                            value_type=bool,
-                        ),
-                        "approx_sync": True,
-                        "qos_image": 2,
-                        "qos_camera_info": 2,
-                        "qos_scan": 2,
-                        "qos_odom": 2,
-                        "Reg/Strategy": ParameterValue(
-                            LaunchConfiguration("rtabmap_registration_strategy"),
-                            # RTAB-Map exposes core parameters as strings even
-                            # when their documented values are numeric.
-                            value_type=str,
-                        ),
-                        "Reg/Force3DoF": "true",
-                        "RGBD/NeighborLinkRefining": ParameterValue(
-                            LaunchConfiguration("neighbor_link_refining"),
-                            value_type=str,
-                        ),
-                        "RGBD/ProximityByTime": "false",
-                        "RGBD/ProximityBySpace": ParameterValue(
-                            LaunchConfiguration("proximity_by_space"),
-                            value_type=str,
-                        ),
-                        "RGBD/ProximityPathMaxNeighbors": "0",
-                        "RGBD/AggressiveLoopThr": "1.0",
-                        "Rtabmap/LoopThr": ParameterValue(
-                            LaunchConfiguration("loop_closure_threshold"),
-                            value_type=str,
-                        ),
-                        "RGBD/OptimizeMaxError": ParameterValue(
-                            LaunchConfiguration("optimize_max_error"),
-                            value_type=str,
-                        ),
-                        "Vis/MinInliers": "20",
-                        "Grid/FromDepth": "true",
-                        "Grid/3D": "true",
-                        "Grid/RangeMin": "0.2",
-                        "Grid/RangeMax": "4.0",
-                        # Generate per-node local grids at the same resolution
-                        # used by map_assembler. Otherwise cached 5 cm grids
-                        # would silently override the requested 3 cm output.
-                        "Grid/CellSize": ParameterValue(
-                            cloud_voxel_size,
-                            value_type=str,
-                        ),
-                        "Mem/IncrementalMemory": "true",
-                        "Rtabmap/DetectionRate": "2.0",
-                    }
-                ],
-                remappings=[
-                    ("rgbd_image", "rgbd_image"),
-                    ("scan", "/scan"),
-                    ("odom", "/odom"),
-                ],
-                # Keep the database supplied by the mapping session.  "-d"
-                # would delete it every time the physical stack is started.
-                arguments=[],
+            _rtabmap_node(
+                database_path,
+                odom_frame_id,
+                map_frame_id,
+                cloud_voxel_size,
+                reset_database=True,
+            ),
+            _rtabmap_node(
+                database_path,
+                odom_frame_id,
+                map_frame_id,
+                cloud_voxel_size,
+                reset_database=False,
             ),
             Node(
                 package="hazard_guard_simulation",

@@ -13,6 +13,7 @@ class CameraIntrinsics:
     fy: float
     cx: float
     cy: float
+    distortion: tuple[float, ...] = ()
 
     def validate(self) -> None:
         if self.width <= 0 or self.height <= 0:
@@ -38,6 +39,29 @@ class CameraIntrinsics:
             fy=focal_length,
             cx=(width - 1) * 0.5,
             cy=(height - 1) * 0.5,
+        )
+
+    def project(self, x: float, y: float, z: float) -> tuple[float, float]:
+        """Project a 3D point with ROS plumb_bob distortion."""
+        normalized_x = x / z
+        normalized_y = y / z
+        coefficients = (*self.distortion, 0.0, 0.0, 0.0, 0.0, 0.0)
+        k1, k2, p1, p2, k3 = coefficients[:5]
+        radius2 = normalized_x * normalized_x + normalized_y * normalized_y
+        radial = 1.0 + k1 * radius2 + k2 * radius2**2 + k3 * radius2**3
+        distorted_x = (
+            normalized_x * radial
+            + 2.0 * p1 * normalized_x * normalized_y
+            + p2 * (radius2 + 2.0 * normalized_x * normalized_x)
+        )
+        distorted_y = (
+            normalized_y * radial
+            + p1 * (radius2 + 2.0 * normalized_y * normalized_y)
+            + 2.0 * p2 * normalized_x * normalized_y
+        )
+        return (
+            self.fx * distorted_x + self.cx,
+            self.fy * distorted_y + self.cy,
         )
 
 
@@ -108,6 +132,7 @@ def fuse_depth_and_thermal(
     max_depth_m: float = 4.0,
     min_temperature_c: float = -100.0,
     max_temperature_c: float = 1000.0,
+    thermal_sampling_mode: str = "bilinear",
 ) -> list[ThermalPoint]:
     """Project depth pixels into the thermal camera and attach temperature."""
 
@@ -119,6 +144,10 @@ def fuse_depth_and_thermal(
         raise ValueError("thermal image buffer is too short")
     if stride <= 0:
         raise ValueError("stride must be positive")
+    if thermal_sampling_mode not in {"nearest", "bilinear"}:
+        raise ValueError(
+            "thermal_sampling_mode must be 'nearest' or 'bilinear'"
+        )
 
     points: list[ThermalPoint] = []
     for v in range(0, depth_camera.height, stride):
@@ -134,29 +163,68 @@ def fuse_depth_and_thermal(
             )
             if z_thermal <= 0.0:
                 continue
-            thermal_u = int(
-                round(thermal_camera.fx * x_thermal / z_thermal + thermal_camera.cx)
-            )
-            thermal_v = int(
-                round(thermal_camera.fy * y_thermal / z_thermal + thermal_camera.cy)
+            projected_u, projected_v = thermal_camera.project(
+                x_thermal, y_thermal, z_thermal
             )
             if not (
-                0 <= thermal_u < thermal_camera.width
-                and 0 <= thermal_v < thermal_camera.height
-            ):
-                continue
-            temperature = float(
-                temperature_c[thermal_v * thermal_camera.width + thermal_u]
-            )
-            if (
-                not math.isfinite(temperature)
-                or temperature < min_temperature_c
-                or temperature > max_temperature_c
+                math.isfinite(projected_u)
+                and math.isfinite(projected_v)
+                and 0.0 <= projected_u <= thermal_camera.width - 1
+                and 0.0 <= projected_v <= thermal_camera.height - 1
             ):
                 continue
 
-            nx = abs((thermal_u - thermal_camera.cx) / max(thermal_camera.cx, 1.0))
-            ny = abs((thermal_v - thermal_camera.cy) / max(thermal_camera.cy, 1.0))
+            if thermal_sampling_mode == "nearest":
+                sample_u = float(int(round(projected_u)))
+                sample_v = float(int(round(projected_v)))
+                temperature = float(
+                    temperature_c[
+                        int(sample_v) * thermal_camera.width + int(sample_u)
+                    ]
+                )
+                if (
+                    not math.isfinite(temperature)
+                    or temperature < min_temperature_c
+                    or temperature > max_temperature_c
+                ):
+                    continue
+            else:
+                sample_u = projected_u
+                sample_v = projected_v
+                u0 = int(math.floor(projected_u))
+                v0 = int(math.floor(projected_v))
+                u1 = min(u0 + 1, thermal_camera.width - 1)
+                v1 = min(v0 + 1, thermal_camera.height - 1)
+                du = projected_u - u0
+                dv = projected_v - v0
+                neighbours = (
+                    (u0, v0, (1.0 - du) * (1.0 - dv)),
+                    (u1, v0, du * (1.0 - dv)),
+                    (u0, v1, (1.0 - du) * dv),
+                    (u1, v1, du * dv),
+                )
+                weighted_temperature = 0.0
+                valid_weight = 0.0
+                for thermal_u, thermal_v, weight in neighbours:
+                    if weight <= 0.0:
+                        continue
+                    value = float(
+                        temperature_c[
+                            thermal_v * thermal_camera.width + thermal_u
+                        ]
+                    )
+                    if (
+                        math.isfinite(value)
+                        and min_temperature_c <= value <= max_temperature_c
+                    ):
+                        weighted_temperature += weight * value
+                        valid_weight += weight
+                if valid_weight <= 0.0:
+                    continue
+                temperature = weighted_temperature / valid_weight
+
+            nx = abs((sample_u - thermal_camera.cx) / max(thermal_camera.cx, 1.0))
+            ny = abs((sample_v - thermal_camera.cy) / max(thermal_camera.cy, 1.0))
             edge_factor = max(0.25, 1.0 - 0.35 * max(nx, ny))
             range_factor = max(
                 0.25,
@@ -172,8 +240,8 @@ def fuse_depth_and_thermal(
                     z=z_thermal,
                     temperature_c=temperature,
                     confidence=min(1.0, edge_factor * range_factor),
-                    pixel_u=float(thermal_u),
-                    pixel_v=float(thermal_v),
+                    pixel_u=sample_u,
+                    pixel_v=sample_v,
                 )
             )
     return points

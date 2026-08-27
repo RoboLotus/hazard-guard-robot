@@ -214,6 +214,24 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("map_frame_id", default_value="map"),
             DeclareLaunchArgument("map_topic", default_value="/map"),
             DeclareLaunchArgument(
+                "thermal_cloud",
+                default_value="true",
+                description=(
+                    "Build the thermal 3D map by projecting depth into the "
+                    "calibrated thermal frame"
+                ),
+            ),
+            DeclareLaunchArgument(
+                "min_temp_c",
+                default_value="10.0",
+                description="Blue end of the thermal map's colour window",
+            ),
+            DeclareLaunchArgument(
+                "max_temp_c",
+                default_value="60.0",
+                description="Red end of the thermal map's colour window",
+            ),
+            DeclareLaunchArgument(
                 "optimized_cloud",
                 default_value="false",
                 description=(
@@ -332,6 +350,43 @@ def generate_launch_description() -> LaunchDescription:
                     _color_cloud_assembler_node(),
                     _optimized_map_assembler_node(),
                     _optimized_cloud_guard_node(),
+                ],
+            ),
+            TimerAction(
+                # After the assembler, for the same reason: map<-camera TF has
+                # to exist before either node can put a point in the map.
+                period=7.0,
+                actions=[
+                    Node(
+                        package="hazard_guard_simulation",
+                        executable="thermal_cloud.py",
+                        name="thermal_cloud",
+                        output="screen",
+                        parameters=[
+                            {
+                                "use_sim_time": LaunchConfiguration(
+                                    "use_sim_time"
+                                ),
+                                # "map", not map_frame_id: RTAB-Map's own grid
+                                # is namespaced away when SLAM Toolbox owns the
+                                # navigation frame, and the colour assembler
+                                # above publishes into "map" for the same
+                                # reason - both clouds have to share it.
+                                "map_frame": "map",
+                                # Launch arguments arrive as strings and the
+                                # node declares these as double.
+                                "min_temp_c": ParameterValue(
+                                    LaunchConfiguration("min_temp_c"),
+                                    value_type=float,
+                                ),
+                                "max_temp_c": ParameterValue(
+                                    LaunchConfiguration("max_temp_c"),
+                                    value_type=float,
+                                ),
+                            }
+                        ],
+                        condition=IfCondition(LaunchConfiguration("thermal_cloud")),
+                    )
                 ],
             ),
             TimerAction(

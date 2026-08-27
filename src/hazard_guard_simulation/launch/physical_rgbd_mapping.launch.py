@@ -46,6 +46,7 @@ def generate_launch_description() -> LaunchDescription:
             "initial_pose_y",
             "initial_pose_yaw",
             "rtabmap_database_path",
+            "rtabmap_reset_database",
             "rtabmap_storage_path",
             "rgbd_cloud_stamp_mode",
             "rgbd_cloud_stamp_offset_sec",
@@ -60,6 +61,15 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("initial_pose_y", default_value="0.0"),
             DeclareLaunchArgument("initial_pose_yaw", default_value="0.0"),
             DeclareLaunchArgument("rtabmap_database_path"),
+            DeclareLaunchArgument(
+                "rtabmap_reset_database",
+                default_value="false",
+                description=(
+                    "Explicitly reset the database selected by "
+                    "rtabmap_database_path. Enable only after the caller has "
+                    "selected and quarantined a dedicated second-pass DB."
+                ),
+            ),
             DeclareLaunchArgument("rtabmap_storage_path"),
             DeclareLaunchArgument(
                 "rgbd_cloud_stamp_mode",

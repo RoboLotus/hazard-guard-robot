@@ -34,11 +34,16 @@ install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
   FILES_MATCHING PATTERN "*.launch.py"
 )
-install(PROGRAMS scripts/rtabmap_scan_demo.py scripts/camera_info_relay.py
+install(PROGRAMS scripts/rtabmap_scan_demo.py scripts/auto_explore.py
+  scripts/camera_info_relay.py
   scripts/cloud_stamp_relay.py scripts/adaptive_cloud_guard.py
   scripts/thermal_colorize.py scripts/thermal_overlay.py
-  scripts/thermal_camera_info.py
+  scripts/thermal_camera_info.py scripts/thermal_camera_publisher.py
+  scripts/physical_thermal_calibration.py
+  scripts/physical_calibration_validator.py
+  scripts/thermal_cloud.py
   scripts/timestamp_diagnostics.py
+  scripts/person_detector.py
   scripts/localization_ready_gate.py
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -60,8 +65,23 @@ if(BUILD_TESTING)
   ament_add_pytest_test(test_timestamp_diagnostics
     test/test_timestamp_diagnostics.py
   )
+  ament_add_pytest_test(test_thermal_cloud
+    test/test_thermal_cloud.py
+  )
+  ament_add_pytest_test(test_thermal_camera_publisher
+    test/test_thermal_camera_publisher.py
+  )
+  ament_add_pytest_test(test_physical_thermal_calibration
+    test/test_physical_thermal_calibration.py
+  )
+  ament_add_pytest_test(test_physical_calibration_validator
+    test/test_physical_calibration_validator.py
+  )
   ament_add_pytest_test(test_rtabmap_real_launch
     test/test_rtabmap_real_launch.py
+  )
+  ament_add_pytest_test(test_auto_explore
+    test/test_auto_explore.py
   )
   ament_add_pytest_test(test_rgbd_mapping_launch
     test/test_rgbd_mapping_launch.py
@@ -86,6 +106,7 @@ if(BUILD_TESTING)
   )
   ament_add_pytest_test(test_camera_topics test/test_camera_topics.py)
   ament_add_pytest_test(test_thermal_mount test/test_thermal_mount.py)
+  ament_add_pytest_test(test_person_detector test/test_person_detector.py)
 endif()
 
 ament_package()

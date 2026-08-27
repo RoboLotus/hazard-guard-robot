@@ -22,6 +22,22 @@
   <xacro:arg name="thermal_mount_roll" default="0" />
   <xacro:arg name="thermal_mount_pitch" default="0" />
   <xacro:arg name="thermal_mount_yaw" default="0" />
+  <!-- Where the thermal optical centre sits inside its own housing. The
+       defaults are the drawing: 9 mm behind the lens face, no rotation beyond
+       the optical convention. Calibration corrects these rather than the mount
+       above, because the mount is the bracket - it carries the visual and the
+       collision, and in Fortress it is also where the sensor renders from,
+       since no <sensor> block carries a <pose>. Moving the bracket to absorb a
+       measured extrinsic would move the rendered camera by the same amount and
+       the correction would chase itself. The optical joint is downstream of
+       the renderer and upstream of TF, which is exactly the seam a calibration
+       belongs in. tools/apply_calibration.py writes these. -->
+  <xacro:arg name="thermal_optical_x" default="0.009" />
+  <xacro:arg name="thermal_optical_y" default="0" />
+  <xacro:arg name="thermal_optical_z" default="0" />
+  <xacro:arg name="thermal_optical_roll" default="-1.57079632679" />
+  <xacro:arg name="thermal_optical_pitch" default="0" />
+  <xacro:arg name="thermal_optical_yaw" default="-1.57079632679" />
   <xacro:property name="simulation_mode" value="$(arg simulation_mode)" />
   <xacro:property name="visualize_sensors" value="$(arg visualize_sensors)" />
   <xacro:property name="dispenser_requested_mass" value="$(arg dispenser_mass)" />
@@ -345,7 +361,9 @@
   <joint name="thermal_camera_optical_joint" type="fixed">
     <parent link="thermal_camera_link" />
     <child link="thermal_camera_optical_frame" />
-    <origin xyz="0.009 0 0" rpy="-1.57079632679 0 -1.57079632679" />
+    <origin
+      xyz="$(arg thermal_optical_x) $(arg thermal_optical_y) $(arg thermal_optical_z)"
+      rpy="$(arg thermal_optical_roll) $(arg thermal_optical_pitch) $(arg thermal_optical_yaw)" />
   </joint>
 
   <xacro:if value="$(arg include_dispenser)">

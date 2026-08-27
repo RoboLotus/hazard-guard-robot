@@ -103,13 +103,45 @@ def test_facility_schema3_loads_sourced_thresholds_and_simple_rule() -> None:
     assert config.min_points_per_voxel == 5
     assert config.min_points_per_roi_for_p95 == 40
     assert config.recommended_points_per_roi_for_p95 == 100
-    assert (config.min_hot_cluster_pixels, config.min_adjacent_hot_voxels) == (9, 2)
+    assert (config.min_hot_cluster_pixels, config.min_adjacent_hot_voxels) == (1, 1)
     assert waste.critical_temperature_c == 60.0
     assert motor.critical_temperature_c == 110.0
     assert pump.critical_temperature_c == 105.0
     assert tank.critical_temperature_c == 82.0
     assert {roi.adaptive_delta_c for roi in rois.values()} == {10.0}
     assert all(roi.adaptive_threshold_enabled for roi in rois.values())
+
+
+def test_schema3_reports_that_spatial_cluster_gate_is_disabled() -> None:
+    config = AnalysisConfig(
+        frame_id="map",
+        voxel_size_m=0.08,
+        min_points_per_voxel=5,
+        equipment_rois=(
+            AxisAlignedRoi(
+                "small_hotspot",
+                (0.0, 0.0, 0.0),
+                (0.16, 0.16, 0.16),
+                critical_temperature_c=60.0,
+            ),
+        ),
+        environment_rois=(),
+        schema_version=3,
+        min_points_per_roi_for_p95=5,
+        recommended_points_per_roi_for_p95=10,
+    )
+    points = [
+        ThermalPoint(0.02, 0.02, 0.02, value, 1.0, index, 0)
+        for index, value in enumerate((61.0, 62.0, 63.0, 64.0, 65.0))
+    ]
+
+    result = analyze_points(points, config, simulated=False)
+
+    assert result["equipment"][0]["observed_voxel_count"] == 1
+    assert result["equipment"][0]["p95_valid"] is True
+    assert result["quality"]["spatial_cluster_gate_enabled"] is False
+    assert "min_hot_cluster_pixels" not in result["quality"]
+    assert "min_adjacent_hot_voxels" not in result["quality"]
 
 
 def test_config_rejects_non_increasing_threshold_levels(tmp_path) -> None:
@@ -128,6 +160,7 @@ def test_web_equipment_settings_update_name_roi_and_thresholds() -> None:
     updated = apply_equipment_settings(
         config,
         {
+            "frame_id": "map",
             "equipment": [
                 {
                     "id": "primary_shredder_motor",
@@ -164,4 +197,51 @@ def test_web_equipment_settings_update_name_roi_and_thresholds() -> None:
     assert motor.critical_temperature_c == 108.0
     assert motor.adaptive_delta_c == 8.0
     assert motor.adaptive_threshold_enabled is False
+    assert updated.frame_id == "map"
     assert updated.min_points_per_roi_for_p95 == config.min_points_per_roi_for_p95
+
+
+def test_web_equipment_settings_preserve_frame_when_legacy_payload_omits_it() -> None:
+    path = Path(__file__).parents[1] / "config" / "demo_facility_scaled_rois.json"
+    config = load_config(path)
+
+    updated = apply_equipment_settings(config, {"equipment": []})
+
+    assert updated.frame_id == config.frame_id
+
+
+def test_web_equipment_settings_reject_empty_frame_id() -> None:
+    path = Path(__file__).parents[1] / "config" / "demo_facility_scaled_rois.json"
+    config = load_config(path)
+
+    with pytest.raises(ValueError, match="non-empty frame_id"):
+        apply_equipment_settings(config, {"frame_id": "  ", "equipment": []})
+
+
+def test_web_equipment_settings_allow_empty_new_map_and_reject_overlap() -> None:
+    path = Path(__file__).parents[1] / "config" / "demo_facility_scaled_rois.json"
+    config = load_config(path)
+    assert apply_equipment_settings(config, {"equipment": []}).equipment_rois == ()
+
+    with pytest.raises(ValueError, match="overlap"):
+        apply_equipment_settings(
+            config,
+            {
+                "equipment": [
+                    {
+                        "id": "motor",
+                        "display_name": "Motor",
+                        "critical_temperature_c": 80,
+                        "adaptive_delta_c": 10,
+                        "roi": {"min": [0, 0, 0], "max": [0.4, 0.4, 0.4]},
+                    },
+                    {
+                        "id": "pump",
+                        "display_name": "Pump",
+                        "critical_temperature_c": 80,
+                        "adaptive_delta_c": 10,
+                        "roi": {"min": [0.39, 0, 0], "max": [0.8, 0.4, 0.4]},
+                    },
+                ]
+            },
+        )

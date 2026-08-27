@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "20260819T062018Z-2cc44561caea44d3821a1262ec8cdd28",
+  "name": "2way-points 테스트",
+  "mission_id": "2cc44561caea44d3821a1262ec8cdd28",
+  "mission_name": "기본 순찰 경로",
+  "started_at": "2026-08-19T06:20:18.034484+00:00",
+  "platform": {
+    "hostname": "yahboom",
+    "architecture": "aarch64",
+    "platform": "Linux-5.15.148-tegra-aarch64-with-glibc2.35",
+    "cpu_count": 6,
+    "tegrastats": true,
+    "git_commit": "751916cc9f0424039d283a4c5139886f9e21c071"
+  }
+}

@@ -75,6 +75,16 @@ def test_rtabmap_does_not_publish_a_second_parent_for_odom():
     assert '"map_frame_id": map_frame_id' in source
 
 
+def test_database_reset_is_explicit_opt_in_and_uses_rtabmap_delete_flag():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    assert '"reset_database",\n                default_value="false"' in source
+    assert 'arguments=["-d"] if reset_database else []' in source
+    assert 'IfCondition(LaunchConfiguration("reset_database"))' in source
+    assert 'UnlessCondition(LaunchConfiguration("reset_database"))' in source
+    assert source.count("_rtabmap_node(") == 3
+
+
 def test_external_pose_frame_is_configurable_with_legacy_default():
     source = LAUNCH.read_text(encoding="utf-8")
 

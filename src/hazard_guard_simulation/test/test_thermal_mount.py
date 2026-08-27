@@ -30,10 +30,18 @@ def arg(name):
 
 
 def joint_origin(name):
+    """A joint's xyz, with $(arg ...) resolved to the argument's default.
+
+    The thermal joints are written as arguments so a calibration can be
+    applied on top; what the checks below want is the drawing, which is what
+    those defaults hold.
+    """
     for joint in ROOT.iter("joint"):
         if joint.get("name") == name:
             xyz = joint.find("origin").get("xyz", "0 0 0")
-            return [float(v) for v in xyz.split()]
+            resolved = re.sub(r"\$\(arg\s+([A-Za-z0-9_]+)\)",
+                              lambda m: str(arg(m.group(1))), xyz)
+            return [float(v) for v in resolved.split()]
     raise AssertionError(f"missing joint {name}")
 
 

@@ -41,6 +41,8 @@ setup(
             "hazard_guard_thermal_analysis.fusion_node:main",
             "thermal_voxel_analyzer = "
             "hazard_guard_thermal_analysis.analyzer_node:main",
+            "frozen_thermal_map = "
+            "hazard_guard_thermal_analysis.frozen_map_node:main",
         ]
     },
 )

@@ -25,12 +25,17 @@ def generate_launch_description() -> LaunchDescription:
     description_share = get_package_share_path("yahboomcar_description")
     bringup_share = Path(get_package_share_directory("yahboomcar_bringup"))
     localization_share = Path(get_package_share_directory("robot_localization"))
-    lidar_share = Path(get_package_share_directory("sllidar_ros2"))
+    lidar_share = Path(get_package_share_directory("ydlidar_ros2_driver"))
 
     model = LaunchConfiguration("model")
     gui = LaunchConfiguration("gui")
     motor_cmd_vel_topic = LaunchConfiguration("motor_cmd_vel_topic")
     pub_odom_tf = LaunchConfiguration("pub_odom_tf")
+    battery_voltage_topic = LaunchConfiguration("battery_voltage_topic")
+    battery_state_topic = LaunchConfiguration("battery_state_topic")
+    battery_window_size = LaunchConfiguration("battery_window_size")
+    battery_empty_voltage_v = LaunchConfiguration("battery_empty_voltage_v")
+    battery_full_voltage_v = LaunchConfiguration("battery_full_voltage_v")
     robot_description = ParameterValue(
         Command(["xacro ", model]),
         value_type=str,
@@ -47,6 +52,19 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("gui", default_value="false"),
             DeclareLaunchArgument("pub_odom_tf", default_value="false"),
             DeclareLaunchArgument("motor_cmd_vel_topic", default_value="/cmd_vel"),
+            DeclareLaunchArgument(
+                "battery_voltage_topic", default_value="/voltage"
+            ),
+            DeclareLaunchArgument(
+                "battery_state_topic", default_value="/hazard_guard/battery"
+            ),
+            DeclareLaunchArgument("battery_window_size", default_value="20"),
+            DeclareLaunchArgument(
+                "battery_empty_voltage_v", default_value="10.5"
+            ),
+            DeclareLaunchArgument(
+                "battery_full_voltage_v", default_value="12.6"
+            ),
             Node(
                 package="joint_state_publisher",
                 executable="joint_state_publisher",
@@ -69,6 +87,27 @@ def generate_launch_description() -> LaunchDescription:
                 executable="Mcnamu_driver_M1",
                 name="driver_node",
                 remappings=[("cmd_vel", motor_cmd_vel_topic)],
+            ),
+            Node(
+                package="hazard_guard_robot_telemetry",
+                executable="battery_telemetry",
+                name="hazard_guard_battery_telemetry",
+                output="screen",
+                parameters=[
+                    {
+                        "input_topic": battery_voltage_topic,
+                        "output_topic": battery_state_topic,
+                        "window_size": ParameterValue(
+                            battery_window_size, value_type=int
+                        ),
+                        "empty_voltage_v": ParameterValue(
+                            battery_empty_voltage_v, value_type=float
+                        ),
+                        "full_voltage_v": ParameterValue(
+                            battery_full_voltage_v, value_type=float
+                        ),
+                    }
+                ],
             ),
             Node(
                 package="yahboomcar_base_node",
@@ -95,7 +134,7 @@ def generate_launch_description() -> LaunchDescription:
             Node(package="joy", executable="joy_node"),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
-                    str(lidar_share / "launch" / "sllidar_c1_launch.py")
+                    str(lidar_share / "launch" / "ydlidar_launch.py")
                 )
             ),
             Node(

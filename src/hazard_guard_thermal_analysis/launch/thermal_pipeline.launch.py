@@ -25,6 +25,11 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("oil_temperature_topic", default_value=""),
             DeclareLaunchArgument("sensor_timeout_sec", default_value="5.0"),
             DeclareLaunchArgument("required_frame_id", default_value=""),
+            DeclareLaunchArgument("required_map_session_id", default_value=""),
+            DeclareLaunchArgument(
+                "analysis_input_topic",
+                default_value="/hazard_guard/thermal/points",
+            ),
             DeclareLaunchArgument("thermal_image_topic", default_value="/thermal_camera/image_raw"),
             DeclareLaunchArgument("thermal_info_topic", default_value="/thermal_camera/camera_info"),
             DeclareLaunchArgument("depth_image_topic", default_value="/depth_camera/image_raw"),
@@ -32,6 +37,12 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("thermal_scale", default_value="0.01"),
             DeclareLaunchArgument("thermal_offset_c", default_value="-273.15"),
             DeclareLaunchArgument("fusion_stride", default_value="4"),
+            DeclareLaunchArgument("thermal_sampling_mode", default_value="bilinear"),
+            DeclareLaunchArgument("fusion_sync_by_receipt_time", default_value="false"),
+            DeclareLaunchArgument("fusion_output_frame", default_value=""),
+            DeclareLaunchArgument("fusion_transform_at_latest", default_value="false"),
+            DeclareLaunchArgument("fusion_color_min_c", default_value="10.0"),
+            DeclareLaunchArgument("fusion_color_max_c", default_value="60.0"),
             DeclareLaunchArgument("publish_detections", default_value="true"),
             Node(
                 package="hazard_guard_thermal_analysis",
@@ -43,6 +54,20 @@ def generate_launch_description() -> LaunchDescription:
                     "thermal_scale": ParameterValue(LaunchConfiguration("thermal_scale"), value_type=float),
                     "thermal_offset_c": ParameterValue(LaunchConfiguration("thermal_offset_c"), value_type=float),
                     "stride": ParameterValue(LaunchConfiguration("fusion_stride"), value_type=int),
+                    "thermal_sampling_mode": LaunchConfiguration("thermal_sampling_mode"),
+                    "sync_by_receipt_time": ParameterValue(
+                        LaunchConfiguration("fusion_sync_by_receipt_time"), value_type=bool
+                    ),
+                    "output_frame": LaunchConfiguration("fusion_output_frame"),
+                    "transform_at_latest": ParameterValue(
+                        LaunchConfiguration("fusion_transform_at_latest"), value_type=bool
+                    ),
+                    "color_min_c": ParameterValue(
+                        LaunchConfiguration("fusion_color_min_c"), value_type=float
+                    ),
+                    "color_max_c": ParameterValue(
+                        LaunchConfiguration("fusion_color_max_c"), value_type=float
+                    ),
                 }],
                 remappings=[
                     ("/hazard_guard/thermal/image", LaunchConfiguration("thermal_image_topic")),
@@ -71,6 +96,12 @@ def generate_launch_description() -> LaunchDescription:
                         LaunchConfiguration("sensor_timeout_sec"), value_type=float
                     ),
                     "required_frame_id": LaunchConfiguration("required_frame_id"),
+                    "required_map_session_id": LaunchConfiguration(
+                        "required_map_session_id"
+                    ),
+                    "input_topic": LaunchConfiguration(
+                        "analysis_input_topic"
+                    ),
                     "publish_detections": ParameterValue(LaunchConfiguration("publish_detections"), value_type=bool),
                     "simulated": ParameterValue(LaunchConfiguration("simulated"), value_type=bool),
                 }],

@@ -1,4 +1,4 @@
-"""Open one rqt_image_view window per camera stream.
+"""Open one rqt_image_view window per camera stream, plus person detection.
 
 For the thermal-to-depth calibration work: the two cameras sit on different
 links (thermal at base_link +0.158/0/+0.112, depth at +0.0859/0/+0.0941, so a
@@ -19,6 +19,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 # label -> (launch argument, default topic, shown by default)
 # The thermal window defaults to the overlay: the raw mono16 is temperature,
@@ -28,6 +29,9 @@ STREAMS = (
     ("thermal", "thermal_topic", "/thermal_camera/image_overlay", "true"),
     ("depth", "depth_topic", "/depth_camera/image_raw", "true"),
     ("rgb", "rgb_topic", "/camera/image_raw", "false"),
+    # The person stream is the RGB frame with detection boxes drawn on it, so
+    # the raw RGB window stays off by default - the same picture, twice.
+    ("person", "person_topic", "/person_detector/image", "true"),
 )
 
 
@@ -43,17 +47,48 @@ def generate_launch_description() -> LaunchDescription:
             default_value="60.0",
             description="Red end of the thermal colour map",
         ),
-        Node(
-            package="hazard_guard_simulation",
-            executable="thermal_camera_info.py",
-            name="thermal_camera_info",
-            output="screen",
-        ),
+        # thermal_camera_info.py is not started here: simulation.launch.py owns
+        # it now, because the thermal map needs those intrinsics whether or not
+        # anyone has a viewer open.
         Node(
             package="hazard_guard_simulation",
             executable="thermal_overlay.py",
             name="thermal_overlay",
             output="screen",
+        ),
+        DeclareLaunchArgument(
+            "person_model",
+            default_value="yolo11n.pt",
+            description="YOLO weights; downloaded next to the working "
+            "directory on first use if the file is not there",
+        ),
+        DeclareLaunchArgument(
+            "person_conf",
+            default_value="0.25",
+            description="Detection threshold; the workers are scaled to the "
+            "miniature facility, so they are small in frame",
+        ),
+        DeclareLaunchArgument("person_imgsz", default_value="960"),
+        Node(
+            package="hazard_guard_simulation",
+            executable="person_detector.py",
+            name="person_detector",
+            output="screen",
+            parameters=[
+                {
+                    # Launch arguments arrive as strings; the node declares
+                    # these as double and int, and a string would be rejected.
+                    "model": ParameterValue(
+                        LaunchConfiguration("person_model"), value_type=str
+                    ),
+                    "conf": ParameterValue(
+                        LaunchConfiguration("person_conf"), value_type=float
+                    ),
+                    "imgsz": ParameterValue(
+                        LaunchConfiguration("person_imgsz"), value_type=int
+                    ),
+                }
+            ],
         ),
         Node(
             package="hazard_guard_simulation",

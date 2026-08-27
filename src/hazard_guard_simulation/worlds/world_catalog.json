@@ -9,6 +9,14 @@
       "spawn": { "x": 0.13, "y": -0.99, "z": 0.05, "yaw": 0.0 },
       "heat_source_profile": "config/heat_sources/demo_facility.json"
     },
+    "demo_facility_scaled": {
+      "label": "재활용 처리장 축척 설비",
+      "description": "12m × 10m 바닥에 실제 설비 메시를 0.13201 축척으로 배치하고 열화상 캘리브레이션 바닥 타일을 포함한 환경",
+      "difficulty": "medium",
+      "world_name": "demo_facility_scaled",
+      "spawn": { "x": 0.0975, "y": -1.4121, "z": 0.05, "yaw": 0.0 },
+      "heat_source_profile": "config/heat_sources/demo_facility_scaled.json"
+    },
     "facility_map": {
       "label": "기본 시설 환경",
       "description": "기본 시설 배치에서 SLAM과 Nav2 순찰을 검증하는 환경",

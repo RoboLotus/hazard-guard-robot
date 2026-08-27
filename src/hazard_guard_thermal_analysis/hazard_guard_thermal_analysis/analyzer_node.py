@@ -15,7 +15,7 @@ from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2, Temperature
 from std_msgs.msg import Header, String
 from std_srvs.srv import Trigger
-from tf2_ros import Buffer, TransformListener
+from tf2_ros import Buffer, TransformException, TransformListener
 
 from .baseline import EquipmentBaseline, load_baselines
 from .baseline_builder import (
@@ -44,8 +44,13 @@ class ThermalVoxelAnalyzer(Node):
         self.declare_parameter("oil_temperature_topic", "")
         self.declare_parameter("sensor_timeout_sec", 5.0)
         self.declare_parameter("required_frame_id", "")
+        self.declare_parameter("required_map_session_id", "")
+        self.declare_parameter(
+            "input_topic", "/hazard_guard/thermal/points"
+        )
         self.declare_parameter("publish_detections", True)
         self.declare_parameter("simulated", True)
+        self.declare_parameter("stationary_latest_transform_fallback", True)
         self._config: AnalysisConfig | None = None
         self._trend_config = None
         self._baselines: dict[str, EquipmentBaseline] = {}
@@ -191,7 +196,12 @@ class ThermalVoxelAnalyzer(Node):
             String, "/hazard_guard/thermal/equipment_config",
             self._on_equipment_config, config_qos,
         )
-        self.create_subscription(PointCloud2, "/hazard_guard/thermal/points", self._on_cloud, qos_profile_sensor_data)
+        self.create_subscription(
+            PointCloud2,
+            str(self.get_parameter("input_topic").value),
+            self._on_cloud,
+            qos_profile_sensor_data,
+        )
         self.create_subscription(String, "/hazard_guard/thermal/inspection_control", self._on_inspection_control, 10)
         self.create_service(Trigger, "/hazard_guard/thermal/start_visit", self._start_visit)
         self.create_service(Trigger, "/hazard_guard/thermal/record_visit", self._record_visit)
@@ -301,6 +311,28 @@ class ThermalVoxelAnalyzer(Node):
             document = json.loads(message.data)
             if not isinstance(document, dict) or self._config is None:
                 raise ValueError("equipment configuration must be a JSON object")
+            if int(document.get("schema_version", 1)) >= 2:
+                if str(document.get("frame_id", "")) != "map":
+                    raise ValueError("map-bound equipment requires frame_id='map'")
+                required_session = str(
+                    self.get_parameter("required_map_session_id").value
+                ).strip()
+                received_session = str(
+                    document.get("map_session_id", "")
+                ).strip()
+                equipment = document.get("equipment")
+                empty_disable = isinstance(equipment, list) and not equipment
+                if not received_session and not empty_disable:
+                    raise ValueError("map-bound equipment needs map_session_id")
+                if (
+                    received_session
+                    and required_session
+                    and received_session != required_session
+                ):
+                    raise ValueError(
+                        "equipment map_session_id does not match active patrol "
+                        f"session: {received_session!r} != {required_session!r}"
+                    )
             candidate = apply_equipment_settings(self._config, document)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             self.get_logger().error(f"Rejected equipment configuration: {exc}")
@@ -334,7 +366,11 @@ class ThermalVoxelAnalyzer(Node):
         if topology_changed:
             prepared_collector = None
             prepared_baselines = {}
-            if self._baseline_path is not None and self._trend_config is not None:
+            if (
+                self._baseline_path is not None
+                and self._trend_config is not None
+                and candidate.equipment_rois
+            ):
                 collection_path = self._baseline_collection_path
                 if collection_path is None:
                     collection_path = self._baseline_path.with_name(
@@ -470,6 +506,45 @@ class ThermalVoxelAnalyzer(Node):
             simulated=bool(self.get_parameter("simulated").value),
         )
 
+    def _lookup_target_transform(self, target_frame: str, source_frame: str, stamp):
+        """Resolve a cloud transform without weakening moving-robot geometry.
+
+        Exact-time TF remains mandatory while the robot is moving. During a
+        focused waypoint dwell the robot is stationary, so using the newest
+        available transform is preferable to discarding the complete thermal
+        inspection because a camera frame arrived slightly ahead of TF.
+        """
+
+        timeout = Duration(seconds=0.15)
+        try:
+            return self._tf_buffer.lookup_transform(
+                target_frame,
+                source_frame,
+                Time.from_msg(stamp),
+                timeout=timeout,
+            )
+        except TransformException:
+            allow_latest = bool(
+                self.get_parameter("stationary_latest_transform_fallback").value
+            )
+            if not (
+                allow_latest
+                and self._visit.active
+                and self._visit.focus_equipment_id
+            ):
+                raise
+            self.get_logger().warning(
+                "Exact thermal TF is unavailable during a stationary equipment "
+                "dwell; using the latest transform",
+                throttle_duration_sec=5.0,
+            )
+            return self._tf_buffer.lookup_transform(
+                target_frame,
+                source_frame,
+                Time(),
+                timeout=timeout,
+            )
+
     def _on_cloud(self, cloud: PointCloud2) -> None:
         if self._config is None or self._trend_config is None:
             return
@@ -481,11 +556,10 @@ class ThermalVoxelAnalyzer(Node):
             if source_frame == self._config.frame_id:
                 target_from_source = RigidTransform()
             else:
-                transform = self._tf_buffer.lookup_transform(
+                transform = self._lookup_target_transform(
                     self._config.frame_id,
                     source_frame,
-                    Time.from_msg(cloud.header.stamp),
-                    timeout=Duration(seconds=0.15),
+                    cloud.header.stamp,
                 )
                 target_from_source = self._rigid_transform(transform)
             transformed = []
