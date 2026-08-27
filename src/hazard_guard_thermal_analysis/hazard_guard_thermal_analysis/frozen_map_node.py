@@ -21,7 +21,7 @@ from rclpy.qos import (
 )
 from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2
-from std_msgs.msg import Header, String
+from std_msgs.msg import ByteMultiArray, Header, String
 from tf2_ros import Buffer, TransformListener
 
 from .cloud import (
@@ -36,6 +36,8 @@ from .dynamic_map import (
     DynamicUpdateResult,
     DynamicVoxelLayer,
 )
+from .delta_protocol import PROTOCOL_VERSION
+from .delta_publisher import ThermalDeltaPublisher
 from .frozen_map import (
     FixedGeometry,
     FrozenThermalLayer,
@@ -79,6 +81,9 @@ class FrozenThermalMapNode(Node):
         self.declare_parameter("output_topic", "/hazard_guard/thermal/map")
         self.declare_parameter(
             "dynamic_output_topic", "/hazard_guard/thermal/dynamic"
+        )
+        self.declare_parameter(
+            "delta_output_topic", "/hazard_guard/thermal/delta"
         )
         self.declare_parameter(
             "static_observation_output_topic",
@@ -157,6 +162,18 @@ class FrozenThermalMapNode(Node):
             str(self.get_parameter("status_topic").value),
             snapshot_qos,
         )
+        delta_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=100,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
+        self._delta_publisher = self.create_publisher(
+            ByteMultiArray,
+            str(self.get_parameter("delta_output_topic").value),
+            delta_qos,
+        )
+        self._delta_stream = ThermalDeltaPublisher(self._publish_delta_bytes)
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
         self._layer: FrozenThermalLayer | None = None
@@ -357,6 +374,10 @@ class FrozenThermalMapNode(Node):
                     )
             self._layer = layer
             self._dynamic_layer = dynamic_layer
+            self._delta_stream.reset(
+                str(self.get_parameter("session_id").value),
+                geometry.fingerprint,
+            )
             self._publish_geometry_indices = fixed_stride_indices(
                 int(geometry.points.shape[0]),
                 max(
@@ -383,6 +404,11 @@ class FrozenThermalMapNode(Node):
             self._geometry_retryable = False
             self._map_error = str(exc)
             self.get_logger().error(f"Failed to load fixed 3D map: {exc}")
+
+    def _publish_delta_bytes(self, packet: bytes) -> None:
+        message = ByteMultiArray()
+        message.data = packet
+        self._delta_publisher.publish(message)
 
     def _retry_geometry_load(self) -> None:
         if self._layer is None and self._geometry_retryable:
@@ -796,6 +822,20 @@ class FrozenThermalMapNode(Node):
                 )
         else:
             self._last_rejected_integration_monotonic = now_monotonic
+        try:
+            self._delta_stream.publish_pending(
+                session_id=str(self.get_parameter("session_id").value),
+                static_layer=self._layer,
+                dynamic_layer=self._dynamic_layer,
+                dynamic_result=dynamic_result,
+            )
+        except Exception as exc:
+            # Delta is an optimization channel.  A failure must not interrupt
+            # the authoritative full snapshot or thermal persistence paths.
+            self.get_logger().error(
+                f"Failed to publish thermal map delta: {exc}",
+                throttle_duration_sec=5.0,
+            )
         self._publish_status()
 
     def _publish_snapshot(self) -> None:
@@ -816,7 +856,10 @@ class FrozenThermalMapNode(Node):
         )
         dynamic = (
             self._dynamic_layer.snapshot(
-                confirmed_only=True,
+                # HGTD reports the complete active-key lifecycle.  Bootstrap
+                # must seed the same key set so a later update is never
+                # mistaken for a missing create after reconnect.
+                confirmed_only=False,
                 maximum_voxels=min(maximum_total, maximum_dynamic),
             )
             if self._dynamic_layer is not None
@@ -830,6 +873,14 @@ class FrozenThermalMapNode(Node):
             )
         )
         dynamic_count = int(dynamic[0].shape[0])
+        dynamic_keys = (
+            self._dynamic_layer.snapshot_keys(
+                confirmed_only=False,
+                maximum_voxels=min(maximum_total, maximum_dynamic),
+            )
+            if self._dynamic_layer is not None
+            else np.empty((0, 3), dtype=np.int32)
+        )
         all_observed_count = layer.observed_voxel_count
         # The subset is chosen once from canonical geometry.  Its membership
         # never changes as new areas are observed, so WebUI points do not
@@ -843,7 +894,7 @@ class FrozenThermalMapNode(Node):
             observed.shape[0] < all_observed_count
             or (
                 self._dynamic_layer is not None
-                and dynamic_count < self._dynamic_layer.confirmed_voxel_count
+                and dynamic_count < self._dynamic_layer.active_voxel_count
             )
         )
         header = Header()
@@ -878,6 +929,18 @@ class FrozenThermalMapNode(Node):
             confidence,
             color_min_c=float(self.get_parameter("color_min_c").value),
             color_max_c=float(self.get_parameter("color_max_c").value),
+            thermal_kinds=np.concatenate((
+                np.zeros(observed.shape[0], dtype=np.uint8),
+                np.ones(dynamic_count, dtype=np.uint8),
+            )),
+            voxel_keys=np.concatenate((
+                np.column_stack((
+                    observed.astype(np.int32),
+                    np.zeros((observed.shape[0], 2), dtype=np.int32),
+                )),
+                dynamic_keys,
+            ), axis=0),
+            thermal_sequence=self._delta_stream.sequence,
         )
         self._cloud_publisher.publish(message)
         self._last_published_static_voxel_count = int(observed.shape[0])
@@ -927,6 +990,8 @@ class FrozenThermalMapNode(Node):
         dynamic_state_path = self._dynamic_state_path
         status = {
             "schema_version": 1,
+            "delta_protocol_version": PROTOCOL_VERSION,
+            "delta_latest_sequence": self._delta_stream.sequence,
             "session_id": str(self.get_parameter("session_id").value),
             "cumulative": True,
             "fixed_map_available": layer is not None,
@@ -945,6 +1010,9 @@ class FrozenThermalMapNode(Node):
                 self._last_published_dynamic_voxel_count
             ),
             "dynamic_layer_available": dynamic_layer is not None,
+            "dynamic_voxel_size_m": (
+                dynamic_layer.voxel_size_m if dynamic_layer is not None else 0.0
+            ),
             "dynamic_active_voxel_count": (
                 dynamic_layer.active_voxel_count
                 if dynamic_layer is not None

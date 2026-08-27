@@ -37,6 +37,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("thermal_scale", default_value="0.01"),
             DeclareLaunchArgument("thermal_offset_c", default_value="-273.15"),
             DeclareLaunchArgument("fusion_stride", default_value="4"),
+            DeclareLaunchArgument("thermal_sampling_mode", default_value="bilinear"),
             DeclareLaunchArgument("fusion_sync_by_receipt_time", default_value="false"),
             DeclareLaunchArgument("fusion_output_frame", default_value=""),
             DeclareLaunchArgument("fusion_transform_at_latest", default_value="false"),
@@ -53,6 +54,7 @@ def generate_launch_description() -> LaunchDescription:
                     "thermal_scale": ParameterValue(LaunchConfiguration("thermal_scale"), value_type=float),
                     "thermal_offset_c": ParameterValue(LaunchConfiguration("thermal_offset_c"), value_type=float),
                     "stride": ParameterValue(LaunchConfiguration("fusion_stride"), value_type=int),
+                    "thermal_sampling_mode": LaunchConfiguration("thermal_sampling_mode"),
                     "sync_by_receipt_time": ParameterValue(
                         LaunchConfiguration("fusion_sync_by_receipt_time"), value_type=bool
                     ),
