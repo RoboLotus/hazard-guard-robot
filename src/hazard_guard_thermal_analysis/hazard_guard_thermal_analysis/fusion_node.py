@@ -67,6 +67,7 @@ class ThermalDepthFusion(Node):
         self.declare_parameter("color_max_c", 60.0)
         self.declare_parameter("depth_horizontal_fov_deg", 73.8)
         self.declare_parameter("thermal_horizontal_fov_deg", 57.0)
+        self.declare_parameter("thermal_sampling_mode", "bilinear")
 
         self._depth_images: deque[tuple[float, Image]] = deque(maxlen=30)
         self._depth_info: CameraInfo | None = None
@@ -230,6 +231,9 @@ class ThermalDepthFusion(Node):
                 stride=int(self.get_parameter("stride").value),
                 min_depth_m=float(self.get_parameter("min_depth_m").value),
                 max_depth_m=float(self.get_parameter("max_depth_m").value),
+                thermal_sampling_mode=str(
+                    self.get_parameter("thermal_sampling_mode").value
+                ),
             )
 
             output_frame = str(

@@ -61,3 +61,83 @@ def test_projection_rejects_invalid_depth_and_outside_fov() -> None:
         RigidTransform(tx=10.0), stride=1,
     )
     assert points == []
+
+
+def test_bilinear_sampling_interpolates_at_projected_subpixel() -> None:
+    depth_camera = CameraIntrinsics(1, 1, 1.0, 1.0, 0.0, 0.0)
+    thermal_camera = CameraIntrinsics(2, 2, 1.0, 1.0, 0.0, 0.0)
+    points = fuse_depth_and_thermal(
+        [1.0],
+        depth_camera,
+        [10.0, 20.0, 30.0, 40.0],
+        thermal_camera,
+        RigidTransform(tx=0.25, ty=0.5),
+        stride=1,
+        thermal_sampling_mode="bilinear",
+    )
+    assert len(points) == 1
+    assert points[0].temperature_c == pytest.approx(22.5)
+    assert (points[0].pixel_u, points[0].pixel_v) == pytest.approx((0.25, 0.5))
+
+
+def test_bilinear_sampling_renormalizes_valid_neighbours() -> None:
+    depth_camera = CameraIntrinsics(1, 1, 1.0, 1.0, 0.0, 0.0)
+    thermal_camera = CameraIntrinsics(2, 2, 1.0, 1.0, 0.0, 0.0)
+    points = fuse_depth_and_thermal(
+        [1.0],
+        depth_camera,
+        [10.0, float("nan"), 30.0, float("inf")],
+        thermal_camera,
+        RigidTransform(tx=0.5, ty=0.5),
+        stride=1,
+    )
+    assert len(points) == 1
+    assert points[0].temperature_c == pytest.approx(20.0)
+
+
+def test_bilinear_sampling_handles_image_boundary() -> None:
+    depth_camera = CameraIntrinsics(1, 1, 1.0, 1.0, 0.0, 0.0)
+    thermal_camera = CameraIntrinsics(2, 2, 1.0, 1.0, 0.0, 0.0)
+    points = fuse_depth_and_thermal(
+        [1.0],
+        depth_camera,
+        [10.0, 20.0, 30.0, 40.0],
+        thermal_camera,
+        RigidTransform(tx=1.0, ty=1.0),
+        stride=1,
+    )
+    assert len(points) == 1
+    assert points[0].temperature_c == pytest.approx(40.0)
+
+
+def test_bilinear_sampling_skips_when_no_valid_neighbour_exists() -> None:
+    camera = CameraIntrinsics(1, 1, 1.0, 1.0, 0.0, 0.0)
+    assert fuse_depth_and_thermal(
+        [1.0], camera, [float("nan")], camera, RigidTransform(), stride=1
+    ) == []
+
+
+def test_nearest_sampling_mode_preserves_rounded_pixel_sampling() -> None:
+    depth_camera = CameraIntrinsics(1, 1, 1.0, 1.0, 0.0, 0.0)
+    thermal_camera = CameraIntrinsics(2, 2, 1.0, 1.0, 0.0, 0.0)
+    points = fuse_depth_and_thermal(
+        [1.0],
+        depth_camera,
+        [10.0, 20.0, 30.0, 40.0],
+        thermal_camera,
+        RigidTransform(tx=0.6, ty=0.6),
+        stride=1,
+        thermal_sampling_mode="nearest",
+    )
+    assert len(points) == 1
+    assert points[0].temperature_c == pytest.approx(40.0)
+    assert (points[0].pixel_u, points[0].pixel_v) == pytest.approx((1.0, 1.0))
+
+
+def test_invalid_thermal_sampling_mode_is_rejected() -> None:
+    camera = CameraIntrinsics(1, 1, 1.0, 1.0, 0.0, 0.0)
+    with pytest.raises(ValueError, match="thermal_sampling_mode"):
+        fuse_depth_and_thermal(
+            [1.0], camera, [20.0], camera, RigidTransform(),
+            thermal_sampling_mode="cubic",
+        )
