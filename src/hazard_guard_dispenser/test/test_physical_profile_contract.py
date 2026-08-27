@@ -16,6 +16,9 @@ class PhysicalProfileContractTests(unittest.TestCase):
         self.assertIn("require_person_safety_clear: false", profile)
         self.assertIn("battery_report_sec: 10.0", profile)
         self.assertIn("battery_stale_sec: 180.0", profile)
+        self.assertIn("ble_partial_rescan_sec: 300.0", profile)
+        self.assertIn("ble_battery_refresh_sec: 30.0", profile)
+        self.assertIn("ble_connection_stable_sec: 3.0", profile)
 
     def test_launch_loads_packaged_physical_profile(self):
         launch = (PACKAGE_ROOT / "launch" / "dispenser.launch.py").read_text(

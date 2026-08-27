@@ -32,3 +32,10 @@ dispenser_node:
     # validity window for BLE devices that report voltage infrequently.
     battery_report_sec: 10.0
     battery_stale_sec: 180.0
+    # One connected cube is operationally sufficient. Repeated discovery for
+    # the missing slots can destabilize the active BlueZ connection, so only
+    # retry a partial inventory at a low rate and require a short stable hold
+    # before it becomes eligible for physical discharge.
+    ble_partial_rescan_sec: 300.0
+    ble_battery_refresh_sec: 30.0
+    ble_connection_stable_sec: 3.0

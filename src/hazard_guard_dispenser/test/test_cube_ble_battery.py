@@ -72,6 +72,46 @@ class CubeBatteryTests(unittest.TestCase):
         self.assertEqual(record["voltage"], 11.8)
         self.assertFalse(record["stale"])
 
+    def test_partial_inventory_uses_long_scan_backoff(self):
+        link = CubeLink(
+            expected_cubes=3,
+            rescan_interval=15.0,
+            partial_rescan_interval=300.0,
+        )
+        address = "AA:BB:CC:DD:EE:02"
+        link._clients[address] = _Client(connected=True)
+        link._connected_since[address] = 90.0
+        link._last_scan_monotonic = 100.0
+
+        self.assertFalse(link._scan_due(399.9))
+        self.assertTrue(link._scan_due(400.0))
+
+    def test_total_disconnect_is_immediately_eligible_for_reconnect(self):
+        link = CubeLink(expected_cubes=3, rescan_interval=15.0)
+        link._last_scan_monotonic = 100.0
+
+        self.assertFalse(link._scan_due(110.0))
+        self.assertTrue(link._scan_due(115.0))
+
+    def test_recent_reconnect_is_not_immediately_eligible_for_drop(self):
+        link = CubeLink()
+        address = "AA:BB:CC:DD:EE:03"
+        link._clients[address] = _Client(connected=True)
+        link._connected_since[address] = time.monotonic()
+
+        self.assertEqual(link.connected_addresses(stable_for=3.0), set())
+        link._connected_since[address] -= 3.1
+        self.assertEqual(
+            link.connected_addresses(stable_for=3.0), {address}
+        )
+
+    def test_scanning_and_refresh_pause_during_actuation(self):
+        link = CubeLink()
+        link._arm_state = "actuating"
+
+        self.assertFalse(link._scan_due(time.monotonic() + 1000.0))
+        self.assertFalse(link._battery_refresh_due(time.monotonic() + 1000.0))
+
     def test_structured_snapshot_preserves_identity_and_freshness(self):
         link = CubeLink()
         address = "11:22:33:44:55:66"

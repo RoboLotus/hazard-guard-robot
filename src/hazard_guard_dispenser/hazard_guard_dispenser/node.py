@@ -98,6 +98,9 @@ class DispenserNode(Node):
         self.declare_parameter("drop_report_timeout", 2.5)
         self.declare_parameter("battery_report_sec", 10.0)
         self.declare_parameter("battery_stale_sec", 180.0)
+        self.declare_parameter("ble_partial_rescan_sec", 300.0)
+        self.declare_parameter("ble_battery_refresh_sec", 30.0)
+        self.declare_parameter("ble_connection_stable_sec", 3.0)
         self.declare_parameter("battery_empty_voltage", 9.0)
         self.declare_parameter("battery_full_voltage", 12.6)
         self.declare_parameter("battery_low_voltage", 10.5)
@@ -172,10 +175,30 @@ class DispenserNode(Node):
             )
         battery_report_sec = float(self._p("battery_report_sec"))
         battery_stale_sec = float(self._p("battery_stale_sec"))
+        ble_partial_rescan_sec = float(self._p("ble_partial_rescan_sec"))
+        ble_battery_refresh_sec = float(self._p("ble_battery_refresh_sec"))
+        ble_connection_stable_sec = float(
+            self._p("ble_connection_stable_sec")
+        )
         if not math.isfinite(battery_report_sec) or battery_report_sec <= 0:
             raise ValueError("battery_report_sec는 0보다 커야 합니다")
         if not math.isfinite(battery_stale_sec) or battery_stale_sec <= 0:
             raise ValueError("battery_stale_sec는 0보다 커야 합니다")
+        if (
+            not math.isfinite(ble_partial_rescan_sec)
+            or ble_partial_rescan_sec < 15.0
+        ):
+            raise ValueError("ble_partial_rescan_sec는 15초 이상이어야 합니다")
+        if (
+            not math.isfinite(ble_battery_refresh_sec)
+            or ble_battery_refresh_sec <= 0
+        ):
+            raise ValueError("ble_battery_refresh_sec는 0보다 커야 합니다")
+        if (
+            not math.isfinite(ble_connection_stable_sec)
+            or ble_connection_stable_sec < 0
+        ):
+            raise ValueError("ble_connection_stable_sec는 0 이상이어야 합니다")
         if int(self._p("arm_repeat")) < 1:
             raise ValueError("arm_repeat는 1 이상이어야 합니다")
         if int(self._p("expected_cubes")) < 1:
@@ -218,6 +241,8 @@ class DispenserNode(Node):
             else:
                 self.cube_link = CubeLink(
                     expected_cubes=self._p("expected_cubes"),
+                    partial_rescan_interval=ble_partial_rescan_sec,
+                    battery_refresh_interval=ble_battery_refresh_sec,
                     logger=self.get_logger(),
                     installed_state_path=self._p("installed_beacons_path"),
                 )
@@ -523,12 +548,16 @@ class DispenserNode(Node):
         connected_addresses = {
             item["address"] for item in readings if item["connected"]
         }
+        stable_addresses = self.cube_link.connected_addresses(
+            stable_for=float(self._p("ble_connection_stable_sec"))
+        )
         beacons = []
         for address in sorted(connected_addresses | set(by_address)):
             record = dict(by_address.get(address, {}))
             voltage = record.get("voltage")
             stale = bool(record.get("stale", False))
             connected = address in connected_addresses
+            connection_stable = address in stable_addresses
             record.update(
                 address=address,
                 voltage=voltage,
@@ -538,6 +567,7 @@ class DispenserNode(Node):
                     else None
                 ),
                 connected=connected,
+                connection_stable=connection_stable,
                 stale=stale,
                 battery_supported=voltage is not None,
                 battery_state=self.battery_policy.state(
@@ -545,7 +575,7 @@ class DispenserNode(Node):
                 ),
                 available_for_drop=self.battery_policy.available_for_drop(
                     voltage,
-                    connected=connected,
+                    connected=connected and connection_stable,
                     stale=stale,
                     allow_unknown=bool(self._p("allow_unknown_battery")),
                 ),
@@ -601,9 +631,12 @@ class DispenserNode(Node):
             item["address"]: item
             for item in snapshot["beacons"]
         }
+        stable_addresses = self.cube_link.connected_addresses(
+            stable_for=float(self._p("ble_connection_stable_sec"))
+        )
         eligible = set()
         for address, record in readings.items():
-            if not record.get("connected"):
+            if not record.get("connected") or address not in stable_addresses:
                 continue
             if self.battery_policy.available_for_drop(
                 record.get("voltage"),
@@ -879,11 +912,18 @@ class DispenserNode(Node):
             self._go_to(self._p("angle_home"))
             time.sleep(self._p("home_hold"))
 
-            self.drop_count += 1
-            self.get_logger().info(f"배출 완료. 누적 {self.drop_count}회")
-
             outcome = "succeeded" if dropped_by else "jam_suspected"
             detail = "ble_drop_confirmed" if dropped_by else "drop_report_missing"
+            if dropped_by:
+                self.drop_count += 1
+                self.get_logger().info(
+                    f"낙하 확인 완료. 확인 누적 {self.drop_count}회"
+                )
+            else:
+                self.get_logger().warn(
+                    "서보 동작과 home 복귀는 완료됐지만 낙하를 확인하지 "
+                    "못했습니다. 성공 횟수에 포함하지 않습니다"
+                )
             final_record = self.request_ledger.transition(
                 request_id,
                 outcome,

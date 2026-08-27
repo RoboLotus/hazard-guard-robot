@@ -49,18 +49,28 @@ RPT_NAME = {
 
 class CubeLink:
     def __init__(self, expected_cubes=3, scan_seconds=5.0,
-                 rescan_interval=15.0, logger=None,
+                 rescan_interval=15.0, partial_rescan_interval=300.0,
+                 battery_refresh_interval=30.0, logger=None,
                  installed_state_path=None):
         self.expected = expected_cubes
         self.scan_seconds = scan_seconds
         self.rescan_interval = rescan_interval
+        self.partial_rescan_interval = max(
+            float(partial_rescan_interval), float(rescan_interval)
+        )
+        self.battery_refresh_interval = max(
+            float(battery_refresh_interval), 1.0
+        )
         self.log = logger or logging.getLogger("CubeLink")
 
         self._loop = None
         self._thread = None
         self._clients = {}
+        self._connected_since = {}
         self._lock = threading.Lock()
         self._running = False
+        self._last_scan_monotonic = 0.0
+        self._last_battery_refresh_monotonic = 0.0
 
         # Battery notifications arrive on the asyncio BLE thread while ROS
         # status publication reads them from an executor thread. Keep the
@@ -248,12 +258,53 @@ class CubeLink:
     async def _maintain(self):
         while self._running:
             try:
-                if self.connected_count() < self.expected:
+                now = time.monotonic()
+                if self._scan_due(now):
                     await self._scan_and_connect()
-                await self._refresh_batteries()
+                    self._last_scan_monotonic = time.monotonic()
+                if self._battery_refresh_due(now):
+                    await self._refresh_batteries()
+                    self._last_battery_refresh_monotonic = time.monotonic()
             except Exception as e:
                 self._error(f"BLE 탐색 오류: {e}")
-            await asyncio.sleep(self.rescan_interval)
+            await asyncio.sleep(min(self.rescan_interval, 5.0))
+
+    def _scan_due(self, now=None):
+        """Return whether discovery is safe and due.
+
+        BlueZ discovery can destabilize an already connected low-power cube
+        on the Jetson adapter. Discover immediately when every cube is gone,
+        but back off aggressively while the partial-connection policy already
+        provides at least one usable confirmation channel. Never scan while an
+        approved actuation owns the BLE link.
+        """
+        current = time.monotonic() if now is None else float(now)
+        with self._lock:
+            connected = sum(
+                1 for client in self._clients.values() if client.is_connected
+            )
+            arm_state = self._arm_state
+        if arm_state in {"arming", "armed", "actuating"}:
+            return False
+        interval = (
+            self.rescan_interval
+            if connected == 0
+            else self.partial_rescan_interval
+        )
+        return (
+            connected < self.expected
+            and current - self._last_scan_monotonic >= interval
+        )
+
+    def _battery_refresh_due(self, now=None):
+        current = time.monotonic() if now is None else float(now)
+        with self._lock:
+            arm_state = self._arm_state
+        return (
+            arm_state == "idle"
+            and current - self._last_battery_refresh_monotonic
+            >= self.battery_refresh_interval
+        )
 
     async def _refresh_batteries(self):
         """Re-read battery characteristics for every connected cube.
@@ -339,6 +390,7 @@ class CubeLink:
                 self._warn(f"{dev.address}: 배터리 특성 없음 (구버전 펌웨어)")
             with self._lock:
                 self._clients[dev.address] = client
+                self._connected_since[dev.address] = time.monotonic()
             self._info(f"큐브 연결됨: {dev.address} "
                        f"({self.connected_count()}/{self.expected})")
             self._notify_status_change()
@@ -351,6 +403,15 @@ class CubeLink:
 
     def _on_disconnect(self, client):
         addr = getattr(client, "address", "?")
+        with self._lock:
+            if self._clients.get(addr) is client:
+                self._clients.pop(addr, None)
+            self._connected_since.pop(addr, None)
+            # A total disconnect must be eligible for immediate discovery;
+            # the partial-connection backoff only applies while at least one
+            # confirmation channel remains alive.
+            if not any(item.is_connected for item in self._clients.values()):
+                self._last_scan_monotonic = 0.0
         self._warn(f"큐브 끊김: {addr}. 다음 탐색 때 재연결")
         self._notify_status_change()
 
@@ -502,12 +563,16 @@ class CubeLink:
             "installed_persistence_ok": self.installed_persistence_ok(),
         }
 
-    def connected_addresses(self):
+    def connected_addresses(self, stable_for=0.0):
+        now = time.monotonic()
+        minimum_age = max(0.0, float(stable_for))
         with self._lock:
             return {
                 address
                 for address, client in self._clients.items()
                 if client.is_connected
+                and now - self._connected_since.get(address, now)
+                >= minimum_age
             }
 
     def _notify_status_change(self):
@@ -597,6 +662,7 @@ class CubeLink:
                 pass
         with self._lock:
             self._clients.clear()
+            self._connected_since.clear()
 
     # ---------------- 로그 ----------------
     def _info(self, msg):
