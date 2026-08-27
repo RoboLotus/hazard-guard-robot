@@ -447,6 +447,7 @@ class IntegrationResult:
     match_ratio: float
     alignment_translation: tuple[float, float, float]
     reason: str
+    updated_voxel_indices: tuple[int, ...] = ()
 
 
 class FrozenThermalLayer:
@@ -476,6 +477,10 @@ class FrozenThermalLayer:
         self.persisted_at_ns = 0
         self.restored = False
         self.dirty = False
+        # Indices are coalesced until the publisher drains them.  Persistence's
+        # ``dirty`` flag intentionally remains independent from this transport
+        # change set.
+        self._pending_dirty_indices: set[int] = set()
 
     @property
     def observed_mask(self) -> np.ndarray:
@@ -493,6 +498,17 @@ class FrozenThermalLayer:
             if np.any(observed)
             else 0
         )
+
+    @property
+    def pending_dirty_indices(self) -> tuple[int, ...]:
+        """Return the coalesced static indices changed since the last drain."""
+        return tuple(sorted(self._pending_dirty_indices))
+
+    def drain_dirty_indices(self) -> tuple[int, ...]:
+        """Take and clear the coalesced static delta change set."""
+        indices = self.pending_dirty_indices
+        self._pending_dirty_indices.clear()
+        return indices
 
     def record_rejected_frame(self, observation_count: int, reason: str) -> None:
         self.rejected_frame_count += 1
@@ -661,6 +677,8 @@ class FrozenThermalLayer:
             np.add.reduceat(matched_confidence, starts) / samples_per_target
         ).astype(np.float32)
 
+        previous_temperature = self.temperature_c[unique_targets].copy()
+        previous_confidence = self.confidence[unique_targets].copy()
         previous_count = self.observation_count[unique_targets].copy()
         first = previous_count == 0
         if np.any(first):
@@ -707,15 +725,27 @@ class FrozenThermalLayer:
         self.rejected_observation_count += valid_count - matched_count
         self.last_reason = "updated"
         self.dirty = True
+        # Transport deltas contain temperature and confidence.  A repeated
+        # observation that only changes internal statistics/timestamps does
+        # not needlessly dirty the display state.
+        transport_changed = ~(
+            np.equal(previous_temperature, self.temperature_c[unique_targets])
+            & np.equal(previous_confidence, self.confidence[unique_targets])
+        )
+        updated_indices = tuple(
+            int(index) for index in unique_targets[transport_changed]
+        )
+        self._pending_dirty_indices.update(updated_indices)
         return IntegrationResult(
             True,
             valid_count,
             matched_count,
             surface_range_rejected,
-            int(unique_targets.shape[0]),
+            len(updated_indices),
             match_ratio,
             self.last_alignment_translation,
             "updated",
+            updated_indices,
         )
 
     def save_atomic(self, path: str | Path) -> None:

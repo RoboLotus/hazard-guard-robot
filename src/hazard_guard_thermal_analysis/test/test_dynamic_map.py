@@ -63,11 +63,17 @@ def test_connected_new_geometry_requires_hits_and_does_not_mutate_static_map() -
 
     first = _observe(layer, dynamic, 10)
     assert first.clustered_candidate_voxel_count == 3
+    assert set(first.created_keys) == set(layer._voxels)
+    assert first.updated_keys == ()
+    assert first.deleted_keys == ()
     assert layer.active_voxel_count == 3
     assert layer.confirmed_voxel_count == 0
 
     second = _observe(layer, dynamic, 20)
     assert second.hit_voxel_count == 3
+    assert second.created_keys == ()
+    assert set(second.updated_keys) == set(layer._voxels)
+    assert second.deleted_keys == ()
     assert layer.confirmed_voxel_count == 3
     points, temperatures, _, hits, misses, last_seen = layer.snapshot()
     assert points.shape == (3, 3)
@@ -133,6 +139,9 @@ def test_positive_background_observation_removes_dynamic_voxels_after_misses() -
 
     second_miss = _observe(layer, background, 30)
     assert second_miss.removed_voxel_count == 3
+    assert second_miss.created_keys == ()
+    assert second_miss.updated_keys == ()
+    assert len(second_miss.deleted_keys) == 3
     assert layer.active_voxel_count == 0
     # Removal affects only the dynamic dictionary; the static wall remains.
     assert layer.geometry.points.shape == (3, 3)

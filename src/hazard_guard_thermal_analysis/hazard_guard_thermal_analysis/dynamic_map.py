@@ -62,6 +62,9 @@ class DynamicUpdateResult:
     removed_voxel_count: int
     active_voxel_count: int
     confirmed_voxel_count: int
+    created_keys: tuple[tuple[int, int, int], ...] = ()
+    updated_keys: tuple[tuple[int, int, int], ...] = ()
+    deleted_keys: tuple[tuple[int, int, int], ...] = ()
 
 
 def _saturating_increment(value: int) -> int:
@@ -343,6 +346,8 @@ class DynamicVoxelLayer:
                 self.active_voxel_count, self.confirmed_voxel_count,
             )
 
+        keys_before = set(self._voxels)
+
         static_mask = self._static_mask(observations, origin)
         dynamic_points = observations[~static_mask]
         dynamic_temperatures = temperatures[~static_mask]
@@ -445,6 +450,10 @@ class DynamicVoxelLayer:
                 removed += 1
         if update_keys or visible_misses or removed:
             self.dirty = True
+        keys_after = set(self._voxels)
+        created_keys = tuple(sorted(keys_after - keys_before))
+        deleted_keys = tuple(sorted(keys_before - keys_after))
+        updated_keys = tuple(sorted((observed_keys & keys_before) & keys_after))
         return DynamicUpdateResult(
             valid_observation_count=valid_count,
             static_observation_count=int(np.count_nonzero(static_mask)),
@@ -455,6 +464,9 @@ class DynamicVoxelLayer:
             removed_voxel_count=removed,
             active_voxel_count=self.active_voxel_count,
             confirmed_voxel_count=self.confirmed_voxel_count,
+            created_keys=created_keys,
+            updated_keys=updated_keys,
+            deleted_keys=deleted_keys,
         )
 
     def snapshot(
@@ -490,6 +502,37 @@ class DynamicVoxelLayer:
             np.asarray([voxel.miss_count for voxel in voxels], dtype=np.uint32),
             np.asarray([voxel.last_seen_ns for voxel in voxels], dtype=np.int64),
         )
+
+    def snapshot_keys(
+        self,
+        *,
+        confirmed_only: bool = True,
+        maximum_voxels: int | None = None,
+    ) -> np.ndarray:
+        """Return keys in exactly the same selection/order as :meth:`snapshot`."""
+        voxels = [
+            voxel for voxel in self._voxels.values()
+            if (voxel.confirmed or not confirmed_only)
+            and math.isfinite(voxel.temperature_c)
+        ]
+        voxels.sort(key=lambda voxel: voxel.key)
+        if maximum_voxels is not None and len(voxels) > maximum_voxels:
+            step = max(1, math.ceil(len(voxels) / maximum_voxels))
+            voxels = voxels[::step][:maximum_voxels]
+        return np.asarray(
+            [voxel.key for voxel in voxels], dtype=np.int32
+        ).reshape(-1, 3)
+
+    def thermal_values(
+        self,
+        keys: tuple[tuple[int, int, int], ...],
+    ) -> dict[tuple[int, int, int], tuple[float, float]]:
+        """Read current display values for a dynamic delta change set."""
+        return {
+            key: (float(voxel.temperature_c), float(voxel.confidence))
+            for key in keys
+            if (voxel := self._voxels.get(key)) is not None
+        }
 
     def save_atomic(self, path: str | Path) -> None:
         destination = Path(path).expanduser()

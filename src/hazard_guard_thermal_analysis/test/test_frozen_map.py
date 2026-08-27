@@ -183,6 +183,76 @@ def test_integration_updates_matched_voxel_and_leaves_unseen_geometry_unchanged(
     assert layer.rejected_observation_count == 1
 
 
+def test_static_dirty_indices_are_returned_and_coalesced_until_drained() -> None:
+    layer = _layer([(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)])
+    first = layer.integrate(
+        np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32),
+        np.asarray([20.0], dtype=np.float32),
+        np.asarray([1.0], dtype=np.float32),
+        observed_at_ns=10,
+        minimum_match_ratio=1.0,
+        minimum_observations=1,
+    )
+    second = layer.integrate(
+        np.asarray([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32),
+        np.asarray([25.0, 30.0], dtype=np.float32),
+        np.asarray([1.0, 0.8], dtype=np.float32),
+        observed_at_ns=20,
+        minimum_match_ratio=1.0,
+        minimum_observations=1,
+    )
+
+    assert first.updated_voxel_indices == (0,)
+    assert second.updated_voxel_indices == (0, 1)
+    assert layer.pending_dirty_indices == (0, 1)
+    assert layer.drain_dirty_indices() == (0, 1)
+    assert layer.pending_dirty_indices == ()
+    assert layer.drain_dirty_indices() == ()
+
+
+def test_rejected_static_frame_does_not_add_dirty_indices() -> None:
+    layer = _layer([(0.0, 0.0, 0.0)])
+    result = layer.integrate(
+        np.asarray([[2.0, 0.0, 0.0]], dtype=np.float32),
+        np.asarray([20.0], dtype=np.float32),
+        np.asarray([1.0], dtype=np.float32),
+        observed_at_ns=10,
+        minimum_match_ratio=1.0,
+        minimum_observations=1,
+    )
+
+    assert not result.accepted
+    assert result.updated_voxel_indices == ()
+    assert layer.pending_dirty_indices == ()
+
+
+def test_identical_static_display_values_are_not_marked_dirty_again() -> None:
+    layer = _layer([(0.0, 0.0, 0.0)])
+    kwargs = dict(
+        observed_at_ns=10,
+        minimum_match_ratio=1.0,
+        minimum_observations=1,
+    )
+    layer.integrate(
+        np.zeros((1, 3), dtype=np.float32),
+        np.asarray([20.0], dtype=np.float32),
+        np.asarray([1.0], dtype=np.float32),
+        **kwargs,
+    )
+    assert layer.drain_dirty_indices() == (0,)
+
+    repeated = layer.integrate(
+        np.zeros((1, 3), dtype=np.float32),
+        np.asarray([20.0], dtype=np.float32),
+        np.asarray([1.0], dtype=np.float32),
+        **{**kwargs, "observed_at_ns": 20},
+    )
+
+    assert repeated.updated_voxel_count == 0
+    assert repeated.updated_voxel_indices == ()
+    assert layer.pending_dirty_indices == ()
+
+
 def test_same_voxel_frame_mean_does_not_hide_raw_temperature_extrema() -> None:
     layer = _layer([(0.0, 0.0, 0.0)])
     first = layer.integrate(
