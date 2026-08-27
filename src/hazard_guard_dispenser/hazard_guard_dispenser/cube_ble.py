@@ -250,9 +250,35 @@ class CubeLink:
             try:
                 if self.connected_count() < self.expected:
                     await self._scan_and_connect()
+                await self._refresh_batteries()
             except Exception as e:
                 self._error(f"BLE 탐색 오류: {e}")
             await asyncio.sleep(self.rescan_interval)
+
+    async def _refresh_batteries(self):
+        """Re-read battery characteristics for every connected cube.
+
+        Some beacon firmware sends a notification only when the voltage
+        changes. A periodic GATT read keeps source timestamps current without
+        treating an unchanged battery as disconnected or stale.
+        """
+        with self._lock:
+            targets = [
+                (address, client)
+                for address, client in self._clients.items()
+                if client.is_connected
+            ]
+        if not targets:
+            return
+        results = await asyncio.gather(
+            *[client.read_gatt_char(BATTERY_UUID) for _, client in targets],
+            return_exceptions=True,
+        )
+        for (address, _client), result in zip(targets, results):
+            if isinstance(result, Exception):
+                self._warn(f"{address}: 배터리 재조회 실패: {result}")
+                continue
+            self._on_battery(address, result)
 
     async def _scan_and_connect(self):
         """

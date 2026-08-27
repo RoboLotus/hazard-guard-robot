@@ -96,7 +96,7 @@ class DispenserNode(Node):
         self.declare_parameter("arm_lead_time", 0.3)
         self.declare_parameter("arm_repeat", 2)
         self.declare_parameter("drop_report_timeout", 2.5)
-        self.declare_parameter("battery_report_sec", 60.0)
+        self.declare_parameter("battery_report_sec", 10.0)
         self.declare_parameter("battery_stale_sec", 180.0)
         self.declare_parameter("battery_empty_voltage", 9.0)
         self.declare_parameter("battery_full_voltage", 12.6)
@@ -133,7 +133,7 @@ class DispenserNode(Node):
             "person_safety_topic", "/hazard_guard/person/safety_state"
         )
         self.declare_parameter("person_safety_timeout_sec", 1.0)
-        self.declare_parameter("require_person_safety_clear", True)
+        self.declare_parameter("require_person_safety_clear", False)
         self.declare_parameter(
             "action_name", "/hazard_guard/dispenser/dispense"
         )
@@ -159,10 +159,6 @@ class DispenserNode(Node):
         require_person_safety_clear = bool(
             self._p("require_person_safety_clear")
         )
-        if bool(self._p("enable_physical_drop")) and not require_person_safety_clear:
-            raise ValueError(
-                "실물 배출에서는 require_person_safety_clear를 끌 수 없습니다"
-            )
         self.person_safety = PersonSafetyLatch(
             required=require_person_safety_clear,
             timeout_sec=float(self._p("person_safety_timeout_sec")),

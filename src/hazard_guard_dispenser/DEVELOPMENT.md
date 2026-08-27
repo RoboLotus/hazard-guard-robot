@@ -82,7 +82,7 @@ set +a
 
 ros2 launch hazard_guard_simulation physical_patrol.launch.py \
   map:=/absolute/path/facility.yaml \
-  use_person_safety:=true \
+  use_person_safety:=false \
   enable_thermal_pipeline:=true \
   thermal_roi_config:=/absolute/path/facility_rois.json \
   use_dispenser:=true \
@@ -90,11 +90,14 @@ ros2 launch hazard_guard_simulation physical_patrol.launch.py \
   enable_physical_drop:=false
 ```
 
-마지막 인자를 `true`로 바꾸는 것은 정지·사람 안전·BLE·전원·기구 검증을
-모두 통과한 실물 시험에서만 허용한다. 일반 사용자가 `ros2 topic pub`으로
-배출하는 흐름은 제공하지 않는다.
-RGB-depth 픽셀 정합을 실물로 확인한 경우에만
-`person_depth_registration_verified:=true`를 launch 인자에 추가한다.
+마지막 인자를 `true`로 바꾸는 것은 관리자 승인·로봇 완전 정지·BLE·전원·기구
+검증을 모두 통과한 실물 시험에서만 허용한다. 일반 사용자가
+`ros2 topic pub`으로 배출하는 흐름은 제공하지 않는다.
+
+YOLO 사람 탐지는 주행 감속용 선택 기능이며 디스펜서 배출 인터록에는 사용하지
+않는다. 전방 RGB-D 프레임의 순간적인 누락이 후면 배출을 영구 차단하는 문제를
+피하기 위한 분리다. 배출 전에는 운영자가 후면 배출구 주변을 직접 확인해야 하며,
+코드에서는 관리자 서명, 정지 유지, BLE 확인, 멱등 원장을 계속 강제한다.
 
 ## 위험 승인 상태 흐름
 
@@ -260,7 +263,7 @@ serial:
 - [x] 디스펜서 파라미터 YAML과 launch 파일 추가
 - [ ] 시작 시 무조건 home으로 움직이는 현재 동작의 안전성 검토
 - [x] 로봇 정지 확인 후에만 배출하도록 연동
-- [x] 사람 안전 상태가 최신 CLEAR일 때만 승인 배출 허용
+- [x] YOLO 사람 안전 상태를 디스펜서 인터록에서 분리
 - [ ] 비상 정지·순찰 취소·프로세스 종료 시 동작 정의
 
 ### E. 임무 및 열화상 연동
@@ -304,7 +307,7 @@ serial:
 
 ### 단계 3: 자동 임무 연동 가능
 
-- 로봇 정지, 사람 안전, 위험 등급과 중복 방지 조건이 모두 적용된다.
+- 관리자 승인, 로봇 정지, BLE 확인, 위험 등급과 중복 방지 조건이 모두 적용된다.
 - mission manager가 배출 성공·실패를 기록하고 실패 시 안전하게 임무를
   중단하거나 계속할 수 있다.
 - 실제 주행 중 동시 부하와 장애 복구 시험을 통과한다.

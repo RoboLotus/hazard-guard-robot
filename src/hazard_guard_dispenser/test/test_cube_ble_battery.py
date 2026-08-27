@@ -13,6 +13,17 @@ class _Client:
         self.address = "fake"
 
 
+class _BatteryClient(_Client):
+    def __init__(self, value, connected=True):
+        super().__init__(connected=connected)
+        self.value = value
+        self.reads = 0
+
+    async def read_gatt_char(self, _uuid):
+        self.reads += 1
+        return bytes([self.value])
+
+
 class CubeBatteryTests(unittest.TestCase):
     def test_battery_snapshot_marks_disconnect_and_stale(self):
         link = CubeLink()
@@ -47,6 +58,19 @@ class CubeBatteryTests(unittest.TestCase):
         self.assertEqual(percent, 86)
         self.assertTrue(connected)
         self.assertFalse(stale)
+
+    def test_periodic_refresh_re_reads_connected_cube_battery(self):
+        link = CubeLink()
+        address = "AA:BB:CC:DD:EE:01"
+        client = _BatteryClient(118)
+        link._clients[address] = client
+
+        asyncio.run(link._refresh_batteries())
+
+        record = link.battery_snapshot(stale_after=1.0)[0]
+        self.assertEqual(client.reads, 1)
+        self.assertEqual(record["voltage"], 11.8)
+        self.assertFalse(record["stale"])
 
     def test_structured_snapshot_preserves_identity_and_freshness(self):
         link = CubeLink()

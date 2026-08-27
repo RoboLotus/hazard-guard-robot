@@ -22,6 +22,13 @@ dispenser_node:
     enable_physical_drop: false
     home_on_startup: false
     home_on_shutdown: false
-    require_person_safety_clear: true
+    # Person detection is an optional navigation aid. It is intentionally not
+    # part of the rear dispenser interlock because intermittent RGB-D frames
+    # must not strand an operator-approved, fully stopped robot.
+    require_person_safety_clear: false
     person_safety_topic: /hazard_guard/person/safety_state
     person_safety_timeout_sec: 1.0
+    # Keep the WebUI cache fresh while retaining a longer per-cube reading
+    # validity window for BLE devices that report voltage infrequently.
+    battery_report_sec: 10.0
+    battery_stale_sec: 180.0

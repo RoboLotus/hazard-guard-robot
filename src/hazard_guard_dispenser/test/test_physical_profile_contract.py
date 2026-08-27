@@ -13,6 +13,9 @@ class PhysicalProfileContractTests(unittest.TestCase):
         self.assertIn("angle_dump: 60", profile)
         self.assertIn("servo_max_angle: 75", profile)
         self.assertIn("enable_physical_drop: false", profile)
+        self.assertIn("require_person_safety_clear: false", profile)
+        self.assertIn("battery_report_sec: 10.0", profile)
+        self.assertIn("battery_stale_sec: 180.0", profile)
 
     def test_launch_loads_packaged_physical_profile(self):
         launch = (PACKAGE_ROOT / "launch" / "dispenser.launch.py").read_text(
