@@ -52,6 +52,23 @@ FROZEN_THERMAL_POINT_FIELDS = (
     ),
 )
 
+INDEXED_FROZEN_THERMAL_POINT_DTYPE = np.dtype(
+    [
+        ("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("rgb", "<u4"),
+        ("temperature_c", "<f4"), ("confidence", "<f4"),
+        ("thermal_kind", "u1"), ("_padding", "u1", (3,)),
+        ("voxel_key_x", "<i4"), ("voxel_key_y", "<i4"),
+        ("voxel_key_z", "<i4"), ("thermal_sequence", "<f8"),
+    ]
+)
+INDEXED_FROZEN_THERMAL_POINT_FIELDS = FROZEN_THERMAL_POINT_FIELDS + (
+    PointField(name="thermal_kind", offset=24, datatype=PointField.UINT8, count=1),
+    PointField(name="voxel_key_x", offset=28, datatype=PointField.INT32, count=1),
+    PointField(name="voxel_key_y", offset=32, datatype=PointField.INT32, count=1),
+    PointField(name="voxel_key_z", offset=36, datatype=PointField.INT32, count=1),
+    PointField(name="thermal_sequence", offset=40, datatype=PointField.FLOAT64, count=1),
+)
+
 DYNAMIC_THERMAL_POINT_DTYPE = np.dtype(
     [
         ("x", "<f4"),
@@ -112,6 +129,9 @@ def create_frozen_thermal_cloud(
     *,
     color_min_c: float = 10.0,
     color_max_c: float = 60.0,
+    thermal_kinds: np.ndarray | None = None,
+    voxel_keys: np.ndarray | None = None,
+    thermal_sequence: int = 0,
 ) -> PointCloud2:
     """Create the compact cumulative fixed-surface PointCloud2 contract."""
     points = np.asarray(coordinates, dtype=np.float32)
@@ -122,7 +142,16 @@ def create_frozen_thermal_cloud(
     if temperatures.shape[0] != points.shape[0] or confidence.shape[0] != points.shape[0]:
         raise ValueError("coordinates, temperatures and confidences must match")
 
-    records = np.empty(points.shape[0], dtype=FROZEN_THERMAL_POINT_DTYPE)
+    indexed = thermal_kinds is not None or voxel_keys is not None
+    if indexed:
+        kinds = np.asarray(thermal_kinds, dtype=np.uint8).reshape(-1)
+        keys = np.asarray(voxel_keys, dtype=np.int32).reshape(-1, 3)
+        if kinds.shape[0] != points.shape[0] or keys.shape[0] != points.shape[0]:
+            raise ValueError("thermal kinds, voxel keys and points must match")
+    records = np.empty(
+        points.shape[0],
+        dtype=(INDEXED_FROZEN_THERMAL_POINT_DTYPE if indexed else FROZEN_THERMAL_POINT_DTYPE),
+    )
     records["x"] = points[:, 0]
     records["y"] = points[:, 1]
     records["z"] = points[:, 2]
@@ -133,12 +162,23 @@ def create_frozen_thermal_cloud(
     )
     records["temperature_c"] = temperatures
     records["confidence"] = np.clip(confidence, 0.0, 1.0)
+    if indexed:
+        records["thermal_kind"] = kinds
+        records["_padding"] = 0
+        records["voxel_key_x"] = keys[:, 0]
+        records["voxel_key_y"] = keys[:, 1]
+        records["voxel_key_z"] = keys[:, 2]
+        # PointField has no uint64. float64 represents all practical sequence
+        # values exactly and is converted back to an integer by the bridge.
+        records["thermal_sequence"] = float(max(0, int(thermal_sequence)))
 
     message = PointCloud2()
     message.header = header
     message.height = 1
     message.width = int(records.shape[0])
-    message.fields = list(FROZEN_THERMAL_POINT_FIELDS)
+    message.fields = list(
+        INDEXED_FROZEN_THERMAL_POINT_FIELDS if indexed else FROZEN_THERMAL_POINT_FIELDS
+    )
     message.is_bigendian = False
     message.point_step = FROZEN_THERMAL_POINT_DTYPE.itemsize
     message.row_step = int(records.nbytes)

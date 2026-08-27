@@ -110,6 +110,28 @@ def test_frozen_thermal_cloud_is_compact_and_uses_fixed_surface_fields() -> None
     assert confidence == pytest.approx(0.75)
 
 
+def test_indexed_frozen_snapshot_adds_stable_ids_without_changing_legacy_contract() -> None:
+    cloud = create_frozen_thermal_cloud(
+        Header(),
+        np.asarray([[1, 2, 3], [4, 5, 6]], dtype=np.float32),
+        np.asarray([30, 40], dtype=np.float32),
+        np.asarray([.8, .9], dtype=np.float32),
+        thermal_kinds=np.asarray([0, 1], dtype=np.uint8),
+        voxel_keys=np.asarray([[17, 0, 0], [2, -3, 4]], dtype=np.int32),
+        thermal_sequence=9,
+    )
+    assert cloud.point_step == 48
+    assert [field.name for field in cloud.fields][-5:] == [
+        "thermal_kind", "voxel_key_x", "voxel_key_y", "voxel_key_z",
+        "thermal_sequence",
+    ]
+    first = struct.unpack_from("<fffIffB3xiiid", bytes(cloud.data), 0)
+    second = struct.unpack_from("<fffIffB3xiiid", bytes(cloud.data), 48)
+    assert first[6:10] == (0, 17, 0, 0)
+    assert second[6:10] == (1, 2, -3, 4)
+    assert first[10] == second[10] == 9
+
+
 def test_dynamic_thermal_cloud_exposes_voxel_persistence_metadata() -> None:
     header = Header()
     header.frame_id = "map"
