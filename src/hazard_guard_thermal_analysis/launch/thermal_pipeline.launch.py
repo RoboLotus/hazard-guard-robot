@@ -37,6 +37,15 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("thermal_scale", default_value="0.01"),
             DeclareLaunchArgument("thermal_offset_c", default_value="-273.15"),
             DeclareLaunchArgument("fusion_stride", default_value="4"),
+            DeclareLaunchArgument(
+                "fusion_sync_tolerance_sec", default_value="0.2"
+            ),
+            DeclareLaunchArgument(
+                "fusion_receipt_freshness_sec", default_value="0.2"
+            ),
+            DeclareLaunchArgument(
+                "fusion_output_rate_hz", default_value="2.0"
+            ),
             DeclareLaunchArgument("thermal_sampling_mode", default_value="bilinear"),
             DeclareLaunchArgument("fusion_sync_by_receipt_time", default_value="false"),
             DeclareLaunchArgument("fusion_output_frame", default_value=""),
@@ -54,6 +63,18 @@ def generate_launch_description() -> LaunchDescription:
                     "thermal_scale": ParameterValue(LaunchConfiguration("thermal_scale"), value_type=float),
                     "thermal_offset_c": ParameterValue(LaunchConfiguration("thermal_offset_c"), value_type=float),
                     "stride": ParameterValue(LaunchConfiguration("fusion_stride"), value_type=int),
+                    "sync_tolerance_sec": ParameterValue(
+                        LaunchConfiguration("fusion_sync_tolerance_sec"),
+                        value_type=float,
+                    ),
+                    "receipt_freshness_sec": ParameterValue(
+                        LaunchConfiguration("fusion_receipt_freshness_sec"),
+                        value_type=float,
+                    ),
+                    "output_rate_hz": ParameterValue(
+                        LaunchConfiguration("fusion_output_rate_hz"),
+                        value_type=float,
+                    ),
                     "thermal_sampling_mode": LaunchConfiguration("thermal_sampling_mode"),
                     "sync_by_receipt_time": ParameterValue(
                         LaunchConfiguration("fusion_sync_by_receipt_time"), value_type=bool

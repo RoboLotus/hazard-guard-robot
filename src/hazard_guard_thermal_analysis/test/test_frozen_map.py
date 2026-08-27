@@ -1,4 +1,5 @@
 import math
+import os
 from pathlib import Path
 import struct
 
@@ -6,6 +7,7 @@ import numpy as np
 import pytest
 
 from hazard_guard_thermal_analysis.frozen_map import (
+    bounded_geometry_file_signature,
     FixedGeometry,
     FrozenThermalLayer,
     LocalizationStabilityGate,
@@ -16,7 +18,9 @@ from hazard_guard_thermal_analysis.frozen_map import (
     fixed_stride_indices,
     is_keyframe_pose,
     load_ply_xyz,
+    thermal_analysis_input_route,
     thermal_update_due,
+    validate_distinct_relay_topics,
 )
 
 
@@ -30,6 +34,43 @@ def _layer(points: list[tuple[float, float, float]]) -> FrozenThermalLayer:
         geometry,
         VoxelHashIndex(geometry, cell_size_m=0.08),
     )
+
+
+def test_analysis_route_tracks_runtime_geometry_availability() -> None:
+    availability = [False, True, False]
+
+    assert [
+        thermal_analysis_input_route(fixed_map_available=value)
+        for value in availability
+    ] == ["raw_fallback", "static_surface", "raw_fallback"]
+
+
+def test_relay_rejects_identical_resolved_topics() -> None:
+    with pytest.raises(ValueError, match="resolve to the same topic"):
+        validate_distinct_relay_topics(
+            input_topic="/thermal/points",
+            output_topic="/thermal/points",
+        )
+
+
+def test_geometry_retry_signature_detects_same_size_mtime_replacement(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "map.ply"
+    path.write_bytes(b"a" * 9000)
+    original_stat = path.stat()
+    original = bounded_geometry_file_signature(path)
+
+    path.write_bytes(b"b" + (b"a" * 8998) + b"c")
+    os.utime(
+        path,
+        ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+    )
+    replacement = bounded_geometry_file_signature(path)
+
+    assert replacement[2] == original[2]
+    assert replacement[3] == original[3]
+    assert replacement[-1] != original[-1]
 
 
 def test_ascii_ply_is_voxelised_and_fingerprint_is_order_independent(

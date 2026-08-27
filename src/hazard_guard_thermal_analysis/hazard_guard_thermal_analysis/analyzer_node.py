@@ -25,6 +25,10 @@ from .baseline_builder import (
 from .cloud import iter_thermal_cloud
 from .decision_metadata import effective_threshold_range
 from .projection import RigidTransform, ThermalPoint
+from .session_policy import (
+    normalize_optional_session_id,
+    validate_equipment_map_session,
+)
 from .trend import SEVERITY, evaluate_visit, load_trend_config, read_history
 from .visit import PatrolVisitAccumulator
 from .voxel import AnalysisConfig, analyze_points, apply_equipment_settings, load_config
@@ -311,28 +315,24 @@ class ThermalVoxelAnalyzer(Node):
             document = json.loads(message.data)
             if not isinstance(document, dict) or self._config is None:
                 raise ValueError("equipment configuration must be a JSON object")
-            if int(document.get("schema_version", 1)) >= 2:
+            schema_version = int(document.get("schema_version", 1))
+            equipment = document.get("equipment")
+            empty_disable = isinstance(equipment, list) and not equipment
+            required_session = str(
+                self.get_parameter("required_map_session_id").value
+            ).strip()
+            received_session = normalize_optional_session_id(
+                document.get("map_session_id")
+            )
+            validate_equipment_map_session(
+                active_session_id=required_session,
+                equipment_session_id=received_session,
+                empty_disable=empty_disable,
+                schema_version=schema_version,
+            )
+            if schema_version >= 2 and not empty_disable:
                 if str(document.get("frame_id", "")) != "map":
                     raise ValueError("map-bound equipment requires frame_id='map'")
-                required_session = str(
-                    self.get_parameter("required_map_session_id").value
-                ).strip()
-                received_session = str(
-                    document.get("map_session_id", "")
-                ).strip()
-                equipment = document.get("equipment")
-                empty_disable = isinstance(equipment, list) and not equipment
-                if not received_session and not empty_disable:
-                    raise ValueError("map-bound equipment needs map_session_id")
-                if (
-                    received_session
-                    and required_session
-                    and received_session != required_session
-                ):
-                    raise ValueError(
-                        "equipment map_session_id does not match active patrol "
-                        f"session: {received_session!r} != {required_session!r}"
-                    )
             candidate = apply_equipment_settings(self._config, document)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             self.get_logger().error(f"Rejected equipment configuration: {exc}")

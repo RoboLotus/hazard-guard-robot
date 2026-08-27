@@ -43,6 +43,50 @@ _PLY_SCALARS = {
 }
 
 
+def thermal_analysis_input_route(*, fixed_map_available: bool) -> str:
+    """Select surface-filtered analysis only while geometry is usable."""
+
+    return "static_surface" if fixed_map_available else "raw_fallback"
+
+
+def validate_distinct_relay_topics(
+    *, input_topic: str, output_topic: str
+) -> None:
+    """Reject a resolved relay loop before any ROS endpoints are created."""
+
+    if str(input_topic) == str(output_topic):
+        raise ValueError(
+            "frozen thermal relay input and static observation output "
+            f"resolve to the same topic {input_topic!r}"
+        )
+
+
+def bounded_geometry_file_signature(
+    path: Path,
+    *,
+    sample_bytes: int = 4096,
+) -> tuple[int, int, int, int, str]:
+    """Fingerprint file identity plus bounded content from its head and tail."""
+
+    sample_size = max(1, int(sample_bytes))
+    with path.open("rb") as handle:
+        stat = os.fstat(handle.fileno())
+        head = handle.read(sample_size)
+        handle.seek(max(0, int(stat.st_size) - sample_size))
+        tail = handle.read(sample_size)
+    digest = hashlib.sha256()
+    digest.update(int(stat.st_size).to_bytes(8, "little", signed=False))
+    digest.update(head)
+    digest.update(tail)
+    return (
+        int(stat.st_ino),
+        int(stat.st_ctime_ns),
+        int(stat.st_mtime_ns),
+        int(stat.st_size),
+        digest.hexdigest(),
+    )
+
+
 class PlyFormatError(ValueError):
     """Raised when a PLY cannot be loaded without guessing its layout."""
 
@@ -537,7 +581,10 @@ class FrozenThermalLayer:
         confidence = np.asarray(confidences, dtype=np.float32).reshape(-1)
         if observations.ndim != 2 or observations.shape[1] != 3:
             raise ValueError("points must have shape (N, 3)")
-        if temperatures.shape[0] != observations.shape[0] or confidence.shape[0] != observations.shape[0]:
+        if (
+            temperatures.shape[0] != observations.shape[0]
+            or confidence.shape[0] != observations.shape[0]
+        ):
             raise ValueError("points, temperatures and confidences must have equal length")
         if not 0.0 <= minimum_match_ratio <= 1.0:
             raise ValueError("minimum_match_ratio must be in [0, 1]")

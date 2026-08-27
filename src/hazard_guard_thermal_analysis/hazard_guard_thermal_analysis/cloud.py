@@ -180,7 +180,7 @@ def create_frozen_thermal_cloud(
         INDEXED_FROZEN_THERMAL_POINT_FIELDS if indexed else FROZEN_THERMAL_POINT_FIELDS
     )
     message.is_bigendian = False
-    message.point_step = FROZEN_THERMAL_POINT_DTYPE.itemsize
+    message.point_step = records.dtype.itemsize
     message.row_step = int(records.nbytes)
     message.data = records.tobytes(order="C")
     message.is_dense = True

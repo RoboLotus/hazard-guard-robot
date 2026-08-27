@@ -39,6 +39,7 @@ from .dynamic_map import (
 from .delta_protocol import PROTOCOL_VERSION
 from .delta_publisher import ThermalDeltaPublisher
 from .frozen_map import (
+    bounded_geometry_file_signature,
     FixedGeometry,
     FrozenThermalLayer,
     LocalizationStabilityGate,
@@ -46,7 +47,9 @@ from .frozen_map import (
     VoxelHashIndex,
     fixed_stride_indices,
     is_keyframe_pose,
+    thermal_analysis_input_route,
     thermal_update_due,
+    validate_distinct_relay_topics,
 )
 
 
@@ -66,8 +69,8 @@ def _iso_timestamp(nanoseconds: int) -> str:
 class FrozenThermalMapNode(Node):
     """Keep the fixed PLY immutable and maintain a separate dynamic layer."""
 
-    def __init__(self) -> None:
-        super().__init__("hazard_guard_frozen_thermal_map")
+    def __init__(self, **node_kwargs) -> None:
+        super().__init__("hazard_guard_frozen_thermal_map", **node_kwargs)
         self.declare_parameter("map_cloud_path", "")
         self.declare_parameter("thermal_state_path", "")
         self.declare_parameter("dynamic_state_path", "")
@@ -132,6 +135,17 @@ class FrozenThermalMapNode(Node):
         self.declare_parameter("alignment_search_radius_m", 0.08)
         self.declare_parameter("maximum_alignment_translation_m", 0.10)
 
+        input_topic = str(self.get_parameter("input_topic").value)
+        static_observation_output_topic = str(
+            self.get_parameter("static_observation_output_topic").value
+        )
+        validate_distinct_relay_topics(
+            input_topic=self.resolve_topic_name(input_topic),
+            output_topic=self.resolve_topic_name(
+                static_observation_output_topic
+            ),
+        )
+
         snapshot_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
@@ -150,11 +164,7 @@ class FrozenThermalMapNode(Node):
         )
         self._static_observation_publisher = self.create_publisher(
             PointCloud2,
-            str(
-                self.get_parameter(
-                    "static_observation_output_topic"
-                ).value
-            ),
+            static_observation_output_topic,
             qos_profile_sensor_data,
         )
         self._status_publisher = self.create_publisher(
@@ -193,6 +203,9 @@ class FrozenThermalMapNode(Node):
         self._persistence_allowed = True
         self._dynamic_persistence_allowed = True
         self._geometry_retryable = False
+        self._last_failed_geometry_signature: (
+            tuple[int, int, int, int, str] | None
+        ) = None
         self._pending_observation: tuple[PointCloud2, float] | None = None
         self._dropped_pending_observation_count = 0
         self._last_localization_sample_stamp_ns = 0
@@ -217,7 +230,7 @@ class FrozenThermalMapNode(Node):
 
         self.create_subscription(
             PointCloud2,
-            str(self.get_parameter("input_topic").value),
+            input_topic,
             self._on_observation,
             qos_profile_sensor_data,
         )
@@ -277,11 +290,21 @@ class FrozenThermalMapNode(Node):
             return
         if not path.is_file():
             self._geometry_retryable = True
+            self._last_failed_geometry_signature = None
             self._map_error = "map_cloud_path_not_found"
             self.get_logger().warning(
                 f"Waiting for fixed 3D map PLY: {path}",
                 throttle_duration_sec=10.0,
             )
+            return
+        try:
+            geometry_signature = bounded_geometry_file_signature(path)
+        except OSError as exc:
+            self._geometry_retryable = True
+            self._last_failed_geometry_signature = None
+            self._map_error = str(exc)
+            return
+        if geometry_signature == self._last_failed_geometry_signature:
             return
         try:
             geometry = FixedGeometry.from_ply(
@@ -390,6 +413,7 @@ class FrozenThermalMapNode(Node):
                 ),
             )
             self._geometry_retryable = False
+            self._last_failed_geometry_signature = None
             self._map_error = ""
             self.get_logger().info(
                 "Frozen thermal geometry ready: "
@@ -398,10 +422,11 @@ class FrozenThermalMapNode(Node):
                 "dynamic layer ready"
             )
         except Exception as exc:
-            # Parse errors and configured size-limit failures are permanent
-            # for this process.  Re-reading a multi-gigabyte bad map every
-            # five seconds would compete with navigation for CPU and I/O.
-            self._geometry_retryable = False
+            # Keep raw analysis live and retry only after the file changes.
+            # This permits an incomplete/invalid export to be replaced at
+            # runtime without repeatedly parsing the same large bad file.
+            self._geometry_retryable = True
+            self._last_failed_geometry_signature = geometry_signature
             self._map_error = str(exc)
             self.get_logger().error(f"Failed to load fixed 3D map: {exc}")
 
@@ -627,17 +652,43 @@ class FrozenThermalMapNode(Node):
             return
         message, received_monotonic = pending
         if self._layer is None:
-            if (
-                time.monotonic() - received_monotonic
-                >= float(
-                    self.get_parameter("observation_tf_wait_sec").value
+            expected_frame = str(self.get_parameter("map_frame").value)
+            if message.header.frame_id != expected_frame:
+                self._pending_observation = None
+                self.get_logger().warning(
+                    "Raw thermal fallback rejected: frame_id "
+                    f"{message.header.frame_id!r} != {expected_frame!r}",
+                    throttle_duration_sec=5.0,
                 )
+                self._reject_input(
+                    int(message.width) * int(message.height),
+                    "input_frame_mismatch",
+                )
+                return
+            if not self._localization_gate.ready:
+                return
+            observation_age_sec = abs(
+                self.get_clock().now().nanoseconds
+                - _stamp_nanoseconds(message.header.stamp)
+            ) / 1_000_000_000
+            if observation_age_sec > float(
+                self.get_parameter("maximum_observation_age_sec").value
             ):
                 self._pending_observation = None
                 self._reject_input(
                     int(message.width) * int(message.height),
-                    "fixed_map_unavailable",
+                    "stale_observation_timestamp",
                 )
+                return
+            # Keep analysis live when a selected PLY is absent or fails to
+            # load. The same output topic switches to surface-filtered samples
+            # automatically as soon as retryable geometry becomes available.
+            self._pending_observation = None
+            self._static_observation_publisher.publish(message)
+            self._last_observation_at_ns = _stamp_nanoseconds(
+                message.header.stamp
+            )
+            self._publish_status()
             return
         expected_frame = str(self.get_parameter("map_frame").value)
         if message.header.frame_id != expected_frame:
@@ -995,6 +1046,9 @@ class FrozenThermalMapNode(Node):
             "session_id": str(self.get_parameter("session_id").value),
             "cumulative": True,
             "fixed_map_available": layer is not None,
+            "analysis_input_route": thermal_analysis_input_route(
+                fixed_map_available=layer is not None
+            ),
             "frame_id": str(self.get_parameter("map_frame").value),
             "geometry_voxel_count": (
                 int(layer.geometry.points.shape[0]) if layer is not None else 0

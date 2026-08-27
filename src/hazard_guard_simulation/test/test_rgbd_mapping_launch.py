@@ -99,6 +99,22 @@ def test_physical_capture_reuses_field_tested_patrol_stack():
     assert '"readiness_timeout_sec": "60.0"' in patrol
 
 
+def test_physical_capture_has_safe_defaults_for_optional_path_selections():
+    source = PHYSICAL_CAPTURE.read_text(encoding="utf-8")
+
+    # A map is deliberately mandatory, but callers may omit optional DB and
+    # storage selections. Explicit WebUI paths still override these defaults.
+    assert 'DeclareLaunchArgument("map")' in source
+    assert (
+        '"rtabmap_database_path",\n'
+        '                default_value="/tmp/hazard_guard_physical_rgbd.db"'
+    ) in source
+    assert (
+        '"rtabmap_storage_path",\n'
+        '                default_value="/tmp"'
+    ) in source
+
+
 def test_physical_second_pass_reset_reaches_only_selected_rtabmap_database():
     wrapper = PHYSICAL_CAPTURE.read_text(encoding="utf-8")
     patrol = PHYSICAL_PATROL.read_text(encoding="utf-8")
