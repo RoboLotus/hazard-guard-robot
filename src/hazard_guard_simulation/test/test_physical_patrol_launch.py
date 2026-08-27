@@ -174,6 +174,18 @@ def test_physical_person_detection_uses_hp60c_rgb_and_depth_topics():
     assert '"inference_rate_hz": person_inference_rate_hz' in source
 
 
+def test_thermal_pipeline_starts_hp60c_without_enabling_yolo():
+    source = LAUNCH.read_text(encoding="utf-8")
+
+    camera_condition = source[
+        source.index("start_hp60c_camera ="):
+        source.index("return LaunchDescription")
+    ]
+    assert "enable_thermal_pipeline" in camera_condition
+    assert "enable_frozen_thermal_map" in camera_condition
+    assert "use_person_safety" in camera_condition
+
+
 def test_physical_thermal_policy_forwards_local_baseline_collection():
     source = LAUNCH.read_text(encoding="utf-8")
 

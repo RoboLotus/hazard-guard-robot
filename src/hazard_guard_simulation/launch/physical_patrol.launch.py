@@ -94,6 +94,8 @@ def generate_launch_description() -> LaunchDescription:
                 "'true' if '",
                 enable_rgbd_mapping,
                 "'.lower() == 'true' or '",
+                enable_thermal_pipeline,
+                "'.lower() == 'true' or '",
                 enable_frozen_thermal_map,
                 "'.lower() == 'true' or ('",
                 use_person_safety,
