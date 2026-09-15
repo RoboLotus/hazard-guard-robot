@@ -1,0 +1,24 @@
+mappings:
+  - ros_topic: /hazard_guard/telemetry
+    ros_type: hazard_guard_interfaces/msg/RobotTelemetry
+    mqtt_topic: telemetry
+    min_interval: 2.0
+    retain: true
+
+  - ros_topic: /hazard_guard/thermal_detections
+    ros_type: hazard_guard_interfaces/msg/HazardDetection
+    mqtt_topic: thermal
+    min_interval: 0.0
+    retain: false
+
+  - ros_topic: /hazard_guard/battery
+    ros_type: sensor_msgs/msg/BatteryState
+    mqtt_topic: battery
+    min_interval: 5.0
+    retain: true
+
+  - ros_topic: /hazard_guard/system
+    ros_type: std_msgs/msg/String
+    mqtt_topic: system
+    min_interval: 0.0
+    retain: true

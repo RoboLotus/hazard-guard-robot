@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>hazard_guard_iot</name>
+  <version>0.1.0</version>
+  <description>HazardGuard IoT bridge (ROS 2 to MQTT)</description>
+  <maintainer email="dev@robolotus.local">RoboLotus</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>rosidl_runtime_py</depend>
+  <depend>hazard_guard_interfaces</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

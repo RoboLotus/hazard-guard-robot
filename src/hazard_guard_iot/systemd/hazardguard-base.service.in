@@ -1,0 +1,16 @@
+# Installed by scripts/install_services.sh; edit the template, not the copy in /etc.
+[Unit]
+Description=HazardGuard motor board driver + battery telemetry (holds /dev/myserial)
+After=network-online.target 
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Environment=ROS_DOMAIN_ID=@ROS_DOMAIN_ID@
+ExecStart=/bin/bash -c '@SOURCE@ exec ros2 launch hazard_guard_iot base_telemetry.launch.py'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

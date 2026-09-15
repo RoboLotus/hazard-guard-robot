@@ -1,0 +1,16 @@
+# Installed by scripts/install_services.sh; edit the template, not the copy in /etc.
+[Unit]
+Description=HazardGuard MQTT to HTTP status server for the SmartThings driver
+After=network-online.target mosquitto.service hazardguard-iot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Environment=ROS_DOMAIN_ID=@ROS_DOMAIN_ID@
+ExecStart=/bin/bash -c '@SOURCE@ exec ros2 run hazard_guard_iot status_server'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
