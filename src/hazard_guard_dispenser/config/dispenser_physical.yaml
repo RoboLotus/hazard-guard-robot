@@ -13,7 +13,12 @@ dispenser_node:
     angle_dump: 150
     servo_min_angle: 90
     servo_max_angle: 165
-    step_deg: 3
+    # 모터 드라이버와 /dev/myserial 을 공유해 패킷이 섞인다. 실측(2026-10-09):
+    # 복귀 명령이 로그상 완료됐는데 챔버가 중간에 멈췄고, 포트를 독점하니
+    # 같은 명령이 정상 동작했다. 스텝을 키워 패킷 수를 줄이고, 이동이 끝난 뒤
+    # 목표 각도를 두 번 더 보내 유실을 메운다.
+    servo_confirm_writes: 2
+    step_deg: 5
     step_delay: 0.03
     dump_hold: 1.0
     home_hold: 0.5

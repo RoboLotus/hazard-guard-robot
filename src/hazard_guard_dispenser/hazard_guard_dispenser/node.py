@@ -101,6 +101,9 @@ class DispenserNode(Node):
         # BleakScanner 기본 5초로는 큐브 광고를 놓친다. 실측(2026-10-09):
         # 5초 스캔은 0대, 같은 조건에서 15초 스캔은 광고 중이던 2대를 모두
         # 찾았다. 광고 주기가 스캔 창보다 길어서 생기는 문제다.
+        # 시리얼을 모터 드라이버와 공유해 마지막 스텝이 유실될 수 있다.
+        # 이동이 끝난 뒤 목표 각도를 이만큼 더 보낸다. 0 이면 재전송 없음.
+        self.declare_parameter("servo_confirm_writes", 2)
         self.declare_parameter("ble_scan_seconds", 5.0)
         self.declare_parameter("ble_partial_rescan_sec", 300.0)
         # 운영자가 웹UI 에서 누르는 일회성 탐색의 길이.
@@ -154,6 +157,7 @@ class DispenserNode(Node):
         self.declare_parameter("action_result_timeout_sec", 30.0)
 
         self.servo_id = self._p("servo_id")
+        self.servo_confirm_writes = max(0, int(self._p("servo_confirm_writes")))
         self.servo_profile = ServoProfile(
             home_angle=int(self._p("angle_home")),
             dump_angle=int(self._p("angle_dump")),
@@ -1007,6 +1011,9 @@ class DispenserNode(Node):
 
         if not smooth:
             self.bot.set_pwm_servo(self.servo_id, target)
+            for _ in range(self.servo_confirm_writes):
+                time.sleep(self.servo_profile.step_delay_sec)
+                self.bot.set_pwm_servo(self.servo_id, target)
             self.current_angle = target
             return
 
@@ -1029,6 +1036,15 @@ class DispenserNode(Node):
             angle += move * direction
             self.bot.set_pwm_servo(self.servo_id, angle)
             time.sleep(delay)
+
+        # /dev/myserial 을 모터 드라이버와 함께 쓰기 때문에 패킷이 섞여 마지막
+        # 스텝이 유실되면 챔버가 중간에 멈춘다. 서보에는 위치 피드백이 없어
+        # 노드는 그 사실을 알 수 없다. 같은 각도를 한 번 더 보낸다. 이미 도착한
+        # 서보는 움직이지 않으므로 부작용이 없다.
+        # DEVELOPMENT.md "알려진 문제 1 - /dev/myserial 다중 소유" 참고.
+        for _ in range(self.servo_confirm_writes):
+            time.sleep(delay)
+            self.bot.set_pwm_servo(self.servo_id, target)
 
         self.current_angle = target
 
