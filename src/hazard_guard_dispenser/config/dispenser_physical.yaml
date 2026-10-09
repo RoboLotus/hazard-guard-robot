@@ -1,10 +1,18 @@
 dispenser_node:
   ros__parameters:
     servo_id: 1
-    angle_home: 0
-    angle_dump: 60
-    servo_min_angle: 0
-    servo_max_angle: 75
+    # 보드는 전원이 들어오면 명령 없이도 채널 1 에 90 을 출력한다. 노드는 그보다
+    # 한참 뒤에 뜨므로 그 구간을 막을 방법이 없다. 그래서 서보 혼을 90 이 챔버
+    # 닫힘이 되도록 맞춰 끼웠다. 전원을 켜면 챔버가 닫힌 채로 시작하고, 노드가
+    # 가정하는 위치와 실물이 처음부터 일치한다.
+    #
+    # 실측(2026-10-09): 90 에서 숫자를 올리면 열린다. 150 이 큐브가 미끄러지는
+    # 기울기이고, 165 까지 기구 여유가 있다. 90 아래는 챔버를 닫힘 너머로
+    # 밀어붙이는 방향이라 하한으로 막는다.
+    angle_home: 90
+    angle_dump: 150
+    servo_min_angle: 90
+    servo_max_angle: 165
     step_deg: 3
     step_delay: 0.03
     dump_hold: 1.0
