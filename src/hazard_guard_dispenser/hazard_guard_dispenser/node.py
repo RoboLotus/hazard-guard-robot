@@ -98,7 +98,13 @@ class DispenserNode(Node):
         self.declare_parameter("drop_report_timeout", 2.5)
         self.declare_parameter("battery_report_sec", 10.0)
         self.declare_parameter("battery_stale_sec", 180.0)
+        # BleakScanner 기본 5초로는 큐브 광고를 놓친다. 실측(2026-10-09):
+        # 5초 스캔은 0대, 같은 조건에서 15초 스캔은 광고 중이던 2대를 모두
+        # 찾았다. 광고 주기가 스캔 창보다 길어서 생기는 문제다.
+        self.declare_parameter("ble_scan_seconds", 5.0)
         self.declare_parameter("ble_partial_rescan_sec", 300.0)
+        # 운영자가 웹UI 에서 누르는 일회성 탐색의 길이.
+        self.declare_parameter("ble_manual_scan_seconds", 30.0)
         self.declare_parameter("ble_battery_refresh_sec", 30.0)
         self.declare_parameter("ble_connection_stable_sec", 3.0)
         self.declare_parameter("battery_empty_voltage", 9.0)
@@ -180,6 +186,7 @@ class DispenserNode(Node):
             )
         battery_report_sec = float(self._p("battery_report_sec"))
         battery_stale_sec = float(self._p("battery_stale_sec"))
+        ble_scan_seconds = float(self._p("ble_scan_seconds"))
         ble_partial_rescan_sec = float(self._p("ble_partial_rescan_sec"))
         ble_battery_refresh_sec = float(self._p("ble_battery_refresh_sec"))
         ble_connection_stable_sec = float(
@@ -191,9 +198,11 @@ class DispenserNode(Node):
             raise ValueError("battery_stale_sec는 0보다 커야 합니다")
         if (
             not math.isfinite(ble_partial_rescan_sec)
-            or ble_partial_rescan_sec < 15.0
+            # 0 은 "자동 부분 탐색 없음" 을 뜻한다. 한 대라도 붙어 있으면
+            # 운영자가 요청할 때만 찾는다.
+            or (ble_partial_rescan_sec != 0.0 and ble_partial_rescan_sec < 15.0)
         ):
-            raise ValueError("ble_partial_rescan_sec는 15초 이상이어야 합니다")
+            raise ValueError("ble_partial_rescan_sec는 0(자동 탐색 없음) 또는 15초 이상이어야 합니다")
         if (
             not math.isfinite(ble_battery_refresh_sec)
             or ble_battery_refresh_sec <= 0
@@ -246,6 +255,7 @@ class DispenserNode(Node):
             else:
                 self.cube_link = CubeLink(
                     expected_cubes=self._p("expected_cubes"),
+                    scan_seconds=ble_scan_seconds,
                     partial_rescan_interval=ble_partial_rescan_sec,
                     battery_refresh_interval=ble_battery_refresh_sec,
                     logger=self.get_logger(),
@@ -489,6 +499,13 @@ class DispenserNode(Node):
                 return
             self._go_to(self._p("angle_home"))
             self.get_logger().info("챔버 대기 위치로 복귀")
+        elif cmd == "rescan":
+            if not self.cube_link:
+                self.get_logger().warn("BLE 연결 관리자가 없어 탐색할 수 없습니다")
+                return
+            seconds = float(self._p("ble_manual_scan_seconds"))
+            self.cube_link.request_scan(seconds)
+            self.get_logger().info(f"큐브 탐색을 요청했습니다 ({seconds:.0f}초)")
         elif cmd == "status":
             self._publish_status()
         elif cmd == "battery":

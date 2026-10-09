@@ -40,10 +40,15 @@ dispenser_node:
     # validity window for BLE devices that report voltage infrequently.
     battery_report_sec: 10.0
     battery_stale_sec: 180.0
-    # One connected cube is operationally sufficient. Repeated discovery for
-    # the missing slots can destabilize the active BlueZ connection, so only
-    # retry a partial inventory at a low rate and require a short stable hold
-    # before it becomes eligible for physical discharge.
-    ble_partial_rescan_sec: 300.0
+    # 한 대라도 붙어 있으면 자동 부분 탐색을 하지 않는다(0). 스캔이 살아 있는
+    # BlueZ 연결을 흔드는 문제를 피하면서, 나중에 켠 큐브는 웹UI 의 새로고침
+    # 버튼으로 그때그때 찾는다. 전부 끊긴 경우에는 예전처럼 계속 탐색한다.
+    # 짧은 안정 유지 시간을 둔 뒤에야 물리 배출 대상이 되는 정책은 그대로다.
+    # 기본 5초로는 큐브 광고를 놓친다. 실측(2026-10-09): 큐브 3대를 켠 상태에서
+    # 5초 스캔은 주변 40대 중 0대, 같은 조건의 15초 스캔은 광고 중이던 2대를
+    # 모두 찾았다. 나머지 1대는 이미 연결돼 광고를 멈춘 상태였다.
+    ble_scan_seconds: 15.0
+    ble_partial_rescan_sec: 0.0
+    ble_manual_scan_seconds: 30.0
     ble_battery_refresh_sec: 30.0
     ble_connection_stable_sec: 3.0
