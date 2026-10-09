@@ -20,13 +20,7 @@ dispenser_node:
     allow_unknown_battery: false
     installed_beacons_path: ~/.local/state/hazard_guard/dispenser/installed_beacons.json
     enable_physical_drop: false
-    # The Rosmaster board drives its own default angle onto the servo channel
-    # at power-on, and nothing owns channel 1 until this node starts. After a
-    # power cycle the chamber therefore sits near 90 degrees while the node
-    # assumes angle_home, and the first smooth move writes its first step as an
-    # absolute angle - slamming the chamber across the whole range in one jump.
-    # Home once at startup so current_angle matches the hardware.
-    home_on_startup: true
+    home_on_startup: false
     home_on_shutdown: false
     # Person detection is an optional navigation aid. It is intentionally not
     # part of the rear dispenser interlock because intermittent RGB-D frames

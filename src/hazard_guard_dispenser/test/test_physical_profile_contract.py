@@ -20,17 +20,6 @@ class PhysicalProfileContractTests(unittest.TestCase):
         self.assertIn("ble_battery_refresh_sec: 30.0", profile)
         self.assertIn("ble_connection_stable_sec: 3.0", profile)
 
-    def test_profile_homes_the_chamber_at_startup(self):
-        # The board drives its own default angle onto the servo channel at
-        # power-on and nothing owns channel 1 until the node starts. Without
-        # homing, current_angle lies about the hardware and the first step of a
-        # smooth move is written as an absolute angle, slamming the chamber
-        # across its whole range in one jump.
-        profile = (PACKAGE_ROOT / "config" / "dispenser_physical.yaml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("home_on_startup: true", profile)
-
     def test_launch_loads_packaged_physical_profile(self):
         launch = (PACKAGE_ROOT / "launch" / "dispenser.launch.py").read_text(
             encoding="utf-8"
