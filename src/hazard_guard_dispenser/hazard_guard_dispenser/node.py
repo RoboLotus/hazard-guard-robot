@@ -122,6 +122,11 @@ class DispenserNode(Node):
                 "~/.local/state/hazard_guard/dispenser/requests.sqlite3",
             ),
         )
+        # A dropped cube reports DROPPED over BLE, which is what proves the
+        # cube actually left the chamber. Requiring it is the right default.
+        # An exhibition demo that shows the dispenser alone, with no cube in
+        # the magazine, turns it off and accepts an unverified drop.
+        self.declare_parameter("require_cube_confirmation", True)
         self.declare_parameter("allow_legacy_unkeyed_commands", False)
         self.declare_parameter("allow_maintenance_manual_commands", False)
         self.declare_parameter("enable_physical_drop", False)
@@ -798,7 +803,11 @@ class DispenserNode(Node):
                     allowed_addresses=self._eligible_cube_addresses(),
                 )
             block_reason = self._physical_safety_block_reason()
-            if block_reason is None and armed < 1:
+            if (
+                block_reason is None
+                and armed < 1
+                and bool(self._p("require_cube_confirmation"))
+            ):
                 block_reason = "no_ble_confirmation_channel"
             if block_reason is not None:
                 state = (
@@ -842,7 +851,14 @@ class DispenserNode(Node):
                 if self.cube_link:
                     self.cube_link.cancel_all()
                 return
-            if self.cube_link and not self.cube_link.begin_actuation():
+            # Claiming the armed generation only means something when a cube
+            # was actually armed. With confirmation not required there is no
+            # generation to claim, and demanding one would block every drop.
+            if (
+                self.cube_link
+                and armed > 0
+                and not self.cube_link.begin_actuation()
+            ):
                 self.get_logger().error(
                     "ARM 이후 저전압 보고가 발생해 물리 배출을 중단합니다"
                 )
