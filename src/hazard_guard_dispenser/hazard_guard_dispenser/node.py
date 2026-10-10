@@ -98,7 +98,16 @@ class DispenserNode(Node):
         self.declare_parameter("drop_report_timeout", 2.5)
         self.declare_parameter("battery_report_sec", 10.0)
         self.declare_parameter("battery_stale_sec", 180.0)
+        # BleakScanner 기본 5초로는 큐브 광고를 놓친다. 실측(2026-10-09):
+        # 5초 스캔은 0대, 같은 조건에서 15초 스캔은 광고 중이던 2대를 모두
+        # 찾았다. 광고 주기가 스캔 창보다 길어서 생기는 문제다.
+        # 시리얼을 모터 드라이버와 공유해 마지막 스텝이 유실될 수 있다.
+        # 이동이 끝난 뒤 목표 각도를 이만큼 더 보낸다. 0 이면 재전송 없음.
+        self.declare_parameter("servo_confirm_writes", 2)
+        self.declare_parameter("ble_scan_seconds", 5.0)
         self.declare_parameter("ble_partial_rescan_sec", 300.0)
+        # 운영자가 웹UI 에서 누르는 일회성 탐색의 길이.
+        self.declare_parameter("ble_manual_scan_seconds", 30.0)
         self.declare_parameter("ble_battery_refresh_sec", 30.0)
         self.declare_parameter("ble_connection_stable_sec", 3.0)
         self.declare_parameter("battery_empty_voltage", 9.0)
@@ -122,6 +131,11 @@ class DispenserNode(Node):
                 "~/.local/state/hazard_guard/dispenser/requests.sqlite3",
             ),
         )
+        # A dropped cube reports DROPPED over BLE, which is what proves the
+        # cube actually left the chamber. Requiring it is the right default.
+        # An exhibition demo that shows the dispenser alone, with no cube in
+        # the magazine, turns it off and accepts an unverified drop.
+        self.declare_parameter("require_cube_confirmation", True)
         self.declare_parameter("allow_legacy_unkeyed_commands", False)
         self.declare_parameter("allow_maintenance_manual_commands", False)
         self.declare_parameter("enable_physical_drop", False)
@@ -143,6 +157,7 @@ class DispenserNode(Node):
         self.declare_parameter("action_result_timeout_sec", 30.0)
 
         self.servo_id = self._p("servo_id")
+        self.servo_confirm_writes = max(0, int(self._p("servo_confirm_writes")))
         self.servo_profile = ServoProfile(
             home_angle=int(self._p("angle_home")),
             dump_angle=int(self._p("angle_dump")),
@@ -175,6 +190,7 @@ class DispenserNode(Node):
             )
         battery_report_sec = float(self._p("battery_report_sec"))
         battery_stale_sec = float(self._p("battery_stale_sec"))
+        ble_scan_seconds = float(self._p("ble_scan_seconds"))
         ble_partial_rescan_sec = float(self._p("ble_partial_rescan_sec"))
         ble_battery_refresh_sec = float(self._p("ble_battery_refresh_sec"))
         ble_connection_stable_sec = float(
@@ -186,9 +202,11 @@ class DispenserNode(Node):
             raise ValueError("battery_stale_sec는 0보다 커야 합니다")
         if (
             not math.isfinite(ble_partial_rescan_sec)
-            or ble_partial_rescan_sec < 15.0
+            # 0 은 "자동 부분 탐색 없음" 을 뜻한다. 한 대라도 붙어 있으면
+            # 운영자가 요청할 때만 찾는다.
+            or (ble_partial_rescan_sec != 0.0 and ble_partial_rescan_sec < 15.0)
         ):
-            raise ValueError("ble_partial_rescan_sec는 15초 이상이어야 합니다")
+            raise ValueError("ble_partial_rescan_sec는 0(자동 탐색 없음) 또는 15초 이상이어야 합니다")
         if (
             not math.isfinite(ble_battery_refresh_sec)
             or ble_battery_refresh_sec <= 0
@@ -241,6 +259,7 @@ class DispenserNode(Node):
             else:
                 self.cube_link = CubeLink(
                     expected_cubes=self._p("expected_cubes"),
+                    scan_seconds=ble_scan_seconds,
                     partial_rescan_interval=ble_partial_rescan_sec,
                     battery_refresh_interval=ble_battery_refresh_sec,
                     logger=self.get_logger(),
@@ -484,6 +503,13 @@ class DispenserNode(Node):
                 return
             self._go_to(self._p("angle_home"))
             self.get_logger().info("챔버 대기 위치로 복귀")
+        elif cmd == "rescan":
+            if not self.cube_link:
+                self.get_logger().warn("BLE 연결 관리자가 없어 탐색할 수 없습니다")
+                return
+            seconds = float(self._p("ble_manual_scan_seconds"))
+            self.cube_link.request_scan(seconds)
+            self.get_logger().info(f"큐브 탐색을 요청했습니다 ({seconds:.0f}초)")
         elif cmd == "status":
             self._publish_status()
         elif cmd == "battery":
@@ -798,7 +824,11 @@ class DispenserNode(Node):
                     allowed_addresses=self._eligible_cube_addresses(),
                 )
             block_reason = self._physical_safety_block_reason()
-            if block_reason is None and armed < 1:
+            if (
+                block_reason is None
+                and armed < 1
+                and bool(self._p("require_cube_confirmation"))
+            ):
                 block_reason = "no_ble_confirmation_channel"
             if block_reason is not None:
                 state = (
@@ -842,7 +872,14 @@ class DispenserNode(Node):
                 if self.cube_link:
                     self.cube_link.cancel_all()
                 return
-            if self.cube_link and not self.cube_link.begin_actuation():
+            # Claiming the armed generation only means something when a cube
+            # was actually armed. With confirmation not required there is no
+            # generation to claim, and demanding one would block every drop.
+            if (
+                self.cube_link
+                and armed > 0
+                and not self.cube_link.begin_actuation()
+            ):
                 self.get_logger().error(
                     "ARM 이후 저전압 보고가 발생해 물리 배출을 중단합니다"
                 )
@@ -974,6 +1011,9 @@ class DispenserNode(Node):
 
         if not smooth:
             self.bot.set_pwm_servo(self.servo_id, target)
+            for _ in range(self.servo_confirm_writes):
+                time.sleep(self.servo_profile.step_delay_sec)
+                self.bot.set_pwm_servo(self.servo_id, target)
             self.current_angle = target
             return
 
@@ -996,6 +1036,15 @@ class DispenserNode(Node):
             angle += move * direction
             self.bot.set_pwm_servo(self.servo_id, angle)
             time.sleep(delay)
+
+        # /dev/myserial 을 모터 드라이버와 함께 쓰기 때문에 패킷이 섞여 마지막
+        # 스텝이 유실되면 챔버가 중간에 멈춘다. 서보에는 위치 피드백이 없어
+        # 노드는 그 사실을 알 수 없다. 같은 각도를 한 번 더 보낸다. 이미 도착한
+        # 서보는 움직이지 않으므로 부작용이 없다.
+        # DEVELOPMENT.md "알려진 문제 1 - /dev/myserial 다중 소유" 참고.
+        for _ in range(self.servo_confirm_writes):
+            time.sleep(delay)
+            self.bot.set_pwm_servo(self.servo_id, target)
 
         self.current_angle = target
 
