@@ -6,6 +6,7 @@ safety gate. This wrapper mirrors the vendor M1 bringup but applies the
 configurable command topic only to ``Mcnamu_driver_M1``.
 """
 
+import subprocess
 from pathlib import Path
 
 from ament_index_python.packages import (
@@ -13,8 +14,14 @@ from ament_index_python.packages import (
     get_package_share_path,
 )
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    RegisterEventHandler,
+)
 from launch.conditions import IfCondition, UnlessCondition
+from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
@@ -40,6 +47,58 @@ def generate_launch_description() -> LaunchDescription:
     robot_description = ParameterValue(
         Command(["xacro ", model]),
         value_type=str,
+    )
+
+    # hazardguard-base.service (hazard_guard_iot) keeps Mcnamu_driver_M1 and
+    # battery_telemetry running while the robot is idle so the SmartThings app
+    # shows battery. /dev/myserial can only be opened by one process, so stop
+    # that service before starting our own driver and bring it back when this
+    # launch shuts down. /etc/sudoers.d/hazardguard (installed with the
+    # service) allows exactly these two commands without a password. If the
+    # service is not installed, ``sudo -n`` fails fast and the driver still
+    # starts, so the launch behaves as before.
+    release_serial_service = ExecuteProcess(
+        cmd=["sudo", "-n", "systemctl", "stop", "hazardguard-base.service"],
+        name="release_serial_service",
+        output="log",
+    )
+
+    def restore_serial_service(event, context):
+        # Runs synchronously: launch does not start new processes while it
+        # is shutting down, so an ExecuteProcess here would never run.
+        subprocess.run(
+            ["sudo", "-n", "systemctl", "start", "hazardguard-base.service"],
+            check=False,
+        )
+
+    # This is the only node whose input is redirected to the final
+    # safety-gated topic. Joystick and Nav2 keep publishing /cmd_vel.
+    motor_driver = Node(
+        package="yahboomcar_bringup",
+        executable="Mcnamu_driver_M1",
+        name="driver_node",
+        remappings=[("cmd_vel", motor_cmd_vel_topic)],
+    )
+    battery_telemetry = Node(
+        package="hazard_guard_robot_telemetry",
+        executable="battery_telemetry",
+        name="hazard_guard_battery_telemetry",
+        output="screen",
+        parameters=[
+            {
+                "input_topic": battery_voltage_topic,
+                "output_topic": battery_state_topic,
+                "window_size": ParameterValue(
+                    battery_window_size, value_type=int
+                ),
+                "empty_voltage_v": ParameterValue(
+                    battery_empty_voltage_v, value_type=float
+                ),
+                "full_voltage_v": ParameterValue(
+                    battery_full_voltage_v, value_type=float
+                ),
+            }
+        ],
     )
 
     return LaunchDescription(
@@ -82,34 +141,15 @@ def generate_launch_description() -> LaunchDescription:
                 executable="robot_state_publisher",
                 parameters=[{"robot_description": robot_description}],
             ),
-            # This is the only node whose input is redirected to the final
-            # safety-gated topic. Joystick and Nav2 keep publishing /cmd_vel.
-            Node(
-                package="yahboomcar_bringup",
-                executable="Mcnamu_driver_M1",
-                name="driver_node",
-                remappings=[("cmd_vel", motor_cmd_vel_topic)],
+            release_serial_service,
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=release_serial_service,
+                    on_exit=[motor_driver, battery_telemetry],
+                )
             ),
-            Node(
-                package="hazard_guard_robot_telemetry",
-                executable="battery_telemetry",
-                name="hazard_guard_battery_telemetry",
-                output="screen",
-                parameters=[
-                    {
-                        "input_topic": battery_voltage_topic,
-                        "output_topic": battery_state_topic,
-                        "window_size": ParameterValue(
-                            battery_window_size, value_type=int
-                        ),
-                        "empty_voltage_v": ParameterValue(
-                            battery_empty_voltage_v, value_type=float
-                        ),
-                        "full_voltage_v": ParameterValue(
-                            battery_full_voltage_v, value_type=float
-                        ),
-                    }
-                ],
+            RegisterEventHandler(
+                OnShutdown(on_shutdown=restore_serial_service)
             ),
             Node(
                 package="yahboomcar_base_node",

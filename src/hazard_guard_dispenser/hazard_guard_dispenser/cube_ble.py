@@ -54,9 +54,14 @@ class CubeLink:
                  installed_state_path=None):
         self.expected = expected_cubes
         self.scan_seconds = scan_seconds
+        # 운영자가 웹UI 에서 요청한 일회성 탐색. 초 단위이며, 처리되면 None 으로 돌아간다.
+        self._manual_scan_seconds = None
         self.rescan_interval = rescan_interval
-        self.partial_rescan_interval = max(
-            float(partial_rescan_interval), float(rescan_interval)
+        # 0 은 "자동 부분 탐색 없음" 을 뜻하므로 그대로 둔다. 그 외에는 전체
+        # 탐색 주기보다 짧아지지 않게 올린다.
+        requested_partial = float(partial_rescan_interval)
+        self.partial_rescan_interval = 0.0 if requested_partial <= 0 else max(
+            requested_partial, float(rescan_interval)
         )
         self.battery_refresh_interval = max(
             float(battery_refresh_interval), 1.0
@@ -123,6 +128,22 @@ class CubeLink:
         except OSError:
             self._installed_persistence_ok = False
             raise
+
+    def request_scan(self, seconds):
+        """Queue one operator-requested discovery pass.
+
+        The periodic partial rescan can be switched off entirely, in which case
+        this is the only way to pick up a cube that was powered on later. The
+        actuation guard in ``_scan_due`` still applies, so a queued request waits
+        rather than scanning in the middle of an approved drop.
+        """
+        with self._lock:
+            self._manual_scan_seconds = max(1.0, float(seconds))
+        return True
+
+    def manual_scan_pending(self):
+        with self._lock:
+            return self._manual_scan_seconds is not None
 
     def reset_installed(self, address=None):
         """Maintenance-only reset after a physical beacon is reloaded."""
@@ -286,11 +307,18 @@ class CubeLink:
             arm_state = self._arm_state
         if arm_state in {"arming", "armed", "actuating"}:
             return False
-        interval = (
-            self.rescan_interval
-            if connected == 0
-            else self.partial_rescan_interval
-        )
+        with self._lock:
+            manual = self._manual_scan_seconds is not None
+        if manual:
+            return True
+        if connected == 0:
+            interval = self.rescan_interval
+        elif self.partial_rescan_interval <= 0:
+            # 자동 부분 탐색을 끈 운용. 이미 한 대라도 붙어 있으면 운영자가
+            # 요청할 때만 찾는다. 스캔이 살아 있는 연결을 흔드는 문제를 피한다.
+            return False
+        else:
+            interval = self.partial_rescan_interval
         return (
             connected < self.expected
             and current - self._last_scan_monotonic >= interval
@@ -339,11 +367,19 @@ class CubeLink:
         광고를 걸러버리는 경우가 있어 쓰지 않는다.
         필터 없이 전부 받아온 뒤 파이썬에서 직접 UUID를 대조한다.
         """
-        self._info(f"큐브 탐색 중... ({self.connected_count()}/{self.expected})")
+        # 운영자 요청이 있으면 그 길이로 한 번만 돌고 요청을 비운다.
+        with self._lock:
+            requested = self._manual_scan_seconds
+            self._manual_scan_seconds = None
+        seconds = requested if requested is not None else self.scan_seconds
+        kind = "요청" if requested is not None else "자동"
+        self._info(
+            f"큐브 탐색 중({kind} {seconds:.0f}초)... "
+            f"({self.connected_count()}/{self.expected})")
 
         try:
             found = await BleakScanner.discover(
-                timeout=self.scan_seconds, return_adv=True)
+                timeout=seconds, return_adv=True)
         except Exception as e:
             self._error(f"스캔 실패: {e}")
             return
